@@ -3,6 +3,7 @@
 import { CAM } from './camera.js';
 import { ITEMS, HARVEST, GRASS_DROPS, TOOL_COST, CROPS, hitsFor, hungerOf, thirstOf, pctOf, itemNoun } from './items.js';
 import { seedOf } from './cropdata.js';
+import { foodDef } from './catch.js';
 import { itemIconUrl } from './art/items.js';
 import { HUNGER_MAX, HP_MAX } from './combat.js';
 import { THIRST_MAX } from './needs.js';
@@ -472,7 +473,7 @@ export class Gathering {
   // Eat or drink what is in a slot. Refused (with why) when it would do nothing: not hurt, not hungry, no effect, and
   // not thirsty or it does not quench. What it gave floats up in its bar's colour ("hunger +25 %", "thirst +30 %")
   eat(slot) {
-    const g = this.game, it = g.inv.slots[slot], def = it && ITEMS[it.id];
+    const g = this.game, it = g.inv.slots[slot], def = it && foodDef(it);   // (fish: what that one feeds)
     if (!def?.food && !def?.heal && !def?.buff) return;
     const quench = thirstOf(def), N = g.needs;
     const hurt = g.combat && g.combat.hp < HP_MAX, hungry = g.combat && g.combat.hunger < HUNGER_MAX, thirsty = !!N && quench > 0 && N.thirst < THIRST_MAX;

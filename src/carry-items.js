@@ -1,9 +1,10 @@
 // What things weigh, and the big things that are carried in the arms (the weight inventory, the default: see carry.js
-// and docs/planes/gta/PLAN-C-peso.md). Only data: it imports items.js and i18n.js and nothing else (inventory.js imports
+// and docs/planes/gta/PLAN-C-peso.md). Only data: it imports items.js, catch.js (data too) and i18n.js and nothing else (inventory.js imports
 // this file, and carry.js extends Inventory: importing either here would be a cycle).
 // The new ids are always in ITEMS, with either inventory, so every game of this version knows them (a log left by a
 // player with the weight inventory is seen and picked up by one with ?inventario=casillas, as its parts). Hidden from the creative list
-import { ITEMS, FISH } from './items.js';
+import { ITEMS } from './items.js';
+import { tracked, typicalG, unitG } from './catch.js';
 import { defineNames } from './i18n.js';
 
 // Capacity (kg): hands, pockets and belt; the backpack adds BAG_CAP. The load (kg / capacity) never refuses anything:
@@ -28,7 +29,7 @@ export const WEIGHT = {
   // the gem rule's 0.02)
   canteen: 0.3, water_jug: 1, apple_juice: 0.4, seashell: 0.02, pearl: 0.01, seaweed: 0.1, mussel: 0.05,
   // (tackle and bait, Plan R1-2)
-  worm: 0.005, cut_bait: 0.05, spoon: 0.02, jig: 0.02, landing_net: 0.8,
+  worm: 0.005, cut_bait: 0.05, spoon: 0.02, jig: 0.02, landing_net: 0.8, salt: 0.3, fillet: 0.3, salted_fish: 0.4, rotten_fish: 0.5,
   // (Plan E §3.1: the coats and the heavier new garments; the rest are clothes, 0.4)
   wool_coat: 1.5, sheepskin_jacket: 2, lined_boots: 1.2, leather_apron: 0.8,
 };
@@ -36,8 +37,6 @@ export const WEIGHT = {
 export const SIP_KG = 0.25;
 // Armour by piece and metal (copper, iron, gold): the gold is heavier
 const ARMOR_KG = { casco: [1.5, 2, 3], peto: [6, 8, 9], grebas: [3, 4, 5], botas: [1.5, 2, 2.5] }, METALS = ['cobre', 'hierro', 'oro'];
-// Fish by their size (items.js FISH)
-const FISH_KG = { 3: 0.2, 4: 0.5, 5: 1, 6: 2.5, 7: 5 };
 // Rugs by their size
 const RUG_KG = { '1x1': 1.5, '1x2': 2.5, '2x2': 4, '2x3': 6, '3x4': 12 };
 
@@ -68,7 +67,7 @@ export function weightOf(id) {
   if (!d) return 0.2;
   if (BULKY[id]) return BULKY[id].kg;
   if (d.armor) return ARMOR_KG[d.piece]?.[METALS.indexOf(d.metal)] ?? 3;
-  if (d.fish) { const f = FISH[id]; return FISH_KG[f?.size] ?? 1; }
+  if (d.fish) return typicalG(id) / 1000;   // (one that says nothing of itself: catch.js)
   if (d.rug) return RUG_KG[(d.size || [1, 1]).join('x')] ?? 2;
   if (d.wear) return 0.4;
   if (d.seed || d.sapling || d.bug) return 0.01;
@@ -83,9 +82,9 @@ export function weightOf(id) {
   return 0.2;
 }
 
-// kg of a whole stack ({ id, n, sips? }): what it weighs plus the water it holds. Everything that weighs a stack goes
+// kg of a whole stack ({ id, n, sips?, g? }): what it weighs (fish: its own grams, catch.js) plus the water it holds. Everything that weighs a stack goes
 // through here (the load, the list's rows and their order, the tooltip), so they always agree
-export const stackKg = s => (s ? weightOf(s.id) * (s.n || 1) + (s.sips > 0 ? s.sips * SIP_KG : 0) : 0);
+export const stackKg = s => (s ? (s.g > 0 && tracked(s.id) ? unitG(s) / 1000 : weightOf(s.id)) * (s.n || 1) + (s.sips > 0 ? s.sips * SIP_KG : 0) : 0);
 
 // The new ids, in ITEMS (their names and descriptions come from the language files: item.<id>, item.<id>.desc)
 const NEW = {};

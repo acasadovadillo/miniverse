@@ -11,6 +11,7 @@
 // Only game.js imports this file (and the tests): inventory.js imports carry-items.js, never this one (a cycle with
 // `extends Inventory` would stop the game from loading).
 import { Inventory, HOTBAR, SLOTS } from './inventory.js';
+import { tracked, stamp, joins, blend, takeOrder, plain } from './catch.js';
 import { ITEMS, LEGACY_ITEMS, CHESTS } from './items.js';
 import { BULKY, BULKY_PARTS, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, BARROW, weightOf, stackKg } from './carry-items.js';
 import { reportFault } from './faults.js';
@@ -96,9 +97,10 @@ export class WeightInventory extends Inventory {
     if (!ITEMS[id] || BULKY[id]) return n;
     const max = ITEMS[id].stack, S = this.slots, bag = !!this.equip.espalda, lim = bag ? S.length : HOTBAR, start = n;
     extra ||= ITEMS[id].wear ? { color: ITEMS[id].dye } : undefined;
-    if (!extra) for (let i = 0; i < lim && n > 0; i++) { const s = S[i]; if (s && s.id === id && !s.color && s.n < max) { const k = Math.min(n, max - s.n); s.n += k; n -= k; } }
-    for (let i = 0; i < lim && n > 0; i++) if (!S[i]) { const k = Math.min(n, max); S[i] = { id, n: k, ...extra }; n -= k; }
-    while (bag && n > 0) { const k = Math.min(n, max); S.push({ id, n: k, ...extra }); n -= k; }
+    const fish = tracked(id) ? (extra = stamp(id, extra)) : null, whole = fish?.tr ? 1 : max;   // (as Inventory.add)
+    if (!extra || fish) for (let i = 0; i < lim && n > 0; i++) { const s = S[i]; if (s && s.id === id && s.n < max && (fish ? joins(s, fish) : !s.color)) { const k = Math.min(n, max - s.n); blend(s, fish || s, k); n -= k; } }
+    for (let i = 0; i < lim && n > 0; i++) if (!S[i]) { const k = Math.min(n, whole); S[i] = { id, n: k, ...extra }; n -= k; }
+    while (bag && n > 0) { const k = Math.min(n, whole); S.push({ id, n: k, ...extra }); n -= k; }
     if (n < start) this.changed();
     return n;
   }
@@ -108,17 +110,6 @@ export class WeightInventory extends Inventory {
   unwear(slot) {
     if (slot !== 'espalda' && this.equip.espalda && this.equip[slot] && !this.slots.includes(null)) this.slots.push(null);
     return super.unwear(slot);
-  }
-  remove(id, n) {
-    if (this.infinite) { this.changed(); return; }
-    for (let i = this.slots.length - 1; i >= 0 && n > 0; i--) {
-      const s = this.slots[i];
-      if (s?.id !== id) continue;
-      const k = Math.min(n, s.n);
-      s.n -= k; n -= k;
-      if (s.n <= 0) this.slots[i] = null;
-    }
-    this.changed();
   }
   // The rows of the list: the slot of each stack after the hotbar (holes skipped)
   listSlots() { const out = []; for (let i = HOTBAR; i < this.slots.length; i++) if (this.slots[i]) out.push(i); return out; }
@@ -713,48 +704,50 @@ export class Carry {
   // How many of a thing there are to build or craft with: in the backpack and, with the weight inventory, in the chests nearby.
   // Asked every frame, so the chests are counted again at most twice a second, or at once when the backpack changes (a
   // chest window moves things both ways) or you move; fresh: counted now (to pay: what another player took meanwhile)
-  have(id, fresh = false) {
-    const g = this.game, inv = g.inv, own = inv.count(id), p = g.player;
+  // ok: which of its stacks count (catch.js; by itself, all but the trophies): counted each time
+  have(id, fresh = false, ok = null) {
+    const g = this.game, inv = g.inv, own = inv.count(id, ok || plain), p = g.player;
     if (!this.on || g.admin || inv.infinite || !p) return own;
+    if (ok) return own + (this.inChests(ok).get(id) || 0);
     const now = performance.now(), N = this.near;
     if (fresh || !N || now - N.t > 500 || N.v !== inv.v || N.sc !== g.scene || Math.hypot(N.x - p.x, N.y - p.y) > 1) this.near = { t: now, x: p.x, y: p.y, sc: g.scene, v: inv.v, n: this.inChests() };
     return own + (this.near.n.get(id) || 0);
   }
-  inChests() {
+  inChests(ok = plain) {
     const n = new Map();
-    for (const { c } of this.chests()) for (const s of c) if (s && ITEMS[s.id]) n.set(s.id, (n.get(s.id) || 0) + s.n);
+    for (const { c } of this.chests()) for (const s of c) if (s && ITEMS[s.id] && ok(s)) n.set(s.id, (n.get(s.id) || 0) + s.n);
     return n;
   }
   // Pay a cost ([[id, n]…]): the backpack first, then the chests, the nearest first. All or nothing: if, counted now,
   // something is missing, nothing is taken and it answers false (whoever builds or crafts does not go on). It says what
-  // came from where
-  spend(cost) {
+  // came from where. ok: of which stacks; took(s, k): told each stack and how many of it (the kitchen: what they were worth)
+  spend(cost, ok = plain, took = null) {
     const g = this.game, inv = g.inv;
-    if (!this.on || g.admin || inv.infinite) { for (const [m, n] of cost) inv.remove(m, n); return true; }
+    if (!this.on || g.admin || inv.infinite) { for (const [m, n] of cost) inv.remove(m, n, ok, took); return true; }
     const need = new Map();
     for (const [m, n] of cost) need.set(m, (need.get(m) || 0) + n);
     const chests = this.chests(), there = new Map();
-    for (const { c } of chests) for (const s of c) if (s && ITEMS[s.id]) there.set(s.id, (there.get(s.id) || 0) + s.n);
+    for (const { c } of chests) for (const s of c) if (s && ITEMS[s.id] && ok(s)) there.set(s.id, (there.get(s.id) || 0) + s.n);
     this.near = null;
-    for (const [m, n] of need) if (inv.count(m) + (there.get(m) || 0) < n) return false;
+    for (const [m, n] of need) if (inv.count(m, ok) + (there.get(m) || 0) < n) return false;
     const from = [];
     for (const [m, total] of need) {
       let n = total;
-      const k = Math.min(n, inv.count(m));
-      if (k) inv.remove(m, k);
+      const k = Math.min(n, inv.count(m, ok));
+      if (k) inv.remove(m, k, ok, took);
       n -= k;
       if (n <= 0) continue;
       for (const { o, c } of chests) {
-        let took = 0;
-        for (let j = 0; j < c.length && n > 0; j++) {
-          const s = c[j];
-          if (s?.id !== m) continue;
-          const q = Math.min(n, s.n);
-          s.n -= q; n -= q; took += q;
+        let got = 0;
+        for (const j of takeOrder(c, m, ok)) {
+          if (n <= 0) break;
+          const s = c[j], q = Math.min(n, s.n);
+          took?.(s, q);
+          s.n -= q; n -= q; got += q;
           if (s.n <= 0) c[j] = null;
         }
-        if (took && o.horse) { g.saddlebags?.changed(o.horse); from.push(t('carry.from_chest', { n: took, item: ITEMS[m], chest: { name: t('gui.chest.saddlebags'), g: 'fp', plural: true } })); }
-        else if (took) { g.scene.chestTouched(...o.tile); if (o.placed === BARROW.ID) g.barrow?.stacksChanged(o.tile); from.push(t('carry.from_chest', { n: took, item: ITEMS[m], chest: { name: ITEMS[o.placed].name, g: CHESTS[o.placed][1].startsWith('la ') ? 'f' : 'm' } })); }
+        if (got && o.horse) { g.saddlebags?.changed(o.horse); from.push(t('carry.from_chest', { n: got, item: ITEMS[m], chest: { name: t('gui.chest.saddlebags'), g: 'fp', plural: true } })); }
+        else if (got) { g.scene.chestTouched(...o.tile); if (o.placed === BARROW.ID) g.barrow?.stacksChanged(o.tile); from.push(t('carry.from_chest', { n: got, item: ITEMS[m], chest: { name: ITEMS[o.placed].name, g: CHESTS[o.placed][1].startsWith('la ') ? 'f' : 'm' } })); }
         if (n <= 0) break;
       }
     }

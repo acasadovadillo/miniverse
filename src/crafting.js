@@ -6,6 +6,8 @@ import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
 import { BUILDABLE, PLANS_V, PLAN_BORN } from './buildables.js';
 import { GARMENTS } from './clothing.js';
+import { stackPrice } from './economy.js';
+import { plain, grilledVal } from './catch.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
 const worn = it => !!it && !!ITEMS[it.id]?.dur && it.dur !== undefined && it.dur < ITEMS[it.id].dur;
@@ -98,7 +100,7 @@ export class Crafting {
       this.known.add(r.id);
       if (!silent && !r.variant && !r.build) this.fresh.add(r.id);   // (los otros tamaños de una alfombra no cuentan aparte; lo que se construye sale en la barra de construir)
     }
-    const shown = news.filter(r => !r.variant);
+    const shown = news.filter((r, i) => !r.variant && !(r.group && RECIPES.some(q => q.group === r.group && (news.indexOf(q) >= 0 ? news.indexOf(q) < i : this.known.has(q.id)))));   // (of a group, the first one only)
     if (!silent && shown.length) {
       Audio.unlock();
       const item = itemNoun(shown[0].out), n = shown.length;
@@ -125,19 +127,20 @@ export class Crafting {
     const inv = this.game.inv;
     if (!this.known.has(r.id)) return 'Todavía no conoces esta receta';
     if (!this.stationsNear()[r.station]) return `Tienes que estar junto a: ${STATIONS[r.station].name.toLowerCase()}`;
-    const missing = !inv.infinite && r.ins.find(([id, n]) => this.have(id) < n);
+    const missing = !inv.infinite && r.ins.find(([id, n]) => this.have(id, r) < n);
     if (missing) return `Te falta ${ITEMS[missing[0]].name.toLowerCase()}`;
-    if (inv.room(r.out) < r.n && !r.ins.some(([id, n]) => inv.count(id) === n)) return 'No te cabe: no llevas sitio libre';
+    if (inv.room(r.out) < r.n && !r.ins.some(([id, n]) => inv.count(id, r.ok || plain) === n)) return 'No te cabe: no llevas sitio libre';
     return null;
   }
   // Cuántas veces seguidas se podría fabricar con lo que hay
   times(r) {
     const inv = this.game.inv;
     if (inv.infinite) return 99;
-    return Math.min(...r.ins.map(([id, n]) => Math.floor(this.have(id) / n)));
+    return Math.min(...r.ins.map(([id, n]) => Math.floor(this.have(id, r) / n)));
   }
   // How many there are to craft with: the backpack and, with the weight inventory, the chests nearby (carry.js)
-  have(id) { const g = this.game; return g.carry ? g.carry.have(id) : g.inv.count(id); }
+  // (r: for that recipe, which may not want any of them: r.ok)
+  have(id, r = null) { const g = this.game, ok = r?.ok || null; return g.carry ? g.carry.have(id, !!ok, ok) : g.inv.count(id, ok || plain); }
 
   // ---------- Reparar en el yunque ----------
   // Lo gastado que se lleva (en las casillas o puesto) y con qué se arregla: cada unidad del material le devuelve
@@ -225,9 +228,11 @@ export class Crafting {
     const g = this.game;
     let made = 0;
     for (let i = 0; i < times && !this.problem(r); i++) {
-      if (g.carry) { if (!g.carry.spend(r.ins)) break; } else for (const [id, n] of r.ins) g.inv.remove(id, n);   // (all or nothing: carry.js)
-      const left = g.inv.add(r.out, r.n);
-      if (left) g.gather.throwOut(r.out, left);
+      let worth = 0;   // (of a fish grilled: the dish is worth what it was)
+      const ok = r.ok || plain, took = r.group ? (s, k) => { worth += stackPrice(s) * k; } : null;
+      if (g.carry) { if (!g.carry.spend(r.ins, ok, took)) break; } else for (const [id, n] of r.ins) g.inv.remove(id, n, ok, took);   // (all or nothing: carry.js)
+      const extra = worth ? { val: grilledVal(worth) } : undefined, left = g.inv.add(r.out, r.n, extra);
+      if (left) g.gather.throwOut(r.out, left, extra);
       made++;
     }
     if (made) {

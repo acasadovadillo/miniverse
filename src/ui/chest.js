@@ -4,6 +4,8 @@
 // (barrow.js takeLoad); this file makes that row (index.html does not have it)
 import { ITEMS, CHESTS, UNKNOWN_NAME } from '../items.js';
 import { SLOTS, extraOf } from '../inventory.js';
+import { blend, sameStack } from '../catch.js';
+import { catchMark, catchText } from './catchmark.js';
 import { itemIconUrl } from '../art/items.js';
 import { HOTBAR } from '../inventory.js';
 import { packRows } from './packlist.js';
@@ -21,8 +23,9 @@ function cell(parent, onClick) {
 }
 function paint(el, s) {
   const img = el.querySelector('img');
-  if (s) { const url = itemIconUrl(s.id, s.color); if (img.getAttribute('src') !== url) img.src = url; img.hidden = false; el.title = ITEMS[s.id]?.name || UNKNOWN_NAME; }   // (sin ITEMS: de una versión más nueva)
+  if (s) { const url = itemIconUrl(s.id, s.color); if (img.getAttribute('src') !== url) img.src = url; img.hidden = false; const of = catchText(s); el.title = (ITEMS[s.id]?.name || UNKNOWN_NAME) + (of ? ` (${of})` : ''); }   // (sin ITEMS: de una versión más nueva)
   else { img.hidden = true; el.title = ''; }
+  catchMark(el, s);
   el.querySelector('b').textContent = s && s.n > 1 ? s.n : '';
 }
 
@@ -69,6 +72,7 @@ export function initChestUI(game, { onClose }) {
     if (!s || !ITEMS[s.id]) return;   // (lo de una versión más nueva se queda en el cofre: aquí no se puede usar, y no se pierde)
     const left = game.inv.add(s.id, s.n, extraOf(s));
     chest[i] = left ? { ...s, n: left } : null;
+    if (left < s.n) game.freshness?.own();   // (gone off in the chest: it turns now)
     changed();
   }
   function toChest(i) {
@@ -83,7 +87,7 @@ export function initChestUI(game, { onClose }) {
     }
     let n = s.n;
     const max = ITEMS[s.id].stack;
-    if (!s.color) for (const c of chest) if (n > 0 && c?.id === s.id && !c.color && c.n < max) { const k = Math.min(n, max - c.n); c.n += k; n -= k; }
+    for (const c of chest) if (n > 0 && c && c.n < max && sameStack(c, s)) { const k = Math.min(n, max - c.n); blend(c, s, k); n -= k; }   // (fish, with those of its day)
     for (let j = 0; j < chest.length && n > 0; j++) if (!chest[j]) { chest[j] = { ...s, n: Math.min(n, max) }; n -= chest[j].n; }
     game.inv.take(i, s.n - n, true);
     changed();

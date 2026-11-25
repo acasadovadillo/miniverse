@@ -2,7 +2,9 @@
 import { ITEMS, TIERS, LEGACY_ITEMS, clothesText } from '../items.js';
 import { STATIONS } from '../recipes.js';
 import { BUILDABLE, PLANS } from '../buildables.js';
-import { SHOPS, priceOf, buyPrice } from '../economy.js';
+import { SHOPS, priceOf, buyPrice, stackPrice } from '../economy.js';
+import { tracked } from '../catch.js';
+import { catchMark, catchText } from './catchmark.js';
 import { itemIconUrl } from '../art/items.js';
 import { animalSprite, ANIMALS } from '../art/farm.js';
 import { Audio } from '../audio.js';
@@ -15,7 +17,7 @@ export function initShopUI(game, { onClose }) {
   let shop = null, tab = 'buy', note = '';
   // (Rosa's discount, and the village's reputation: reputation.js; selling, the reputation only)
   const discount = () => (shop === 'rosa' && game.neighbors.flags.descuento ? 0.9 : 1) * (game.rep?.buyFactor() ?? 1);
-  const sellPrice = id => { const p = priceOf(id); return p ? Math.max(1, Math.round(p * (game.rep?.sellFactor() ?? 1))) : 0; };
+  const sellPrice = (id, s) => { const p = s ? stackPrice(s) : priceOf(id); return p ? Math.max(1, Math.round(p * (game.rep?.sellFactor() ?? 1))) : 0; };
 
   function stock() {
     const s = SHOPS[shop], season = game.days.season, done = game.board.projects;
@@ -35,6 +37,7 @@ export function initShopUI(game, { onClose }) {
       el.append(b);
     }
     $('sh-list').append(el);
+    return el;
   }
 
   function render() {
@@ -76,6 +79,13 @@ export function initShopUI(game, { onClose }) {
       const seen = new Set();
       for (const s of game.inv.slots) {
         if (!s || seen.has(s.id)) continue;
+        if (tracked(s.id)) {   // (fish, and what is made of it: each stack has its price, by the kilo and how fresh it is)
+          const p = sellPrice(s.id, s), n = s.n, i = game.inv.slots.indexOf(s), of = catchText(s);
+          seen.add('fish:' + i);
+          const el = row(itemIconUrl(s.id), t('shop.stack', { item: ITEMS[s.id].name, n }), [t('shop.each', { price: p }), of].filter(Boolean).join(' · '), [[t('shop.sell_one'), () => sellStack(s, 1, p), true], [t('shop.sell_all'), () => sellStack(s, n, p), n > 1]]);
+          catchMark(el, s);
+          continue;
+        }
         seen.add(s.id);
         const p = sellPrice(s.id), n = game.inv.count(s.id), def = ITEMS[s.id];
         if (!p || (def.tool && (def.tier === 1 || TIERS[def.tier]))) continue;   // (las herramientas de siempre no se venden)
@@ -92,8 +102,18 @@ export function initShopUI(game, { onClose }) {
     note = `Has comprado ${n} × ${ITEMS[id].name.toLowerCase()}.`;
     Audio.pickup();
   }
+  // (of that stack and no other: another day's, or a trophy, is worth something else)
+  function sellStack(s, n, p) {
+    const i = game.inv.slots.indexOf(s);
+    if (i < 0 || s.n < n) return;
+    game.inv.take(i, n);
+    sold(n, p);
+  }
   function sell(id, n, p) {
     game.inv.remove(id, n);
+    sold(n, p);
+  }
+  function sold(n, p) {
     game.addMoney(p * n);
     game.stats?.add('ventas', p * n);
     note = `+${p * n} monedas`;

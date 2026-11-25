@@ -1,6 +1,7 @@
 // Recetas: qué se fabrica, dónde (a mano o en una estación) y con qué.
 // Una receta se desbloquea cuando ya has tenido todos sus ingredientes, salvo las que te enseña alguien (`teach`).
-import { ITEMS, RUG_MADE, rugId, ARMOR_PIECES, ARMOR_METALS } from './items.js';
+import { ITEMS, FISH, RUG_MADE, rugId, ARMOR_PIECES, ARMOR_METALS } from './items.js';
+import { small } from './catch.js';
 import { GROW, seedOf } from './cropdata.js';
 
 export const STATIONS = {
@@ -138,10 +139,9 @@ export const RECIPES = [
   R('cocina', 'potato_omelette', 1, [['potato', 2], ['huevo', 2]]),
   R('cocina', 'garlic_soup', 1, [['garlic', 2], ['pan', 1]]),
   R('cocina', 'bean_stew', 1, [['broad_bean', 2], ['cabbage', 1], ['potato', 1]]),
-  R('cocina', 'pescado_asado', 1, [['sardina', 1]], { id: 'asado_sardina' }),
-  R('cocina', 'pescado_asado', 1, [['carpa', 1]], { id: 'asado_carpa' }),
-  R('cocina', 'pescado_asado', 1, [['trucha', 1]], { id: 'asado_trucha' }),
-  R('cocina', 'pescado_asado', 1, [['perca', 1]], { id: 'asado_perca' }),
+  // Grilled fish: any fish of up to 2 kg (ok: which of its stacks will do; the big ones are cleaned first: freshness.js), or a
+  // fillet. A single one in the list (group), and which fish is chosen there (more: not counted in Progress, as before)
+  ...[...new Set(['sardina', 'carpa', 'trucha', 'perca', ...Object.keys(FISH), 'fillet'])].map((id, i) => R('cocina', 'pescado_asado', 1, [[id, 1]], { id: 'asado_' + id, group: 'pescado_asado', ok: small, ...(i > 3 && { more: true }) })),
   R('cocina', 'mermelada_fresa', 1, [['fresa', 3]]),
   R('cocina', 'palomitas', 1, [['maiz', 2]]),
   R('cocina', 'tostada_miel', 1, [['pan', 1], ['miel', 1]]),
@@ -194,6 +194,7 @@ export const RECIPES = [
   R('cocina', 'cerveza', 2, [['trigo', 2], ['miel', 1]]),
   R('cocina', 'hidromiel', 1, [['miel', 2]]),
   R('banco', 'abono', 3, [['hueso', 1]], { id: 'abono_hueso' }),
+  R('banco', 'abono', 2, [['rotten_fish', 1]], { id: 'abono_pescado' }),
   R('banco', 'vela', 2, [['manteca', 1], ['cuerda', 1]], { id: 'vela_manteca' }),
   R('cocina', 'estofado', 1, [['pulpa', 2], ['bayas', 1]]),
   R('cocina', 'pollo_asado', 1, [['carne_ave', 1]]),

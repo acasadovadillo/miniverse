@@ -13,7 +13,9 @@ import { distTo, dirOf, obb, bounds } from './world/fit.js';
 import { CAM, lookBy } from './camera.js';
 import { keys, aimLock, clearKeys, pressW, releaseW, dropSprint, gaitOf, TAP_WINDOW, TAP_GAP, TAP_HOLD, pressShift, releaseShift, shiftTick, shiftWithOther, SHIFT_HOLD } from './input.js';
 import { ITEMS, HARVEST, hitsFor, CHESTS, BUGS, FISH } from './items.js';
-import { SHOPS, FISH_PRICE_K } from './economy.js';
+import { SHOPS, FISH_PRICE_K, stackPrice } from './economy.js';
+import * as CATCH from './catch.js';
+import { catchMark, catchText } from './ui/catchmark.js';
 import * as FW from './fishwater.js';
 import { BITES, BAITS, breakP, fightS, spinS } from './fishing.js';
 import { COLLECTIONS as COLLECTED } from './progress.js';
@@ -58,7 +60,7 @@ import { BUILDABLE, PLANS, PLANS_V, PLAN_BORN } from './buildables.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { diffChunk, applyOps, ItemSync, COLLECTIONS } from './livesync.js';
 import { wallTile } from './three/build3d.js';
-import { itemIcon } from './art/items.js';
+import { itemIcon, itemIconUrl } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
 import { priceOf, buyPrice, mendPrice, MEND_SHARE } from './economy.js';
 import { openBarber, barberBill, barberStyles, payBarber, applyMirror, PRICES } from './barber.js';
@@ -4210,7 +4212,7 @@ async function soloTests(game) {
   await test('fish (english): income per hour', async () => {
     // An hour of what is done (casting, waiting, striking, the fights, the card, and a trip to sell every 30 fish), before
     // (a bite every 2-7 s, 12 % treasures, today's prices ÷ K) and now; by waters, seasons, hours and weathers
-    const r = seeded(7), price = id => priceOf(id) / FISH_PRICE_K, TR = 64 + 71 * 1.4;
+    const r = seeded(7), price = id => priceOf(id) / FISH_PRICE_K, flat = [0, 0, 0], TR = 64 + 71 * 1.4;
     const was = c => {
       const h = c.hour, inH = f => !f.hours || (f.hours[0] < f.hours[1] ? h >= f.hours[0] && h < f.hours[1] : h >= f.hours[0] || h < f.hours[1]), rain = c.weather === 'lluvia';
       const l = Object.entries(FISH).filter(([, f]) => !f.rare && f.water.includes(c.water) && (!f.seasons || f.seasons.includes(c.season)) && inH(f) && (!f.weather || rain)), W = l.reduce((q, [, f]) => q + 1.2 - f.dif * 0.7, 0);
@@ -4227,7 +4229,7 @@ async function soloTests(game) {
         T += 1.4 + wait; if (r() < 0.1 || r() > 0.88) { T += 1.5; continue; }
         const id = r() < 0.043 ? 'pez_dorado' : FW.pickFish(c, r), f = FISH[id], kg = FW.kgOf(f, FW.sizeOf(f, 1, false, r).cm);
         T += fightS(kg, f.pull); if (r() < breakP(kg * f.pull / 5.3) || r() < FIND_P || (kg > 2.5 && r() < 0.12)) { T += 1; continue; }
-        T += 3.2; n++; left++; coins += priceOf(id); if (n % 30 === 0) T += 120;
+        T += 3.2; n++; left++; const got = stackPrice({ id, n: 1, g: kg * 1000, day: CATCH.hooks.today() }); coins += got; flat[0] += priceOf(id); flat[1] += got; flat[2] += priceOf(id) * kg / FW.kgOf(f, f.cm[0] + (f.cm[1] - f.cm[0]) / 4); if (n % 30 === 0) T += 120;
       }
       return [coins, n];
     }, FIND_P = 0.03;
@@ -4241,6 +4243,9 @@ async function soloTests(game) {
     }
     const A = sum(usual), D = sum(dusk);
     console.log(`fish income (coins/h): ordinary before ${A.before}, now ${A.after} (${A.fish} fish, ×${A.ratio.toFixed(2)}); a good dusk before ${D.before}, now ${D.after} (${D.fish} fish, ×${D.ratio.toFixed(2)})`);
+    // (by the kilo, against a price for each fish as before: the same in all)
+    console.log(`fish income by the kilo ×${(flat[1] / flat[0]).toFixed(3)} of by the fish (priced by the median instead: ×${(flat[2] / flat[0]).toFixed(2)})`);
+    check(Math.abs(flat[1] / flat[0] - 1) < 0.08, `by the kilo it earns ×${(flat[1] / flat[0]).toFixed(3)} of what by the fish`);
     check(A.ratio > 0.6 && A.ratio < 0.82, `ordinary fishing earns ×${A.ratio.toFixed(2)}`);
     check(D.ratio > 0.95 && D.ratio < 1.4 && D.ratio > A.ratio * 1.2, `a good dusk earns ×${D.ratio.toFixed(2)}`);
     // (and nobody can live off buying Lía's sardines)
@@ -4409,7 +4414,7 @@ async function soloTests(game) {
         if (lure ? r() < 0.08 : r() < 0.1 || r() > 0.88) { T += 1.5; continue; }
         const id = r() < 0.043 ? 'pez_dorado' : now ? FW.pickFish(c, r) : oldPick(c), f = FISH[id], kg = FW.kgOf(f, FW.sizeOf(f, 1, now && !bait, r).cm);
         T += fightS(kg, f.pull); if (r() < breakP(kg * f.pull / 5.3)) { T += 1; coins -= lure ? COST[bait] : 0; continue; } if (r() < 0.03 || (kg > 2.5 && r() < 0.12)) { T += 1; continue; }
-        T += 3.2; n++; left++; coins += priceOf(id) - (now && bait && !lure ? COST[bait] : 0); if (n % 30 === 0) T += 120;
+        T += 3.2; n++; left++; coins += (now ? stackPrice({ id, n: 1, g: kg * 1000, day: CATCH.hooks.today() }) : priceOf(id)) - (now && bait && !lure ? COST[bait] : 0); if (n % 30 === 0) T += 120;
       }
       return coins;
     };
@@ -4440,6 +4445,189 @@ async function soloTests(game) {
         T.shift = was[1];
       }
     } finally { [T.weather, T.shift] = was; }
+  });
+  // ---------- the catch (Plan R1-3: src/catch.js, src/freshness.js) ----------
+  // Days go by for the fish only (the clock hook: nothing else of the game moves)
+  const later = async (k, fn) => { const was = CATCH.hooks.today, d = was(); CATCH.hooks.today = () => d + k; try { return await fn(d + k); } finally { CATCH.hooks.today = was; } };
+  // With an empty backpack (but the hotbar's room); what there was, back afterwards
+  const emptyBag = async fn => { const I = inv(), was = I.slots.map(q => (q ? { ...q } : null)), sel = I.selected; I.slots.forEach((q, i) => { I.slots[i] = null; }); I.changed(); try { return await fn(I); } finally { I.slots.length = was.length; was.forEach((q, i) => { I.slots[i] = q; }); I.selected = sel; I.changed(); } };
+  const stacksOf = (I, id) => I.slots.filter(q => q?.id === id);
+  await test('fish (english): stacks and freshness', async () => {
+    const day = CATCH.hooks.today(); check(day === game.days.realDay && day > 2e4, `the clock: ${day}`);
+    for (const make of [() => new Inventory({ equip: { espalda: { id: 'mochila' } } }), () => new WeightInventory({ equip: { espalda: { id: 'mochila' } } })]) {
+      const I = make(), kind = I.weight ? 'weight' : 'slots';
+      I.add('trucha', 1, { g: 400, day }); I.add('trucha', 2, { g: 700, day }); I.add('trucha', 1, { g: 500, day: day - 1 });
+      let S = stacksOf(I, 'trucha'); check(S.length === 2 && S[0].n === 3 && S[0].g === 600 && S[0].day === day && S[1].n === 1 && S[1].day === day - 1, `${kind}: ${JSON.stringify(S)}`);
+      if (I.weight) check(Math.abs(I.kg - 2.3) < 0.06, `it weighs ${I.kg}`); check(Math.abs(stackKg(S[0]) - 1.8) < 1e-6, 'the weight of a stack');
+      const took = I.take(I.slots.indexOf(S[0]), 1, true); check(took.n === 1 && took.g === 600 && S[0].n === 2 && S[0].g === 600, `one out: ${JSON.stringify(took)}`);
+      I.add('trucha', 1, extraOf(took)); check(S[0].n === 3 && S[0].g === 600, 'and back: weight made or lost');
+      // (moving one on another: joined if of the same day, swapped if not)
+      const a = I.slots.indexOf(S[0]), b = I.slots.indexOf(S[1]); I.move(b, a); check(I.slots[a].day === day - 1 && I.slots[b].n === 3, 'two days were joined');
+      I.slots[5] = { id: 'trucha', n: 1, g: 1000, day }; I.move(5, b); check(I.slots[b].n === 4 && I.slots[b].g === 700 && !I.slots[5], `moved: ${JSON.stringify(I.slots[b])}`);
+      // (what is spent: the oldest first; a trophy, never by itself)
+      I.add('trucha', 1, { g: 2500, day, tr: 1, cm: 62 }); check(stacksOf(I, 'trucha').length === 3 && I.count('trucha') === 5, 'a trophy stacked, or counts');
+      I.add('trucha', 1, { g: 2500, day, tr: 1, cm: 62 }); check(stacksOf(I, 'trucha').filter(q => q.tr && q.n === 1).length === 2, 'two trophies in a stack');
+      I.remove('trucha', 2); check(!stacksOf(I, 'trucha').some(q => q.day === day - 1) && I.count('trucha') === 3, 'not the oldest first'); I.remove('trucha', 99); check(stacksOf(I, 'trucha').every(q => q.tr) && stacksOf(I, 'trucha').length === 2, 'a trophy was spent');
+      // (without anything of itself: a typical one of today; the room; the save)
+      I.add('carpa', 98); const c = stacksOf(I, 'carpa')[0]; check(c.n === 98 && c.g === CATCH.typicalG('carpa') && c.day === day, JSON.stringify(c));
+      const r0 = I.room('carpa'); I.add('carpa', 1, { g: 100, day: day - 1 }); check(I.weight ? r0 === Infinity : I.room('carpa') === r0 - 99, `room ${r0} → ${I.room('carpa')}`);
+      const back = JSON.parse(JSON.stringify(I.toSave())), J = I.weight ? new WeightInventory(back) : new Inventory(back), K = I.weight ? new Inventory(back) : new WeightInventory(back);
+      for (const Q of [J, K]) check(JSON.stringify(stacksOf(Q, 'trucha')) === JSON.stringify(stacksOf(I, 'trucha')) && stacksOf(Q, 'carpa').reduce((n, q) => n + q.n, 0) === 99, `${kind}: the save does not keep them`);
+    }
+    // (what comes from outside, within limits)
+    for (const bad of [{ g: 'x', day: NaN, tr: 0 }, { g: -5, day: -1 }, { g: Infinity, day: 1e12, cm: 'y', val: {} }]) { const e = CATCH.stamp('carpa', bad); check(e.g === CATCH.typicalG('carpa') && e.day === day && !e.tr && e.val === undefined, JSON.stringify(e)); }
+    // (the days)
+    const s = { id: 'trucha', n: 3, g: 800, day }, fresh = stackPrice(s), food = CATCH.foodOf(s); check(fresh === Math.round(priceOf('trucha') * 800 / CATCH.typicalG('trucha')) && food === 6, `fresh: ${fresh}, food ${food}`);
+    await later(1, () => check(CATCH.stateOf(s) === 'fresh' && stackPrice(s) === fresh && !CATCH.settle(s), 'a day later'));
+    await later(2, () => check(CATCH.stateOf(s) === 'old' && Math.abs(stackPrice(s) / fresh - 0.6) < 0.01 && Math.abs(CATCH.foodOf(s) - food * 0.7) < 1e-9 && CATCH.stateText(s) === t('fish.fresh.old'), `two days later: ${stackPrice(s)} of ${fresh}`));
+    await later(4, () => { const tr = { ...s, n: 1, tr: 1, cm: 60 }; check(CATCH.settle(tr) === 0 && CATCH.stateOf(tr) === 'old', 'a trophy rots'); check(CATCH.settle(s) === 2 && s.id === 'rotten_fish' && s.n === 3 && s.g === 800 && s.day === undefined && stackPrice(s) === priceOf('rotten_fish') && !CATCH.foodOf(s), JSON.stringify(s)); });
+    const old = { id: 'sardina', n: 7 }; check(CATCH.settle(old) === 1 && old.day === day && old.g === CATCH.typicalG('sardina') && old.n === 7 && stackPrice(old) === priceOf('sardina'), `an old save's: ${JSON.stringify(old)}`);
+    const future = { id: 'carpa', n: 1, g: 900, day: day + 30 }; check(CATCH.stateOf(future) === 'fresh' && CATCH.settle(future) === 1 && future.day === day, 'a day to come');
+    const sea = { id: 'madera', n: 4 }; check(!CATCH.settle(sea) && JSON.stringify(sea) === '{"id":"madera","n":4}' && extraOf(sea) === undefined, 'other things are touched');
+  });
+  await test('fish (english): an old game and a death lose no fish', () => emptyBag(async I => {
+    const F = game.freshness, day = CATCH.hooks.today(), p0 = [p().x, p().y];
+    // (a save of before, 40 carps and a full chest: nothing rots, nothing is lost, and they are worth what they were)
+    I.slots[0] = { id: 'carpa', n: 40 }; I.slots[1] = { id: 'pescado_asado', n: 3 }; I.changed();
+    check(F.own() === 0 && I.slots[0].n === 40 && I.slots[0].day === day && stackPrice(I.slots[0]) === priceOf('carpa') && I.slots[1].n === 3 && stackPrice(I.slots[1]) === priceOf('pescado_asado') && Object.keys(I.slots[1]).length === 2, JSON.stringify(I.slots.slice(0, 2)));
+    // (dropped one by one and picked up; with another's of the same day)
+    I.add('carpa', 2, { g: 500, day }); const g0 = I.slots[0].g, kg = I.slots[0].n * g0; I.selected = 0; game.toss(); game.toss(); check(I.slots[0].n === 40 && game.gather.drops.slice(-2).every(d => d.id === 'carpa' && d.extra?.g === g0 && d.extra.day === day), 'tossed');
+    for (const d of game.gather.drops.slice(-2)) { d.x = p().x; d.y = p().y; d.t = 1; d.z = 0; d.vz = 0; } for (let i = 0; i < 60 && I.count('carpa') < 42; i++) await frames(1);
+    check(I.slots[0].n === 42 && Math.abs(I.slots[0].n * I.slots[0].g - kg) < 1, `picked up: ${JSON.stringify(I.slots[0])}`);
+    // (four days later, with some of every kind: the same number in rotten fish, the same weight; the trophy, the salted and the grilled stay)
+    I.add('trucha', 5, { g: 300, day: day - 1 }); I.add('trucha', 1, { g: 2000, day, tr: 1, cm: 59 }); I.add('salted_fish', 2, { g: 400, val: 200 }); I.add('fillet', 4, { g: 200, day, val: 30 });
+    const g1 = I.slots.reduce((q, s) => q + (s && CATCH.perishes(s.id) && !s.tr ? s.n * s.g : 0), 0);
+    await later(4, () => { check(F.own() === 42 + 5 + 4 && I.count('rotten_fish') === 51 && stacksOf(I, 'rotten_fish').length === 1 && Math.abs(stacksOf(I, 'rotten_fish').reduce((q, s) => q + s.n * s.g, 0) - g1) < 2, JSON.stringify(I.slots.filter(Boolean))); check(game.gather.floaters.some(f => f.text === t('fish.rotted', { n: 51 })), 'it does not say it'); });
+    check(stacksOf(I, 'trucha')[0]?.tr && I.count('salted_fish') === 2 && stacksOf(I, 'pescado_asado')[0].n === 3, 'the trophy, the salted or the grilled');
+    // (creative: nothing goes off)
+    I.add('carpa', 3); I.infinite = true; try { await later(9, () => check(F.own() === 0 && I.slots.some(q => q?.id === 'carpa' && q.n === 3), 'in creative it goes off')); } finally { I.infinite = false; }
+    // (another world's clock: the fish keep their age; the same world's put forward: they grow old)
+    const c = I.slots.find(q => q?.id === 'carpa'), T = game.days, was = [T.shift, F.frame, F.key, F.settling]; c.day = day;
+    try {
+      F.follow(0.01); F.key = 'another'; T.shift += 24 * 30; F.follow(0.01); check(c.day === day + 30 && CATCH.ageOf(c) === 0 && F.own() === 0, `in another world: ${c.day - day}`);
+      F.settling = 4; T.shift -= 24 * 30; F.follow(0.01); check(c.day === day, 'its clock a moment later'); F.settling = 0; T.shift += 24 * 3; F.follow(0.01); check(c.day === day && CATCH.ageOf(c) === 3 && CATCH.stateOf(c) === 'old', `put forward: ${CATCH.ageOf(c)}`);
+      const out = {}; F.save(out); check(out.fishShift === T.shift, 'the save'); const G = Object.create(Object.getPrototypeOf(F)); G.game = game; G.reset({ fishShift: T.shift + 48 }); G.follow(0.01); check(c.day === day - 2, `loaded with another clock: ${c.day - day}`); c.day = day;
+      G.reset({}); G.follow(0.01); check(c.day === day, 'a save from before');
+    } finally { [T.shift, F.frame, F.key, F.settling] = was; }
+    [p().x, p().y] = p0;
+  }));
+  await test('fish (english): the landing, trophies and the card', atPond(async ({ F, I }) => {
+    const day = game.days.realDay, land = (cm, o = {}) => { F.landed({ id: 'carpa', cm, kg: FW.kgOf(FISH.carpa, cm), water: 'estanque', x: POND.x, y: POND.y, ...o }); F.keep(); };
+    const was = I.slots.map(q => (q ? { ...q } : null));
+    try {
+      I.slots.forEach((q, i) => { if (q?.id === 'carpa') I.slots[i] = null; });
+      land(40); land(50); land(80, { trophy: true });
+      for (let i = 0; i < 180 && stacksOf(I, 'carpa').reduce((n, q) => n + q.n, 0) < 3; i++) await frames(1);
+      const S = stacksOf(I, 'carpa'), two = S.find(q => !q.tr), big = S.find(q => q.tr);
+      check(two?.n === 2 && two.day === day && Math.abs(two.g * 2 - 14000 * (0.064 + 0.125)) < 2, JSON.stringify(S)); check(big?.n === 1 && big.cm === 80 && Math.abs(big.g - 14000 * 0.512) < 1, 'the trophy: ' + JSON.stringify(big));
+      check(catchText(big).startsWith(`${t('fish.trophy')} · 80 cm · 7`) && catchText(two).includes(t('fish.kg_each', { kg: '1,32' }).slice(0, 3)), `${catchText(big)} / ${catchText(two)}`);
+      game.onInventory?.(); const i = I.slots.indexOf(big), el = document.createElement('div'); el.innerHTML = '<img>'; catchMark(el, big); check(el.querySelector('.trophy') && !el.firstChild.classList.contains('stale'), 'no star'); await later(2, () => { catchMark(el, two); check(!el.querySelector('.trophy') && el.firstChild.classList.contains('stale'), 'not dull'); }); check(i >= 0, 'no slot');
+      const html = F.journal(); check(html.includes(t('fish.log.last')) && html.includes('data-nature="carpa"') && html.includes('80 cm') && html.includes(t('nature.water.estanque')) && !/undefined|NaN|\{/.test(html), 'the angler’s log');
+    } finally { I.slots.length = was.length; was.forEach((q, k) => { I.slots[k] = q; }); I.changed(); }
+  }));
+  await test('fish (english): sold by the kilo, eaten by its weight, given and asked for', () => emptyBag(async I => {
+    const day = CATCH.hooks.today(), f = FISH.carpa, kg = CATCH.typicalG('carpa') / 1000;
+    for (const [id, q] of Object.entries(FISH)) {   // (the mean of those that bite)
+      const r = seeded(5); let sum = 0; for (let k = 0; k < 6000; k++) sum += FW.kgOf(q, FW.sizeOf(q, 0, false, r).cm); const G = CATCH.typicalG(id) / 1000;
+      check(Math.abs(sum / 6000 / G - 1) < 0.06, `${id}: the mean is ${sum / 6000} kg, typical ${G}`);
+    }
+    check(stackPrice({ id: 'carpa', n: 1, g: kg * 2000, day }) === priceOf('carpa') * 2 && stackPrice({ id: 'carpa', n: 1, g: kg * 250, day }) === Math.round(priceOf('carpa') / 4), 'by the kilo');
+    // (the shop: each stack its price, and only that stack goes)
+    I.add('carpa', 2, { g: 1000, day }); I.add('carpa', 3, { g: 1000, day: day - 2 }); I.add('carpa', 1, { g: 7000, day, tr: 1, cm: 79 }); I.add('madera', 4);
+    const rep = game.rep?.sellFactor() ?? 1, P = s => Math.max(1, Math.round(stackPrice(s) * rep)), S = stacksOf(I, 'carpa'), m0 = game.money; game.onShop('lia');
+    try {
+      document.querySelector('[data-shtab="sell"]').click();
+      const rows = [...document.querySelectorAll('#sh-list .sh-row')]; check(rows.length === 4, `${rows.length} rows`);
+      S.forEach((s, k) => check(rows[k].textContent.includes(`${P(s)} `) && rows[k].querySelectorAll('button').length === 2, `row ${k}: ${rows[k].textContent}`)); check(rows[1].textContent.includes(t('fish.fresh.old')) && rows[2].querySelector('.trophy') && P(S[1]) < P(S[0]) * 0.62, 'the old one or the trophy');
+      rows[1].querySelectorAll('button')[0].click(); check(game.money === m0 + P(S[1]) && S[1].n === 2 && S[0].n === 2, `sold one old: ${game.money - m0}`);
+      const m1 = game.money; [...document.querySelectorAll('#sh-list .sh-row')][0].querySelectorAll('button')[1].click(); check(game.money === m1 + 2 * P(S[0]) && stacksOf(I, 'carpa').length === 2, 'sold all of a stack');
+    } finally { document.getElementById('sh-close').click(); game.mode = 'play'; game.money = m0; }
+    // (a request takes the plain ones, never the trophy; and it says it is short when there is only a trophy)
+    check(I.count('carpa') === 2 && game.board.canDeliver({ item: 'carpa', n: 2 }) && !game.board.canDeliver({ item: 'carpa', n: 3 }), 'the requests count a trophy');
+    I.remove('carpa', 2); check(!game.board.canDeliver({ item: 'carpa', n: 1 }) && stacksOf(I, 'carpa')[0].tr, 'a trophy can be delivered');
+    // (eating: 2 of hunger for a kilo, more for a big one, less for an old one)
+    const feed = (s, k) => { I.slots[0] = { n: 1, ...s }; game.combat.hunger = 4; game.gather.eat(0); return game.combat.hunger - 4; }, h0 = game.combat.hunger;
+    try { const big = feed({ id: 'carpa', g: 2500, day }), mid = feed({ id: 'carpa', g: 1000, day }), tiny = feed({ id: 'sardina', g: 20, day }), o = feed({ id: 'carpa', g: 2500, day: day - 2 }), salted = feed({ id: 'salted_fish', g: 1125 }); check(big === 5 && mid === 2 && tiny === 1 && o === 4 && salted === 7, `fed: ${[big, mid, tiny, o, salted]}`); I.slots[0] = { id: 'rotten_fish', n: 1, g: 300 }; game.gather.eat(0); check(I.slots[0]?.n === 1, 'the rotten one was eaten'); } finally { game.combat.hunger = h0; I.slots[0] = null; }
+    const def = ITEMS.rotten_fish; check(BAITS.some(b => b.id === 'rotten_fish' && b.rig === 'bottom') && FW.baitK(FISH.siluro, 'rotten_fish') > FW.baitK(FISH.siluro, 'cut_bait') && !def.food && RECIPES.some(r => r.out === 'abono' && r.ins[0][0] === 'rotten_fish'), 'what the rotten one is for');
+    check(f.k === 14, 'the table');
+  }));
+  const kitchenTest = chests => emptyBag(async I => {
+    const day = CATCH.hooks.today(), K = game.freshness, [kx, ky] = freeTile(game, [[Math.floor(p().x) + 1, Math.floor(p().y) + 1], [Math.floor(p().x) - 1, Math.floor(p().y) + 1], [Math.floor(p().x) + 1, Math.floor(p().y) - 1]]), seen = new Set(game.craft.seen), known = new Set(game.craft.known);
+    const worth = list => list.reduce((q, s) => q + (s ? stackPrice(s) * s.n : 0), 0);
+    I.add('carpa', 1, { g: 3000, day: day - 1 }); const carp = I.slots.find(Boolean), price = stackPrice(carp), e0 = () => K.stacks().find(q => q.s === carp);
+    check(K.work('clean', e0()) === t('kitchen.far') && carp.n === 1, 'cleaned with no kitchen');
+    w().place(kx, ky, 'cocina', 0);
+    try {
+      game.craft.check(true);
+      const E = game.craft.stationsNear().cocina; check(E, 'the kitchen is not near');
+      const xp = game.skills.xp.cocina || 0; check(K.work('clean', e0()) === null, 'not cleaned'); const fil = stacksOf(I, 'fillet')[0];
+      check(fil.n === 5 && fil.day === day - 1 && I.count('cut_bait') === 2 && !stacksOf(I, 'carpa').length && (game.skills.xp.cocina || 0) > xp, JSON.stringify(I.slots.filter(Boolean))); check(Math.abs(fil.g - 3000 * CATCH.FILLET_YIELD / 5) < 1 && Math.abs(stackPrice(fil) * 5 - price) <= 3, `the fillets are worth ${stackPrice(fil) * 5}, the carp ${price}`);
+      check(!CATCH.canClean({ id: 'sardina', n: 1, g: 30, day }) && !CATCH.canClean({ id: 'fillet', n: 1, g: 900, day }) && CATCH.canClean({ id: 'carpa', n: 1, g: 601, day }), 'what can be cleaned');
+      // (grilled: any fish of up to 2 kg and a fillet, one row in the list; the dish is worth what the fish was, and half as much again)
+      const G = RECIPES.filter(r => r.group === 'pescado_asado'); check(G.length === Object.keys(FISH).length + 1 && G.slice(0, 4).map(r => r.id).join() === 'asado_sardina,asado_carpa,asado_trucha,asado_perca' && priceOf('pescado_asado') === Math.round(priceOf('sardina') * 1.5 + 8), 'the recipes');
+      const r = id => G.find(q => q.ins[0][0] === id); check(!game.craft.problem(r('fillet')) && game.craft.times(r('fillet')) === 5, `a fillet: ${game.craft.problem(r('fillet'))}`);
+      const one = stackPrice(fil); game.craft.craft(r('fillet'), 2); const dish = stacksOf(I, 'pescado_asado')[0]; check(dish.n === 2 && fil.n === 3 && Math.abs(stackPrice(dish) - (one * 1.5 + 8)) <= 1, `grilled: ${stackPrice(dish)} of ${one}`);
+      I.add('lubina', 1, { g: 1900, day }); I.add('siluro', 2, { g: 26000, day }); I.add('trucha', 1, { g: 1500, day, tr: 1 }); game.craft.check(true);
+      check(!game.craft.problem(r('lubina')) && game.craft.problem(r('siluro')) && game.craft.problem(r('trucha')), 'a catfish of 26 kg or a trophy on the grill'); game.craft.craft(r('lubina')); check(dish.n === 3 && !stacksOf(I, 'lubina').length && dish.val > one * 1.5, 'the sea bass');
+      const was = worth(stacksOf(I, 'siluro')); check(K.work('clean', K.stacks().find(q => q.s.id === 'siluro')) === null && stacksOf(I, 'fillet').reduce((n, q) => n + q.n, 0) === 3 + Math.ceil(26 / 0.6) && I.count('siluro') === 1, 'the catfish'); check(was > 0, 'worth nothing');
+      // (salted: a salt for each kilo, half its weight, worth a third more, and it never goes off)
+      I.add('perca', 1, { g: 1200, day: day - 2 }); const perch = stacksOf(I, 'perca')[0], pp = stackPrice(perch), at = () => K.stacks().find(q => q.s === perch); check(K.work('salt', at()) === t('kitchen.need_salt', { n: 2, item: itemNoun('salt') }) && perch.n === 1, 'salted with no salt');
+      I.add('salt', 5); check(K.work('salt', at()) === null && I.count('salt') === 3, 'the salt'); const sal = stacksOf(I, 'salted_fish')[0]; check(sal.g === 540 && sal.day === undefined && Math.abs(stackPrice(sal) - pp * 1.3) <= 1 && CATCH.foodOf(sal) > CATCH.foodOf({ id: 'perca', n: 1, g: 1200, day }), JSON.stringify(sal));
+      await later(60, () => { check(CATCH.settle(sal) === 0 && stackPrice(sal) === Math.round(pp * 1.3) && CATCH.stateOf(sal) === '', 'the salted one goes off'); });
+      // (the window: the panel with each stack, the list with one grilled fish and the choice)
+      game.onCraft?.('cocina'); const sub = () => [...document.querySelectorAll('#cf-repair .cf-fix span')].map(q => q.textContent);
+      try { if (document.getElementById('s-craft').classList.contains('show')) { check(sub().some(x => x === t('kitchen.clean', { item: itemNoun('siluro'), kg: '26' })) && sub().some(x => x.startsWith(t('kitchen.salt', { item: itemNoun('trucha'), kg: '1,5' }).slice(0, 8))), `the panel: ${sub().join(' | ')}`); check(document.querySelectorAll('#cf-list .cf-r').length < 45 && [...document.querySelectorAll('#cf-list img')].filter(q => q.getAttribute('src') === itemIconUrl('pescado_asado')).length === 1, 'grilled fish more than once in the list'); } else check(false, 'the window does not open'); } finally { game.windows?.close?.('s-craft'); }
+      if (chests) {
+        // (the weight inventory: of the chests nearby too)
+        const [tx, ty] = freeTile(game, [[kx + 2, ky], [kx, ky + 2], [kx - 2, ky]]); w().place(tx, ty, 'cofre', 0); const c = w().chestAt(tx, ty);
+        c[0] = { id: 'atun', n: 2, g: 5000, day }; c[1] = { id: 'salt', n: 9 }; c[2] = { id: 'sea_bream', n: 1, g: 500, day: day - 3 }; c[3] = { id: 'sea_bream', n: 4, g: 800, day }; c[4] = { id: 'sea_bream', n: 1, g: 1900, day: day - 3, tr: 1 }; I.remove('salt', 99); game.carry.near = null;
+        try {
+          check(K.work('salt', K.stacks().find(q => q.s === c[0])) === null && c[0].n === 1 && c[1].n === 4, `salted from the chest: ${JSON.stringify(c.slice(0, 2))}`); game.craft.seen.add('sea_bream'); game.craft.check(true);
+          check(game.craft.times(r('sea_bream')) === 5, `bream: ${game.craft.times(r('sea_bream'))}`); game.craft.craft(r('sea_bream')); check(!c[2] && c[3].n === 4 && c[4]?.tr, 'not the oldest first, or the trophy');
+        } finally { c.fill(null); w().setTile(tx, ty, 'air'); }
+      }
+    } finally { w().setTile(kx, ky, 'air'); game.craft.seen = seen; game.craft.known = known; }
+  });
+  await test('fish (english): kitchen', () => kitchenTest(false));
+  await test('fish (english): chests, the saddlebags and the world', async () => {
+    const F = game.freshness, day = CATCH.hooks.today(), [tx, ty] = freeTile(game, [[Math.floor(p().x) + 2, Math.floor(p().y)], [Math.floor(p().x), Math.floor(p().y) + 2], [Math.floor(p().x) - 2, Math.floor(p().y)]]);
+    w().place(tx, ty, 'cofre', 0); const c = w().chestAt(tx, ty), L = game.live, A = game.ranch.animals, horse = { id: 'h-fish', x: 1e5, y: 1e5, bags: [{ id: 'carpa', n: 2, g: 800, day: day - 4 }, { id: 'madera', n: 1 }, ...Array(10).fill(null)] };
+    const mine = Object.getOwnPropertyDescriptor(L, 'joined');
+    try {
+      c[0] = { id: 'trucha', n: 6 }; c[1] = { id: 'carpa', n: 3, g: 1500, day }; c[2] = { id: 'carpa', n: 2, g: 900, day: day - 3 }; c[3] = { id: 'piedra', n: 5 }; c[4] = { id: 'from_the_future', n: 2, day: 5 }; c[5] = { id: 'salted_fish', n: 1, g: 300, val: 90 }; A.push(horse);
+      const keep = JSON.stringify([c[3], c[4], c[5]]); F.sweep(); check(c[0].day === day && c[0].g === CATCH.typicalG('trucha') && c[0].n === 6 && c[1].n === 3 && c[2].id === 'carpa', `an old chest: ${JSON.stringify(c.slice(0, 3))}`);
+      check(horse.bags[0]?.id === 'rotten_fish' && horse.bags[0].n === 2 && horse.bags[1].id === 'madera', JSON.stringify(horse.bags.slice(0, 2)));
+      await later(1, () => { w().dirty.clear(); F.sweep(); check(c[2].id === 'rotten_fish' && c[2].n === 2 && c[2].g === 900 && c[1].id === 'carpa' && w().dirty.size === 1, `a day later: ${JSON.stringify(c.slice(0, 3))}`); w().dirty.clear(); F.sweep(); check(!w().dirty.size, 'it writes with nothing to change'); });
+      // (a guest does not; with someone near it, nobody; the rest of the chest as it was)
+      await later(4, () => {
+        const rot = game.carry.rotsWorld; game.carry.rotsWorld = () => false; try { F.sweep(); check(c[0].id === 'trucha', 'a guest rots the world'); } finally { delete game.carry.rotsWorld; check(game.carry.rotsWorld === rot, 'x'); }
+        const was = [L.joined, L.role]; L.joined = true; L.role = 'host'; L.peers.set('fz', { playing: true, entity: { x: tx + 3, y: ty } }); try { F.sweep(); check(c[0].id === 'trucha', 'with another player beside it'); } finally { L.peers.delete('fz'); [L.joined, L.role] = was; }
+        F.sweep(); check(!c.some(q => q && CATCH.isFish(q.id)) && c.filter(q => q?.id === 'rotten_fish').reduce((n, q) => n + q.n, 0) === 11, JSON.stringify(c.slice(0, 4)));
+      });
+      check(JSON.stringify([c[3], c[4], c[5]]) === keep, 'other things of the chest changed');
+      // (the chest window: with those of its day, both ways, and nothing is lost; a gone one turns in the backpack)
+      await emptyBag(async I => {
+        c.fill(null); c[0] = { id: 'trucha', n: 2, g: 500, day: day - 1 }; c[1] = { id: 'trucha', n: 1, g: 2400, day, tr: 1, cm: 60 }; c[2] = { id: 'carpa', n: 4, g: 900, day: day - 7 }; I.add('trucha', 3, { g: 800, day }); I.add('trucha', 2, { g: 800, day: day - 1 });
+        game.onChest(c, [tx, ty]);
+        try {
+          const cells = [...document.querySelectorAll('#ch-grid .slot')], from = k => cells[k].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+          check(cells[1].querySelector('.trophy') && cells[1].title.includes('60 cm'), `the cell: ${cells[1].title}`);
+          const mineOf = d => I.slots.findIndex(q => q?.id === 'trucha' && q.day === d && !q.tr), to = k => { const el = k < HOTBAR || !I.weight ? [...document.querySelectorAll('#ch-bag > .slot')][k] : document.querySelector(`#ch-pack [data-i="${k}"]`); el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); };
+          to(mineOf(day - 1)); check(c[0].n === 4 && c[0].g === 650, `put in: ${JSON.stringify(c[0])}`); to(mineOf(day)); check(c.some(q => q?.id === 'trucha' && q.day === day && !q.tr && q.n === 3), 'another day joined'); check(!I.count('trucha'), 'left behind');
+          from(1); check(I.slots.some(q => q?.tr && q.cm === 60 && q.g === 2400) && !c[1], 'the trophy did not come whole'); from(2); check(I.count('rotten_fish') === 4 && !c[2], `what had gone off: ${JSON.stringify(I.slots.filter(Boolean))}`);
+        } finally { game.windows?.close?.('s-chest'); }
+      });
+    } finally { A.splice(A.indexOf(horse), 1); c.fill(null); w().setTile(tx, ty, 'air'); check(JSON.stringify(Object.getOwnPropertyDescriptor(L, 'joined')) === JSON.stringify(mine), 'live'); }
+  });
+  await test('fish (english): the new things of the catch, everywhere', async () => {
+    const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
+    for (const id of ['salt', 'fillet', 'salted_fish', 'rotten_fish']) {
+      for (const l of [en, es]) check(l[`item.${id}`] && l[`item.${id}.desc`], `texts of ${id}`); check(ITEMS[id].stack === 99 && weightOf(id) < 1 && priceOf(id) >= 1 && itemIconUrl(id), id);
+      const m = foodModel(id); let tri = 0, meshes = 0; m.traverse(o => { if (o.isMesh) { meshes++; tri += o.geometry.attributes.position.count / 3; } }); check(meshes === 1 && tri > 300 && tri < 6000, `${id}: ${meshes} meshes, ${tri} triangles`);
+    }
+    for (const k of ['lia', 'rosa']) check(SHOPS[k].stock.find(e => e.id === 'salt')?.price > priceOf('salt') * 1.3, `${k} sells no salt`);
+    // (neighbours: rotten fish is an insult)
+    check(stackPrice({ id: 'pescado_asado', n: 2 }) === priceOf('pescado_asado') && stackPrice({ id: 'madera', n: 1 }) === priceOf('madera') && stackPrice(null) === 0, 'the price of other things');
   });
   await test('mesa de encantar retirada: al cargar se quita y se devuelven sus materiales', async () => {
     const cx = 100, cy = 100, k = `${cx},${cy}`, deltas = new Map([[k, { removed: {}, tilled: {}, v: 0, placed: { '1600,1600': 'mesa_encantar@1', '1601,1600': 'silla' }, pos: { 'placed:1600,1600': [1, 2, 3] }, chest: { '1602,1600': [{ id: 'mesa_encantar', n: 1 }, { id: 'madera', n: 2 }] } }]]);
@@ -5002,7 +5190,7 @@ async function soloTests(game) {
     const src = async f => (await fetch(`src/${f}?t=${Date.now()}`)).text(), imports = text => [...text.matchAll(/^import[^;]*?from '([^']+)'|^import '([^']+)'/gm)].map(m => m[1] || m[2]);
     const inv = imports(await src('inventory.js')), items = imports(await src('carry-items.js'));
     check(!inv.some(f => /carry\.js$/.test(f)), `inventory.js imports carry.js: ${inv}`);
-    check(items.every(f => /\/(items|i18n)\.js$/.test(f)), `carry-items.js imports more than items.js and i18n.js: ${items}`);
+    check(items.every(f => /\/(items|i18n|catch)\.js$/.test(f)), `carry-items.js imports more than items.js, catch.js and i18n.js: ${items}`);
     check(ITEMS.log && ITEMS.log.hide && ITEMS.carcass_deer.bulky, 'the new ids');
     const slotsURL = /[?&]inventario=(casillas|0)(&|$)/.test(location.search);
     check(Carry.force === null && weightMode() === !slotsURL && !!game.inv.weight === !slotsURL, `the default: weightMode ${weightMode()}, the game's ${!!game.inv.weight}, force ${Carry.force}`);
@@ -5023,7 +5211,7 @@ async function soloTests(game) {
     W.take(i, 99, true); check(W.slots[i] === null, 'taking leaves no hole');
     W.add('tablas', 5); check(W.slots[i]?.id === 'tablas', 'add does not fill the hole');
     const C = new WeightInventory(); C.infinite = true; C.add('piedra', 99); check(C.capKg === Infinity && C.load === 0, 'creative has a limit');
-    check(weightOf('madera') === 2 && weightOf('peto_hierro') === 8 && weightOf('carpa') === 1 && weightOf('semilla_trigo') === 0.01 && weightOf('alfombra_persa_3x4') === 12, 'some weights are not as in the table');
+    check(weightOf('madera') === 2 && weightOf('peto_hierro') === 8 && weightOf('carpa') === CATCH.typicalG('carpa') / 1000 && weightOf('semilla_trigo') === 0.01 && weightOf('alfombra_persa_3x4') === 12, 'some weights are not as in the table');
     const before = W.kg; W.equip.encima = { id: 'peto_hierro' }; W.changed(); check(Math.abs(W.kg - before - 8) < 0.01, 'the armour worn does not count');
   });
   await test('peso guardado (weight save): more than 36 stacks and the carried log load in slot mode without losing anything, and back', async () => {
@@ -5209,6 +5397,7 @@ async function soloTests(game) {
     // Slot mode: a log is its wood
     const S = new Inventory(); S.add('log', 1); check(S.count('madera') === 4 && !S.count('log'), 'slot mode keeps a log');
   });
+  await test('fish (english): kitchen, with the weight inventory and the chests nearby', async () => { await weightOn(); await kitchenTest(true); });
   await test('peso cofres (weight chests): B and C take what is missing from chests within 16 tiles and say from where', async () => {
     await weightOn();
     const I = inv(), kept = I.slots.slice();

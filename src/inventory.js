@@ -5,6 +5,7 @@
 import { ITEMS, LEGACY_ITEMS, modernSlots } from './items.js';
 import './buildables.js';   // (apunta en LEGACY_ITEMS los muebles y las estaciones, que ya no son objetos)
 import { BULKY, BULKY_PARTS } from './carry-items.js';   // (the big things carried in the arms: see carry.js)
+import { tracked, stamp, joins, blend, sameStack, takeOrder, plain, FIELDS } from './catch.js';   // (the fish: each stack its weight and its day)
 import { t } from './i18n.js';
 
 export const SLOTS = 36, HOTBAR = 9;
@@ -12,8 +13,8 @@ const PREV_MS = 500;   // (held this long, what was in hand counts as "the one b
 // Lo que distingue una cosa de otra igual (el color de una prenda, lo gastada que está una herramienta o una
 // armadura: dur, los usos que le quedan; the water left in a canteen or a jug: sips; how worn a garment is: tear, 0..100,
 // Plan E §3.2, never dur, which the anvil reads as metal wear; a garment that has been worn: donned, 1, so putting it on
-// again is never "new clothes", body.js scanWorn); undefined si no hay nada
-export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.map) e.map = s.map; if (s?.sips > 0) e.sips = s.sips; if (s?.tear > 0) e.tear = s.tear; if (s?.donned) e.donned = 1; return Object.keys(e).length ? e : undefined; };
+// again is never "new clothes", body.js scanWorn; of the fish, what catch.js says); undefined si no hay nada
+export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.map) e.map = s.map; if (s?.sips > 0) e.sips = s.sips; if (s?.tear > 0) e.tear = s.tear; if (s?.donned) e.donned = 1; if (s && tracked(s.id)) for (const k of FIELDS) if (s[k] !== undefined) e[k] = s[k]; return Object.keys(e).length ? e : undefined; };
 // What a piece keeps when it goes from a slot to the body or back: its colour, its wear (dur), its tear and donned
 const pieceOf = (s, color) => ({ color, ...(s.dur !== undefined && { dur: s.dur }), ...(s.tear > 0 && { tear: s.tear }), ...(s.donned && { donned: 1 }) });
 
@@ -64,25 +65,28 @@ export class Inventory {
     if (!ITEMS[id]) return n;   // (de una versión más nueva: no cabe, y quien lo daba se lo queda)
     const max = ITEMS[id].stack, cap = this.cap;
     extra ||= ITEMS[id].wear ? { color: ITEMS[id].dye } : undefined;
-    if (!extra) for (let i = 0; i < cap && n > 0; i++) { const s = this.slots[i]; if (s && s.id === id && !s.color && s.n < max) { const k = Math.min(n, max - s.n); s.n += k; n -= k; } }
-    for (let i = 0; i < cap && n > 0; i++) if (!this.slots[i]) { const k = Math.min(n, max); this.slots[i] = { id, n: k, ...extra }; n -= k; }
+    const fish = tracked(id) ? (extra = stamp(id, extra)) : null, whole = fish?.tr ? 1 : max;   // (fish: with those of its day; a trophy, on its own)
+    if (!extra || fish) for (let i = 0; i < cap && n > 0; i++) { const s = this.slots[i]; if (s && s.id === id && s.n < max && (fish ? joins(s, fish) : !s.color)) { const k = Math.min(n, max - s.n); blend(s, fish || s, k); n -= k; } }
+    for (let i = 0; i < cap && n > 0; i++) if (!this.slots[i]) { const k = Math.min(n, whole); this.slots[i] = { id, n: k, ...extra }; n -= k; }
     this.changed();
     return n;
   }
-  count(id) { return this.slots.reduce((t, s) => t + (s?.id === id ? s.n : 0), 0); }
+  // (ok: which of its stacks count; by itself, all but the trophies)
+  count(id, ok = plain) { return this.slots.reduce((t, s) => t + (s?.id === id && ok(s) ? s.n : 0), 0); }
   // Cuántos de un objeto caben todavía
   room(id) {
     if (LEGACY_ITEMS[id]) id = LEGACY_ITEMS[id][0][0];
-    const max = ITEMS[id].stack;
-    return this.slots.slice(0, this.cap).reduce((t, s) => t + (!s ? max : s.id === id && !s.color ? max - s.n : 0), 0);
+    const max = ITEMS[id].stack, fish = tracked(id) ? stamp(id) : null;
+    return this.slots.slice(0, this.cap).reduce((t, s) => t + (!s ? max : s.id === id && (fish ? joins(s, fish) : !s.color) ? max - s.n : 0), 0);
   }
-  // Quita n de un objeto, de donde esté (primero de las casillas de la mochila, luego de la barra rápida)
-  remove(id, n) {
+  // Quita n de un objeto, de donde esté (primero de las casillas de la mochila, luego de la barra rápida; of fish, the
+  // oldest first and never a trophy). ok: of which stacks; took(s, k): told each stack and how many of it
+  remove(id, n, ok = plain, took = null) {
     if (this.infinite) { this.changed(); return; }
-    for (let i = SLOTS - 1; i >= 0 && n > 0; i--) {
-      const s = this.slots[i];
-      if (s?.id !== id) continue;
-      const k = Math.min(n, s.n);
+    for (const i of takeOrder(this.slots, id, ok)) {
+      if (n <= 0) break;
+      const s = this.slots[i], k = Math.min(n, s.n);
+      took?.(s, k);
       s.n -= k; n -= k;
       if (s.n <= 0) this.slots[i] = null;
     }
@@ -105,9 +109,10 @@ export class Inventory {
   move(from, to) {
     if (from === to || !this.usable(from) || !this.usable(to)) return;
     const a = this.slots[from], b = this.slots[to];
-    if (a && b && a.id === b.id && !a.color && !b.color) {
+    if (a && b && sameStack(a, b)) {
       const k = Math.min(a.n, ITEMS[b.id].stack - b.n);
-      b.n += k; a.n -= k;
+      if (k > 0) blend(b, a, k);
+      a.n -= k;
       if (a.n <= 0) this.slots[from] = null;
     } else {
       this.slots[from] = b; this.slots[to] = a;

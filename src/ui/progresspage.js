@@ -15,7 +15,7 @@ import { esc } from './brief.js';
 
 // The planet's places have no end one could count to: this many is "explored"
 export const PLACES_GOAL = 30;
-const recipesAll = () => RECIPES.filter(r => !r.variant);
+const recipesAll = () => RECIPES.filter(r => !r.variant && !r.more);
 const knownFish = g => Object.keys(FISH).filter(id => g.collection.got.has(id) || g.fishing.records[id]).length;
 export const progressParts = [
   { id: 'achievements', label: 'gui.progress.part.achievements', w: 3, get: g => [g.achievements.got.size, ACH.length], goto: 'progress:achievements' },

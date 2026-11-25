@@ -9,6 +9,8 @@ import { itemIconUrl } from '../art/items.js';
 import { CharacterPreview } from '../three/preview.js';
 import { initPackList, toList } from './packlist.js';
 import { stackKg } from '../carry-items.js';
+import { foodDef } from '../catch.js';
+import { catchMark, catchText } from './catchmark.js';
 import { t } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
@@ -28,7 +30,7 @@ function paint(el, s) {
     img.hidden = false;
     n.textContent = s.n > 1 ? s.n : '';
     const def = ITEMS[s.id];
-    const clothes = !def.dur && clothesText(def, s);   // (a garment: what it does for the body, "Warmth +1", and how worn it is)
+    const clothes = (!def.dur && clothesText(def, s)) || catchText(s);   // (a garment: what it does for the body, "Warmth +1", and how worn it is; fish: its weight and how fresh)
     el.title = def.dur ? t('gui.inventory.item_uses', { item: def.name, n: s.dur ?? def.dur, max: def.dur }) : def.canteen ? `${def.name} (${s.sips || 0}/${def.canteen})` : clothes ? `${def.name} (${clothes})` : def.name;
   } else {
     img.hidden = true;
@@ -38,6 +40,7 @@ function paint(el, s) {
   wearBar(el, s);
   sipsBar(el, s);
   tearBar(el, s);
+  catchMark(el, s);
 }
 // Lo gastada que está una herramienta o una armadura: una barrita abajo, de verde a rojo (solo si ya se ha usado)
 export function wearBar(el, s) {
@@ -202,7 +205,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (!s) { $('inv-name').textContent = t('gui.inventory.pick_title'); say([t(inv.weight ? 'gui.inventory.pick_help_list' : 'gui.inventory.pick_help'), kept && t('gui.inventory.kept_newer', { n: kept }), wait && t('gui.inventory.kept_waiting', { n: wait })].filter(Boolean).join(' ')); return; }
     $('inv-icon').src = itemIconUrl(s.id, s.color);
     $('inv-name').textContent = worn ? t('gui.inventory.item_worn', { item: def.name }) : def.name + (s.n > 1 ? ` ×${s.n}` : '');
-    const restores = restoreText(def), clothes = clothesText(def, s), all = stackKg(s);
+    const restores = restoreText(foodDef(s)), clothes = clothesText(def, s) || catchText(s), all = stackKg(s);
     say(def.desc + (restores ? ` ${restores}` : '') + (clothes ? ` ${clothes}.` : '') + (inv.weight ? ` ${t('gui.inventory.weight_each', { kg: Math.round(all / (s.n || 1) * 100) / 100, total: Math.round(all * 10) / 10 })}` : ''));
     $('inv-wearbtn').hidden = !def.wear;
     // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno

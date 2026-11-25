@@ -5,6 +5,8 @@ import { ITEMS, restoreText, clothesText, conditionText, itemNoun, UNKNOWN_NAME 
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
 import { t } from '../i18n.js';
+import { canClean, canSalt, cleaned, saltFor, unitG } from '../catch.js';
+import { catchMark, kgOf } from './catchmark.js';
 import { MACHINES, machineAt, settle, fits } from '../machines.js';
 
 const $ = id => document.getElementById(id);
@@ -32,6 +34,11 @@ export function initCraftingUI(game, { onClose, onBag }) {
     tabs[st] = b;
   }
 
+  // Of a group (grilled fish), the one of the list: the one picked, else one that can be made now, else a known one
+  const faceOf = group => {
+    const c = cr(), all = RECIPES.filter(r => r.group === group), known = all.filter(r => c.known.has(r.id));
+    return picked?.group === group ? picked : known.find(r => c.times(r) > 0) || known[0] || all[0];
+  };
   function refresh() {
     if (!$('s-craft').classList.contains('show')) return;
     const c = cr(), near = c.stationsNear();
@@ -41,7 +48,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
       b.classList.toggle('new', RECIPES.some(r => r.station === st && !r.build && c.fresh.has(r.id)));
     }
     // Lista de recetas de la pestaña: primero las conocidas (de las alfombras, la de 1×1: el tamaño se elige luego)
-    const list = RECIPES.filter(r => r.station === tab && !r.variant && !r.build).sort((a, b) => c.known.has(b.id) - c.known.has(a.id));
+    const faces = {}, list = RECIPES.filter(r => r.station === tab && !r.variant && !r.build && (!r.group || r === (faces[r.group] ||= faceOf(r.group)))).sort((a, b) => c.known.has(b.id) - c.known.has(a.id));
     if (!picked || picked.station !== tab) picked = list.find(r => c.known.has(r.id)) || list[0];
     const box = $('cf-list');
     box.textContent = '';
@@ -78,6 +85,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
       b.disabled = !!off;
       b.onclick = () => { const why = run(); if (why) c.onNotice?.(why); refresh(); };
       box.append(b);
+      return b;
     };
     if (tab === 'yunque') {
       // Arreglar (un material cada vez: devuelve un cuarto de lo que aguanta) y juntar dos iguales
@@ -93,6 +101,16 @@ export function initCraftingUI(game, { onClose, onBag }) {
       for (const r of torn) {
         const have = c.have(r.mat), pct = Math.round(100 - (r.it.tear || 0)), cond = conditionText(r.it);
         row(r.it.id, t('craft.mend', { item: itemNoun(r.it.id) }), `${cond ? `${cond} · ` : ''}${pct} % · ${t('craft.mend.cost', { mat: itemNoun(r.mat), n: have })}`, () => c.mend(r), !near.telar || (have < 1 && !game.inv.infinite), r.it.color);
+      }
+    } else if (tab === 'cocina') {
+      // Clean the big fish into fillets and bait, or salt any of them (Plan R1-3: freshness.js), one at a time of each stack
+      const F = game.freshness, all = F?.stacks() || [], salt = all.length ? c.have('salt') : 0, inf = game.inv.infinite;
+      if (all.length) head(t('kitchen.title'));
+      for (const e of all) {
+        const s = e.s, v = { item: itemNoun(s.id), kg: kgOf(unitG(s)) }, where = e.c ? ` · ${t('kitchen.in_chest')}` : s.n > 1 ? ` · ×${s.n}` : '';
+        const add = (label, sub, kind, off) => catchMark(row(s.id, label, sub, () => F.work(kind, e), !near.cocina || off), s);
+        if (canClean(s)) { const [f, b] = cleaned(s, 0); add(t('kitchen.clean', v), t('kitchen.clean.gives', { n: f[1], m: b[1] }) + where, 'clean', false); }
+        if (canSalt(s)) { const need = saltFor(unitG(s)); add(t('kitchen.salt', v), t('kitchen.salt.cost', { n: need, have: salt }) + where, 'salt', !inf && salt < need); }
       }
     } else if (MACHINES[tab] && st && st !== true) machinePanel(box, st.tile, head, note);
     else if (tab === 'banco') {
@@ -167,9 +185,19 @@ export function initCraftingUI(game, { onClose, onBag }) {
     const restores = known ? restoreText(def) : '', clothes = known ? clothesText(def) : '';
     $('cf-desc').textContent = known ? def.desc + (restores ? ` ${restores}` : '') + (clothes ? ` ${clothes}.` : '') : lockedHint(r, c.seen);
     // Las alfombras: aquí se elige el tamaño (cada uno con su receta, que cuesta según lo que ocupa)
-    const sizes = $('cf-sizes'), kind = r.variant || (ITEMS[r.out].rug && r.out);
+    const sizes = $('cf-sizes'), kind = r.variant || (ITEMS[r.out].rug && r.out), fish = r.group ? RECIPES.filter(q => q.group === r.group && c.known.has(q.id) && (q === r || c.times(q) > 0)) : [];
     sizes.textContent = '';
-    sizes.hidden = !known || !kind;
+    sizes.hidden = !known || (!kind && fish.length < 2);
+    // (grilled fish: which one)
+    if (known) for (const v of fish.length > 1 ? fish : []) {
+      const b = document.createElement('button'), id = v.ins[0][0];
+      b.type = 'button';
+      b.className = 'cf-size' + (v === r ? ' on' : '');
+      b.innerHTML = `<img alt="" src="${itemIconUrl(id)}" style="width:26px;height:26px;vertical-align:middle">`;
+      b.title = ITEMS[id].name;
+      b.onclick = () => { picked = v; refresh(); };
+      sizes.append(b);
+    }
     if (known && kind) for (const v of RECIPES.filter(q => q.out === kind || q.variant === kind)) {
       const b = document.createElement('button'), [w, h] = ITEMS[v.out].size;
       b.type = 'button';
@@ -182,7 +210,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     ins.textContent = '';
     if (known) {
       for (const [id, n] of r.ins) {
-        const have = game.craft.have(id), row = document.createElement('div'), chests = have - game.inv.count(id);   // (with the weight inventory, the chests nearby count: carry.js)
+        const have = game.craft.have(id, r), row = document.createElement('div'), chests = have - game.inv.count(id, r.ok || undefined);   // (with the weight inventory, the chests nearby count: carry.js)
         row.className = 'cf-in' + (have >= n ? ' have' : '');
         row.innerHTML = `<img alt="" src="${itemIconUrl(id)}"><span>${ITEMS[id].name}</span><b>${have}/${n}</b>`;
         if (chests > 0) { const c = document.createElement('small'), b = row.querySelector('b'); c.style.cssText = 'margin-left: auto; font-size: 14px; color: var(--dim)'; c.textContent = t('gui.crafting.in_chests', { n: chests }); b.style.marginLeft = '8px'; b.before(c); }

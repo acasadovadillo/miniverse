@@ -601,7 +601,7 @@ export class Neighbors {
     let pts = 25, how = 'neutral';
     if (def.loves.includes(item)) { pts = 90; how = 'loved'; }
     else if (def.likes.includes(item) || (isFlower && def.likes.includes('flores')) || (CROPS[item] && def.likes.includes('cultivos'))) { pts = 50; how = 'liked'; }
-    else if (def.hates.includes(item)) { pts = -25; how = 'hated'; }
+    else if (def.hates.includes(item) || item === 'rotten_fish') { pts = -25; how = 'hated'; }
     const past = (Array.isArray(f.gifts) ? f.gifts : []).filter(x => Array.isArray(x) && recent(day, x[0], GIFT_REST - 1)), again = past.filter(x => x[1] === item).length;
     f.gifts = [...past, [day, item]].slice(-GIFTS_KEPT);
     const part = how === 'hated' || !again ? 1 : again === 1 ? 2 : 4, wish = Array.isArray(f.wish) && f.wish[0] === item && recent(day, f.wish[1], WISH_DAYS);

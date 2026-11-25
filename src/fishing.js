@@ -7,7 +7,7 @@
 // What bites, and how soon, is the water's word (fishwater.js): its kind and depth, the spot, the light, the season, the
 // water's temperature, the weather and how fished-out that spot is.
 // R changes the bait (Shift+R, the other way), and the bait makes the rig: worms, maize, bread and insects hang from the float;
-// a worm on the bottom, cut fish or a crab lie on the bed and it is the rod's tip that tells; a spoon or a jig is cast and
+// a worm on the bottom, cut or rotten fish or a crab lie on the bed and it is the rod's tip that tells; a spoon or a jig is cast and
 // comes back by itself, with a chance of a predator on the way. From a boat under way the lure is trolled behind instead.
 // A bait goes with each fish landed or stolen; a lure lasts so many casts and is lost with a broken line.
 //
@@ -43,7 +43,7 @@ const PHASES = { wait: 1, bite: 2, fight: 3 };
 export const BAITS = [
   { key: 'worm', id: 'worm', rig: 'float', use: true }, { key: 'worm_bottom', id: 'worm', rig: 'bottom' }, { key: 'maiz', id: 'maiz', rig: 'float' }, { key: 'pan', id: 'pan', rig: 'float' },
   ...['saltamontes', 'grillo', 'polilla'].map(id => ({ key: id, id, rig: 'float', use: true })),
-  { key: 'cut_bait', id: 'cut_bait', rig: 'bottom', use: true }, { key: 'cangrejo', id: 'cangrejo', rig: 'bottom' },
+  { key: 'cut_bait', id: 'cut_bait', rig: 'bottom', use: true }, { key: 'rotten_fish', id: 'rotten_fish', rig: 'bottom', use: true }, { key: 'cangrejo', id: 'cangrejo', rig: 'bottom' },
   { key: 'spoon', id: 'spoon', rig: 'spin' }, { key: 'jig', id: 'jig', rig: 'spin' },
 ];
 const BARE_HOOK = { key: '', id: '', rig: 'float' }, CUT_FROM = 'sardina', CUTS = 3;
@@ -381,7 +381,7 @@ export class Fishing {
     const c = this.card, g = this.game;
     if (!c) return false;
     this.card = null;
-    this.jump(c.id);
+    this.jump(c.id, { g: c.g, day: this.game.days.realDay, ...(c.trophy && { tr: 1, cm: Math.round(c.cm * 10) / 10 }) });
     g.skills?.gain('pesca', c.xp);
     this.tire(c, 1);
     return true;
@@ -405,10 +405,10 @@ export class Fishing {
     this.card.x0 = performance.now();
     return true;
   }
-  // It falls at the player's side and goes to the backpack by itself
-  jump(id) {
+  // It falls at the player's side and goes to the backpack by itself (extra: a fish's weight and day, catch.js)
+  jump(id, extra) {
     const g = this.game;
-    g.gather.drops.push({ id, x: g.player.x + (Math.random() - 0.5) * 0.4, y: g.player.y + 0.2, z: 14, vz: 70 + Math.random() * 20, t: 0.2, scene: g.scene });
+    g.gather.drops.push({ id, extra, x: g.player.x + (Math.random() - 0.5) * 0.4, y: g.player.y + 0.2, z: 14, vz: 70 + Math.random() * 20, t: 0.2, scene: g.scene });
   }
   lose(text) {
     if (text) { this.game.gather.float(text, '#ffb0a0'); Audio.error(); }
@@ -588,7 +588,8 @@ export class Fishing {
     return FIGHT;
   }
 
-  // The angler's log (diary): each fish, where and when, its record and how many
+  // The angler's log (diary): each fish, where, when and with what, its record (length, weight, day and water) and how many;
+  // and the last ones caught
   journal() {
     const g = this.game, ids = Object.keys(FISH), known = id => g.collection.got.has(id) || !!this.records[id];
     const water = f => f.water.map(w => tr('nature.water.' + w)), T = g.days;
@@ -597,18 +598,24 @@ export class Fishing {
       f.hours ? tr('nature.fact.fish_hours', { a: f.hours[0], b: f.hours[1] }) : f.night ? tr('nature.fact.fish_night') : f.rare ? '' : tr('nature.fact.fish_dawn'),
       f.weather ? tr('nature.fact.rain') : '',
     ].filter(Boolean).join(' · ');
+    const dateOf = day => fmt.date(day * 86400000, { day: 'numeric', month: 'short', timeZone: 'UTC' }), waterOf = id => (typeof id === 'string' && has(`nature.water.${id}`) ? tr('nature.water.' + id) : '');
     const rec = id => {
       const r = this.log.rec[id], cm = this.records[id];
       if (!cm) return '';
-      const at = r?.[2] > 0 ? fmt.date(r[2] * 86400000, { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
-      return `${fmt.num(cm)} cm${r ? `<small>${kgText(r[1] / 1000)} kg</small>` : ''}${at || this.log.n[id] ? `<small>${[this.log.n[id] ? tr('fish.log.count', { n: this.log.n[id] }) : '', at].filter(Boolean).join(' · ')}</small>` : ''}`;
+      const at = r?.[2] > 0 ? dateOf(r[2]) : '';
+      return `${tr('fish.card', { cm: fmt.num(cm), kg: r ? kgText(r[1] / 1000) : '?' })}${at || r?.[3] ? `<small>${[at, waterOf(r?.[3])].filter(Boolean).join(' · ')}</small>` : ''}${this.log.n[id] ? `<small>${tr('fish.log.count', { n: this.log.n[id] })}</small>` : ''}`;
     };
+    // (the icon opens its page of the nature book, which has the rest: journal.js)
+    const best = f => [when(f), f.temp ? tr('fish.log.temp', { a: f.temp[0], b: f.temp[1] }) : '', baitOf(f)].filter(Boolean).join(' · ');
+    const baitOf = f => Object.entries(f.bait || {}).filter(([b]) => b === 'insect' || ITEMS[b]).sort((a, b) => b[1] - a[1]).slice(0, 1).map(([b]) => (b === 'insect' ? tr('fish.bait.insect') : tr('fish.log.bait', { item: itemNoun(b) })))[0] || '';
+    const last = this.log.last.filter(r => Array.isArray(r) && FISH[r[0]] && Number.isFinite(r[1]) && Number.isFinite(r[2])).map(([id, cm, grams, day, water]) =>
+      `<div class="j-fish"><span class="j-cell done" data-nature="${id}"><img alt="" data-icon="${id}"></span><span><b>${fishName(id)}</b><small>${[day > 0 ? dateOf(day) : '', waterOf(water)].filter(Boolean).join(' · ')}</small></span><span class="lvl">${tr('fish.card', { cm: fmt.num(cm), kg: kgText(grams / 1000) })}</span></div>`).join('');
     return `<p class="j-note">${tr('fish.log.summary', { n: ids.filter(known).length, of: ids.length, fish: g.stats.get('peces') })}</p>` + ids.map(id => {
       const f = FISH[id], k = known(id);
-      return `<div class="j-fish"><span class="j-cell ${k ? 'done' : 'none'}"><img alt="" data-icon="${id}"></span>` +
-        `<span><b>${k ? fishName(id) : '???'}</b><small>${tr('nature.fact.waters', { list: water(f) })}${k ? ' · ' + when(f) : ''}</small></span>` +
+      return `<div class="j-fish"><span class="j-cell ${k ? 'done' : 'none'}"${k ? ` data-nature="${id}"` : ''}><img alt="" data-icon="${id}"></span>` +
+        `<span><b>${k ? fishName(id) : '???'}</b><small>${tr('nature.fact.waters', { list: water(f) })}${k ? ' · ' + best(f) : ''}</small></span>` +
         `<span class="lvl">${rec(id)}</span></div>`;
-    }).join('');
+    }).join('') + (last ? `<h3>${tr('fish.log.last')}</h3>${last}` : '');
   }
 }
 const OUT = { arm: -0.35, lean: 0 }, FIGHT = { arm: -0.9, lean: -0.1 }, HELD = { arm: -1.05, lean: -0.04, both: true };

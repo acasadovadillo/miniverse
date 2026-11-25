@@ -1,5 +1,5 @@
 // The fish of Plan R1-2 (tench, barbel, crayfish, mackerel, gilt-head bream, squid) and the angler's things (worm, cut bait,
-// spoon, feather jig, landing net): the shapes food3d.js shows in the hand, on the ground and in the icons, and nature's plates
+// spoon, feather jig, landing net), and what the catch becomes (Plan R1-3: fillet, salted and rotten fish, salt): the shapes food3d.js shows in the hand, on the ground and in the icons, and nature's plates
 // draw. Each is a single mesh with its colours in the vertices and one of two shared materials (wet, dry), so a model is
 // one draw call. Real proportions, nose towards +z, up +y; a fish is 0.28 m long like food3d's (the catch is scaled to its
 // length). Made the first time they are asked for and kept.
@@ -326,8 +326,94 @@ const THINGS = {
   },
 };
 
+// ---------- the catch, later (Plan R1-3) ----------
+// The flesh of a fillet: chevrons that open towards the tail, the pale lines between them, the dark line along the middle
+const FAT = new THREE.Color('#fff4ea'), flakes = (x, z, o, pale, deep, red) => { const w = Math.abs(x) / 0.03, v = Math.cos((z - w * 0.024) * 420); mixTo(o, deep, pale, 0.35 * blot(x * 90 + 4, z * 60)); o.lerp(FAT, 0.8 * smooth(0.72, 0.98, v)); o.lerp(red, 0.55 * smooth(0.0045, 0.001, Math.abs(x))); };
+const KEPT = {
+  // A side of fish on its skin: thick at the shoulder, thin at the belly and the tail, with a second one behind
+  fillet(kit) {
+    const pale = C('#eab8a0'), deep = C('#cf7f66'), red = C('#8e3b36'), skin = C('#8f9ba0'), back = C('#4c5c62');
+    const one = (p, r, k) => {
+      const rows = [[0.118, 0.002, 0.003, 0.012], [0.108, 0.009, 0.004, 0.027], [0.08, 0.0145, 0.005, 0.036], [0.03, 0.015, 0.005, 0.0365], [-0.03, 0.0125, 0.005, 0.031], [-0.08, 0.009, 0.004, 0.022], [-0.112, 0.006, 0.0035, 0.0135], [-0.126, 0.001, 0.002, 0.006]];
+      const { geo, colors } = body(rows, (u, h, z, o) => o.setRGB(0, 0, 0), 44, 22); colors.length = 0;
+      const P = geo.attributes.position;
+      for (let i = 0; i < P.count; i++) { const x = P.getX(i), z = P.getZ(i), y = P.getY(i); P.setY(i, y + (y > 0 ? 0.0007 * Math.cos((z - Math.abs(x) * 0.8) * 420) : 0) + 0.004 * Math.sin(z * 22) + (x > 0 ? -0.1 : 0.05) * Math.abs(x)); }
+      geo.computeVertexNormals();
+      kit.put(geo, (x, y, z, o) => { const top = y - (0.004 * Math.sin(z * 22) + (x > 0 ? -0.1 : 0.05) * Math.abs(x)); if (top > 0.0006) { flakes(x, z, o, pale, deep, red); o.lerp(FAT, 0.5 * smooth(0.024, 0.037, Math.abs(x))); } else mixTo(o, skin, back, smooth(-0.01, 0.02, x) * 0.8 + 0.2 * blot(x * 120, z * 70)); }, p, k, r);
+      geo.dispose();
+    };
+    one([-0.012, 0.018, -0.006], [0.1, 0.16, 0.14], 0.96);
+    one([0.018, 0.002, 0.012], [0, -0.22, -0.04], 1);
+  },
+  // Split and dried flat: the kite shape, ribs showing in the flesh, the backbone, the skin's yellow edge, the tail, and salt
+  salted_fish(kit) {
+    const flesh = C('#e6d8b4'), dark = C('#c2a878'), edgeC = C('#a98e5a'), tailC = C('#9a8a64'), white = new THREE.Color('#fbfaf4');
+    const N = 40, M = 18, pos = [], idx = [], half = u => 0.062 * Math.sin(Math.PI * Math.min(1, 0.16 + u * 0.95)) ** 0.8 * (1 - 0.82 * smooth(0.3, 1, u)) + 0.006;
+    for (let side = 0; side < 2; side++) for (let i = 0; i <= N; i++) for (let j = 0; j <= M; j++) {
+      const u = i / N, q = (j / M) * 2 - 1, w = half(u) * (1 + 0.05 * Math.sin(u * 31 + q * 2) * Math.abs(q)), z = 0.125 - u * 0.235;
+      const rib = side ? 0 : 0.0016 * Math.cos((u * 46) + Math.abs(q) * 5.2) * (1 - Math.abs(q)) * smooth(0.03, 0.12, u);
+      pos.push(q * w, (side ? -0.0035 : 0.0042 + 0.004 * (1 - q * q)) + rib + 0.009 * q * q * Math.sin(u * 7 + 0.6) + 0.004 * Math.sin(u * 9), z);
+    }
+    const V = (N + 1) * (M + 1);
+    for (let i = 0; i < N; i++) for (let j = 0; j < M; j++) { const a = i * (M + 1) + j, b = a + M + 1; idx.push(a, b, a + 1, b, b + 1, a + 1, a + V, a + V + 1, b + V, b + V, a + V + 1, b + V + 1); }
+    const rim = []; for (let i = 0; i <= N; i++) rim.push(i * (M + 1)); for (let j = 1; j <= M; j++) rim.push(N * (M + 1) + j); for (let i = N - 1; i >= 0; i--) rim.push(i * (M + 1) + M); for (let j = M - 1; j >= 0; j--) rim.push(j);
+    for (let i = 0; i + 1 < rim.length; i++) { const a = rim[i], b = rim[i + 1]; idx.push(a, a + V, b, b, a + V, b + V); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    kit.put(g, (x, y, z, o) => {
+      const u = (0.125 - z) / 0.235, q = Math.abs(x) / half(Math.max(0, Math.min(1, u)));
+      mixTo(o, flesh, dark, 0.2 + 0.35 * blot(x * 130 + 9, z * 90) + 0.3 * (0.5 + 0.5 * Math.cos(u * 46 + q * 5.2)) * (1 - q));
+      o.lerp(edgeC, 0.75 * smooth(0.82, 0.97, q)); if (y < 0.0015 - 0.02 * q) o.lerp(edgeC, 0.4);
+      if (blot(x * 520, z * 520) > 0.7) o.lerp(white, 0.75);
+    });
+    g.dispose();
+    kit.put(tube([[0, 0.0085, 0.115], [0.0015, 0.0105, 0.05], [-0.001, 0.0095, -0.02], [0, 0.006, -0.09]], 0.0024, 24, 6), dark);
+    for (let i = 0; i < 12; i++) for (const s of [-1, 1]) { const z = 0.1 - i * 0.0125, L = half((0.125 - z) / 0.235) * 0.72; kit.put(taper([[0, 0.0098, z], [s * L * 0.5, 0.0085, z - 0.006], [s * L, 0.0062, z - 0.016]], 0.0011, 0.0004, 5, 4), flesh); }
+    const sh = new THREE.Shape([[0.005, -0.104], [0.03, -0.142], [0.012, -0.134], [0, -0.13], [-0.012, -0.134], [-0.03, -0.142], [-0.005, -0.104]].map(([x, z]) => new THREE.Vector2(x, -z))), T = new THREE.ShapeGeometry(sh, 4);
+    T.rotateX(-Math.PI / 2); kit.put(T, (x, y, z, o) => { mixTo(o, tailC, edgeC, 0.5 + 0.5 * Math.cos(x * 700)); }, [0, 0.0035, 0]);
+    for (let i = 0; i < 70; i++) { const u = 0.04 + 0.86 * noise(i, 1), q = (noise(i, 2) * 2 - 1) * 0.85, z = 0.125 - u * 0.235; kit.put(new THREE.BoxGeometry(1, 1, 1), white, [q * half(u), 0.008 + 0.004 * (1 - q * q) + 0.009 * q * q * Math.sin(u * 7 + 0.6) + 0.004 * Math.sin(u * 9) - 0.003, z], 0.0016 + 0.0018 * noise(i, 3), [noise(i, 4) * 3, noise(i, 5) * 3, 0]); }
+  },
+  // A dead fish past its time: sunk, grey and slimy green, a clouded eye, the belly burst on the ribs, rags for fins and flies
+  rotten_fish(kit) {
+    const back = C('#5c6146'), flank = C('#9c9a78'), belly = C('#c4b48c'), slime = C('#5f7a3a'), rot = C('#3a2a22'), gut = C('#5c2f2c'), f0 = C('#8a8668'), f1 = C('#66624a'), bone = C('#d8cca8');
+    putBody(kit, [[0.14, 0.004, 0.0045, 0.004], [0.126, 0.015, 0.015, 0.011], [0.1, 0.025, 0.026, 0.016], [0.06, 0.026, 0.034, 0.0175], [0.02, 0.0215, 0.03, 0.0155], [-0.03, 0.019, 0.02, 0.0115], [-0.072, 0.0135, 0.0125, 0.0075], [-0.1, 0.0095, 0.009, 0.005], [-0.112, 0.009, 0.0085, 0.004]],
+      (u, h, z, o) => {
+        shade(o, h, back, flank, belly, 0.45, -0.4); o.multiplyScalar(scales(z, h, 240, 0.12));
+        const q = blot(z * 55 + 3, h * 2.6), r = blot(z * 38 + 11, h * 3.4 + 5);
+        o.lerp(slime, 0.7 * smooth(0.5, 0.78, q)); o.lerp(rot, 0.85 * smooth(0.6, 0.82, r));
+        const hole = smooth(0.03, 0.012, Math.hypot(z - 0.038, (h + 0.42) * 0.05)); o.lerp(gut, hole); o.lerp(rot, 0.6 * hole * blot(z * 200, h * 12));
+      }, 36, 20);
+    for (let i = 0; i < 5; i++) for (const s of [-1, 1]) { const z = 0.056 - i * 0.0085; kit.put(taper([[s * 0.0155, -0.004, z], [s * 0.018, -0.014, z - 0.003], [s * 0.0115, -0.026, z - 0.006]], 0.0012, 0.0006, 6, 4), bone); }
+    fin(kit, edge(0.04, -0.03, [0.003, 0.016, 0.004, 0.014, 0.006, 0.011, 0.002]), f0, f1, { at: [0, 0.0205, 0] });
+    fin(kit, edge(-0.03, -0.062, [0.003, 0.012, 0.004, 0.009, 0.002]).map(([z, y]) => [z, -y]), f0, f1, { at: [0, -0.016, 0] });
+    for (const s of [-1, 1]) fin(kit, edge(0.07, 0.054, [0.002, 0.018, 0.006, 0.014, 0.002]).map(([z, y]) => [z - y * 0.9, -y]), f0, f1, { at: [s * 0.015, -0.012, 0], rot: [0, 0, s * 0.8] });
+    fin(kit, [[-0.104, 0.008], [-0.132, 0.026], [-0.126, 0.014], [-0.139, 0.012], [-0.128, 0.003], [-0.137, -0.004], [-0.126, -0.009], [-0.134, -0.022], [-0.104, -0.008]], f0, f1, { rays: 1 });
+    for (const s of [-1, 1]) { kit.put(BALL, rot, [s * 0.0115, 0.0055, 0.112], [0.0032, 0.0062, 0.0062]); kit.put(BALL, C('#c9cbb8'), [s * 0.0132, 0.0052, 0.1118], [0.0028, 0.0046, 0.0046]); }
+    face(kit, { gill: 0.08, gillW: 0.0165, gillY: 0.022, mouth: 0.1385, mouthY: -0.0015, dark: rot });
+    for (const [x, y, z] of [[0.0135, 0.016, 0.03], [-0.011, 0.019, -0.012], [0.0165, -0.008, 0.078], [0.006, 0.0235, 0.07]]) {
+      kit.put(BALL, new THREE.Color('#15181c'), [x, y + 0.0022, z], [0.0019, 0.0019, 0.0034]); kit.put(BALL, C('#5a1f1c'), [x, y + 0.0026, z + 0.0034], 0.0013);
+      for (const s of [-1, 1]) kit.put(new THREE.CircleGeometry(1, 6), C('#aab0b4'), [x + s * 0.002, y + 0.0042, z - 0.0012], [0.0015, 0.0034, 1], [-1.2, s * 0.5, 0]);
+    }
+  },
+  // A little sack, its mouth rolled down, heaped with coarse salt
+  salt(kit) {
+    const cloth = C('#c8b58c'), seam = C('#8f7a52'), white = new THREE.Color('#f7f6f1'), grey = C('#cfd2d2');
+    const pts = [[0.001, -0.05], [0.04, -0.05], [0.0505, -0.038], [0.052, -0.012], [0.047, 0.012], [0.0405, 0.026], [0.0425, 0.031], [0.0465, 0.033], [0.048, 0.029], [0.0455, 0.024]].map(p => new THREE.Vector2(...p)), g = new THREE.LatheGeometry(pts, 36), P = g.attributes.position;
+    for (let i = 0; i < P.count; i++) { const x = P.getX(i), y = P.getY(i), z = P.getZ(i), a = Math.atan2(z, x), k = 1 + 0.035 * Math.sin(a * 5 + y * 40) + 0.02 * Math.sin(a * 11) + 0.05 * Math.sin(a * 2 + 1); P.setXYZ(i, x * k, y, z * k); }
+    g.computeVertexNormals();
+    kit.put(g, (x, y, z, o) => { o.copy(cloth).multiplyScalar(0.82 + 0.1 * Math.cos(y * 1500) + 0.1 * Math.cos(Math.atan2(z, x) * 90) + 0.1 * blot(x * 60, z * 60 + y * 40)); if (y > 0.027) o.lerp(seam, 0.25); });
+    g.dispose();
+    const heap = new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), H = heap.attributes.position;
+    for (let i = 0; i < H.count; i++) { const x = H.getX(i), y = H.getY(i), z = H.getZ(i), k = 1 + 0.06 * (blot(x * 9 + 4, z * 9 + y * 5) - 0.5); H.setXYZ(i, x * k, y * k, z * k); }
+    heap.computeVertexNormals();
+    kit.put(heap, (x, y, z, o) => mixTo(o, white, grey, 0.8 * blot(x * 14 + 30, z * 14 + y * 9)), [0, 0.016, 0], [0.041, 0.028, 0.041]);
+    for (let i = 0; i < 90; i++) { const a = noise(i, 1) * 6.283, r = Math.sqrt(noise(i, 2)) * 0.038; kit.put(new THREE.BoxGeometry(1, 1, 1), i % 4 ? white : grey, [Math.cos(a) * r, 0.016 + 0.028 * Math.sqrt(Math.max(0, 1 - (r / 0.041) ** 2)), Math.sin(a) * r], 0.0028 + 0.0026 * noise(i, 3), [noise(i, 4) * 3, noise(i, 5) * 3, noise(i, 6) * 3]); }
+    kit.put(tube([[0.049, 0.004, 0.012], [0.056, -0.004, 0.018], [0.05, -0.02, 0.022], [0.057, -0.032, 0.016]], 0.0016, 12, 5), seam);
+  },
+};
+
 // (the long things are drawn upright; laid along z, their broad side to the side, as a fish is seen)
 const LAID = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)), LONG = new Set(['spoon', 'jig', 'landing_net']);
 const make = (f, material, laid) => g => { const k = new Kit(); f(k); const m = k.mesh(material()); if (laid) m.geometry.applyMatrix4(LAID); g.add(m); };
 export const FISH_MODELS = Object.fromEntries(Object.entries(FISHES).map(([id, f]) => [id, make(f, wet)]));
+export const KEPT_MODELS = Object.fromEntries(Object.entries(KEPT).map(([id, f]) => [id, make(f, id === 'fillet' || id === 'rotten_fish' ? wet : dry)]));
 export const TACKLE_MODELS = Object.fromEntries(Object.entries(THINGS).map(([id, f]) => [id, make(f, id === 'landing_net' ? dry : id === 'spoon' ? shiny : wet, LONG.has(id))]));

@@ -3,6 +3,7 @@ import { ITEMS, CROPS, FISH } from './items.js';
 import { seedOf } from './cropdata.js';
 import { t } from './i18n.js';
 import { RECIPES } from './recipes.js';
+import { hooks, isFish, unitG, typicalG, freshK, stateOf } from './catch.js';
 
 const BASE = {
   madera: 2, piedra: 2, fibra: 2, carbon: 6, cobre: 10, hierro: 18, oro: 40, bellota: 5, pina: 5,
@@ -18,6 +19,8 @@ const BASE = {
   soap: 10,
   // Tackle (Plan R1-2): all of it sells for less than Lía asks
   worm: 1, cut_bait: 3, spoon: 12, jig: 15,
+  // The catch (Plan R1-3): what each of these is worth when it does not say what fish it was (stackPrice)
+  salt: 3, rotten_fish: 2, fillet: 40, salted_fish: 120,
 };
 // A bite takes 15-60 s (fishwater.js), not 2-7 s as before 2026-11-24: each fish is worth more, so that an hour of ordinary
 // fishing earns about 70 % of what it did and a good dusk more than that (measured: pruebas.js, «fish (english): income»)
@@ -25,7 +28,7 @@ export const FISH_PRICE_K = 5;
 const cache = new Map();
 const plans = list => Object.entries(list).map(([plan, price]) => ({ plan, price }));
 
-// Precio de venta de un objeto (0 si no se vende)
+// Precio de venta de un objeto (0 si no se vende; of fish, a typical one, fresh: stackPrice for a stack of them)
 export function priceOf(id) {
   if (cache.has(id)) return cache.get(id);
   cache.set(id, 0);   // contra recetas circulares
@@ -42,6 +45,15 @@ export function priceOf(id) {
   }
   cache.set(id, p);
   return p;
+}
+hooks.price = priceOf;
+// What each one of a stack sells for: fish by the kilo and by how fresh it is; what is made of a fish, what the fish was worth
+// (val); the rest, priceOf
+export function stackPrice(s) {
+  if (!s) return 0;
+  if (stateOf(s) === 'rotten') return priceOf('rotten_fish');
+  if (isFish(s.id)) return Math.max(1, Math.round(priceOf(s.id) * unitG(s) / typicalG(s.id) * freshK(s)));
+  return s.val > 0 || freshK(s) !== 1 ? Math.max(1, Math.round((s.val > 0 ? s.val : priceOf(s.id)) * freshK(s))) : priceOf(s.id);
 }
 export const buyPrice = id => Math.max(5, Math.round(priceOf(id) * 2.5));
 // What Marta asks to mend a garment (Plan E §3.2): a quarter of what it costs new (her stall's price when she sells it,
@@ -62,6 +74,7 @@ export const SHOPS = {
       { animal: 'cabra', name: 'Cabra', price: 1000 }, { animal: 'cerdo', name: 'Cerdo', price: 1300 }, { animal: 'oveja', name: 'Oveja', price: 1200, project: 'mercado' }, { animal: 'vaca', name: 'Vaca', price: 1500, project: 'mercado' },
       { id: 'maceta', price: 90 }, { id: 'alfombra', price: 160, project: 'mercado' }, { id: 'lampara', price: 220, project: 'mercado' },
       { id: 'pan', price: 70 }, { id: 'manzana', price: 30 }, { id: 'soap', price: 25 },
+      { id: 'salt', price: 8 },
     ],
   },
   anselmo: {
@@ -76,7 +89,7 @@ export const SHOPS = {
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],
     stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'canteen', price: 60 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 400 },
-      { id: 'worm', price: 2 }, { id: 'spoon', price: 25 }, { id: 'jig', price: 30 }, { id: 'landing_net', price: 120 }],
+      { id: 'worm', price: 2 }, { id: 'spoon', price: 25 }, { id: 'jig', price: 30 }, { id: 'landing_net', price: 120 }, { id: 'salt', price: 8 }],
   },
   // Nilo, en la plaza a todas horas: los planos de los muebles de siempre (los demás, Dani, cuando venga al pueblo)
   nilo: {

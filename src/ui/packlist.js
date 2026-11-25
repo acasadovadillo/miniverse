@@ -8,6 +8,8 @@ import { tearStage } from '../clothing.js';
 import { HOTBAR } from '../inventory.js';
 import { stackKg, BULKY, HEAVY } from '../carry-items.js';
 import { itemIconUrl } from '../art/items.js';
+import { stateText } from '../catch.js';
+import { catchMark, catchText } from './catchmark.js';
 import { t } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
@@ -91,12 +93,14 @@ function paintRows(list, inv, slots, picked, onRow) {
     const s = inv.slots[i], [img, name, n, w] = el.children, url = itemIconUrl(s.id, s.color);
     el.dataset.i = i;
     if (img.getAttribute('src') !== url) img.src = url;
-    name.textContent = ITEMS[s.id].name;
+    const gone = stateText(s);
+    name.textContent = ITEMS[s.id].name + (gone ? ` · ${gone}` : '');
     n.textContent = s.n > 1 ? `×${s.n}` : '';
     w.textContent = inv.infinite ? '' : t('gui.inventory.kg', { kg: kg(stackKg(s)) });   // (creative: no limit, so no weights)
-    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur})` : ITEMS[s.id].canteen ? ` (${s.sips || 0}/${ITEMS[s.id].canteen})` : s.tear >= 40 ? ` (${conditionText(s)})` : '');   // (a worn garment: its condition, Plan E §3.2)
+    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur})` : ITEMS[s.id].canteen ? ` (${s.sips || 0}/${ITEMS[s.id].canteen})` : s.tear >= 40 ? ` (${conditionText(s)})` : catchText(s) ? ` (${catchText(s)})` : '');   // (a worn garment: its condition, Plan E §3.2)
     el.classList.toggle('sel', i === picked);
     rowTear(el, s);
+    catchMark(el, s);
   });
 }
 // A garment's condition (Plan E §3.2 and §7.2): the same muted brown bar as on the slots (ui/inventory.js tearBar), thin,
