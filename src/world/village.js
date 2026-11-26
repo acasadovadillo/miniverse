@@ -236,6 +236,7 @@ export function buildVillage() {
   add(17.5, 26.5, { model: 'sign' }); colliders.push({ x: 17.5, y: 26.5, r: 0.25 });
   add(4.5, 40.6, { model: 'sign' }); colliders.push({ x: 4.5, y: 40.6, r: 0.25 });   // (el cartel de la taberna)
   if (projects.law_office) { add(7.6, 12.7, { model: 'sign' }); colliders.push({ x: 7.6, y: 12.7, r: 0.25 }); }   // (and the law office's)
+  add(12.5, 56.3, { model: 'anvil' }); colliders.push({ x: 12.5, y: 56.3, r: 0.32 });   // (Bruno's anvil, beside his forge: the strongbox's lock is broken on it, missions/strongbox.js ANVIL)
 
   // Estanque (la orilla y los nenúfares los pone la vista). pond: only animals, mobs and children go round it; the player
   // wades or swims through it (entities.js), as in any other water

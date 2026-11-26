@@ -195,6 +195,7 @@ export class Carry {
   // What a big thing is worth, into the backpack (what does not fit, at your feet). cq: of a hunted carcass, its record
   giveParts(id, cq = null) {
     const g = this.game;
+    if (BULKY[id]?.self) { const left = g.inv.add(id, 1); if (left) g.gather.throwOut(id, left); return; }   // (the strongbox: itself)
     for (const [m, n] of partsList(id, cq, this.now())) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }
   }
 
@@ -209,7 +210,8 @@ export class Carry {
     if (this.free()) return b;
     const r = this.game.inv.load;
     const k = r <= 1 ? 1 : r <= HEAVY ? 1 - (1 - 0.6) * (r - 1) / (HEAVY - 1) : SLOWEST;
-    return Math.max(FLOOR, k * (this.held ? slowOf(this.held, this.cq) : 1)) * b;
+    const help = this.held && this.game.missions?.helpSlow?.(this.held);   // (the strongbox with the crew beside: missions.js)
+    return Math.max(FLOOR, k * (help || (this.held ? slowOf(this.held, this.cq) : 1))) * b;
   }
   // No sprinting (the three speeds, entities.js GAIT): loaded past NO_RUN, something in the arms or the wheelbarrow
   noRun() {

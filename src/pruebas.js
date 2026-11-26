@@ -124,6 +124,8 @@ import { TableGames, RULES as RULES_TG, liveRec, GAMES_A_DAY, LOST_A_DAY } from 
 import * as TGT from './tg/tiles.js';
 import * as TGAI from './tg/ai.js';
 import * as DRIVE from './missions/drive.js';
+import * as SBOX from './missions/strongbox.js';
+import { Missions as MissionsCls } from './missions.js';
 const TG_CAPS = { games: GAMES_A_DAY, lost: LOST_A_DAY };
 import { wayRound } from './world/walkways.js';
 import { CHAPEL, LOTS, WALK_NODES, setProjects, keepClear, townDigWhy as townWhy } from './world/village.js';
@@ -11306,6 +11308,253 @@ async function soloTests(game) {
   });
   await test('drive (english): the whole cattle drive alone', driveAll(false));
   await test('drive (english): the whole cattle drive with a partner riding ahead', driveAll(true));
+  // ---------- the smugglers' strongbox (I-2, missions/strongbox.js) ----------
+  // (a known camp near the village, the night, the guards on; everything put back after, and never a crime)
+  const SB = SBOX.strongbox;
+  const boxed = fn => jobbed(async o => {
+    const M = o.M, keep = { diff: game.difficulty, spawn: game.rules.doMobSpawning, mouse: game.mouse, law: JSON.stringify(game.law?.v || {}), mp: game.mousePoint, sel: inv().selected, mine: M.mine };
+    Nb().friend('ines').pts = 300; Nb().friend('ines').intro = 0; game.difficulty = 'normal'; game.rules.doMobSpawning = true; game.mouse = null; M.mine = {};
+    try { await fn({ ...o, M }); }
+    finally {
+      game.difficulty = keep.diff; game.rules.doMobSpawning = keep.spawn; game.mouse = keep.mouse; game.mousePoint = keep.mp; M.mine = keep.mine; SBOX.dbgLocal.breaking = null;
+      for (const m of [...game.mobs.list]) if (m.guard) game.mobs.remove(m);
+      game.gather.drops = game.gather.drops.filter(d => d.id !== 'rattle');
+      if (game.carry.held === 'strongbox') game.carry.set(null);
+      for (const id of ['map_half_a', 'map_half_b', 'strongbox_open', 'rattle', 'pala_hierro', 'pala_llena', 'amatista', 'esmeralda', 'rubi']) inv().slots.forEach((s, i) => { if (s?.id === id) inv().slots[i] = null; });
+      inv().changed(); inv().select(keep.sel);
+      check(JSON.stringify(game.law?.v || {}) === keep.law, 'the heist made no crime');
+    }
+  });
+  const campKey = () => game.places.nearest(BOARD.x, BOARD.y, ['campamento'], 900)?.key;
+  const takeBox = async (M, chests) => { await boardNear(); M.ask({ ev: 'accept', kind: 'strongbox', chests }); return M.active; };
+  const holdId = id => { const S = inv().slots, i = S.findIndex(q => q?.id === id); if (i < 0) return i; const k = i < 9 ? i : inv().selected; if (i !== k) { [S[i], S[k]] = [S[k], S[i]]; inv().changed(); } inv().select(k); return k; };
+  const keyE = async () => { for (const t of ['keydown', 'keyup']) dispatchEvent(new KeyboardEvent(t, { code: 'KeyE', key: 'e', bubbles: true })); await frames(2); };
+  const click = async () => { game.gather.cooldown = 0; const c = document.querySelector('canvas'); c?.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'mouse', button: 0, bubbles: true })); dispatchEvent(new PointerEvent('pointerup', { pointerType: 'mouse', button: 0, bubbles: true })); await frames(2); };
+  // The chest of the camp: stand by it and press E
+  const atChest = async poi => {
+    game.teleport(poi.x + 4, poi.y + 3); await readyGround(game, 6000); await frames(3);
+    const c = game.places.chestOf(poi); if (!c) return null;
+    game.teleport(c.x - 1.05, c.y); p().face.x = 1; p().face.y = 0; await frames(3); return c;
+  };
+  // Dig the mark with the shovel and the "cursor": 3 blocks down, the earth thrown beside each time
+  const digIt = async (j, useClick = false, before = null) => {
+    const [tx, ty] = j.data.tile;
+    game.teleport(tx + 0.5, ty + 2.1); await readyGround(game, 6000); await frames(3);
+    if (before) await before();
+    inv().add('pala_hierro', 1); holdId('pala_hierro');
+    for (let i = 0; i < 12 && !(j.data.found); i++) {
+      const full = inv().held?.id === 'pala_llena';   // (empty, the mark; full, the earth beside it, where the shovel may drop it)
+      game.mousePoint = () => [tx + 0.5, ty + 0.5];
+      if (full) for (const [i2, k] of [[1, 1], [-1, 1], [1, 0], [-1, 0], [2, 1], [-2, 1], [0, 1]]) { game.mousePoint = () => [tx + i2 + 0.5, ty + k + 0.5]; if (game.gather.pickTarget()?.ok) break; }
+      game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); digLog.push(`${game.gather.target?.label || game.gather.target?.why || JSON.stringify(game.gather.target)} ${inv().held?.id} ${game.mobs.list.filter(m => m.guard).map(m => m.sleep ? 'z' : 'a').join('')}`);
+      if (useClick) await click(); else { game.gather.use(); await frames(2); }
+      const k = inv().slots.findIndex(s => s?.id === 'pala_hierro' || s?.id === 'pala_llena'); if (k >= 0) inv().select(k);
+      for (let f = 0; f < 6; f++) { M_run(0.2); await frames(1); }
+    }
+    game.mousePoint = () => null;
+  };
+  const M_run = dt => Ms().update(dt), digLog = [];
+  await test('job (english): strongbox solo', boxed(async ({ M, clock }) => {
+    const key = campKey(); check(key, 'a camp near the village'); if (!key) return;
+    const j = await takeBox(M, [key]);
+    check(j?.kind === 'strongbox' && j.data.chest.key === key && j.data.halves.a === ME() && j.data.halves.b === 'chest', `taken: ${JSON.stringify(j?.data?.halves)} ${j?.data?.chest?.key}`); if (!j) return;
+    const d0 = Math.hypot(j.site.x - 12.5, j.site.y - 55.3); check(d0 >= 150 && d0 <= 660 && j.data.posts.length >= 3 && j.data.posts.length <= 5, `the site ${d0.toFixed(0)} tiles off, ${j.data.posts.length} guards`);
+    M_run(0.6); check(inv().slots.some(s => s?.id === 'map_half_a' && s.job === j.id) && !inv().count('map_half_b'), 'half A in the backpack');
+    check(M.goal()?.x === j.data.chest.x, 'the mark: the chest of the camp');
+    // Half B, in the chest: E on it
+    const poi = game.places.poiOf(key), c = await atChest(poi); check(c, 'the camp chest'); if (!c) return;
+    await keyE(); await frames(2); M_run(0.6);
+    check(j.data.halves.b === ME() && j.data.joined && j.stage === 'site' && inv().count('map_half_b') === 1, `half B from the chest: ${JSON.stringify(j.data.halves)} ${j.stage}`);
+    check(M.goal()?.x === j.site.x && M.goal()?.y === j.site.y, 'the mark is the site');
+    // By night: the guards asleep round the mark; 6 uses of the shovel give the box in the arms
+    clock(dayMs(WORKDAY, 1)); game.teleport(j.site.x, j.site.y + 20); await readyGround(game, 6000); M_run(0.3); M_run(0.3);
+    let G = SBOX.guardsOf(game, j); check(G.length === j.data.posts.length && G.every(m => m.sleep), `${G.length} guards asleep`);
+    await digIt(j, false, async () => { inv().add('rattle', 1); holdId('rattle'); game.mousePoint = () => [j.site.x + 14, j.site.y]; SB.throwRattle(game); for (let i = 0; i < 90 && game.gather.drops.some(d => d.id === 'rattle' && (d.z > 0 || d.vz > 0)); i++) await frames(1); });
+    check(j.stage === 'carry' && j.data.found?.by === ME() && j.data.found.night && game.carry.held === 'strongbox', `dug up: ${j.stage} ${JSON.stringify(j.data.found)} depth ${j.data.depth} held ${game.carry.held} · ${digLog.splice(0).join(' | ')}`);
+    check(SBOX.guardsOf(game, j).some(m => !m.sleep), 'the digging woke a guard');
+    // The anvil: E, 3 s, the loot (the same as rolled again)
+    clock(dayMs(WORKDAY, 2)); game.teleport(SBOX.ANVIL[0] - 1.4, SBOX.ANVIL[1]); await readyGround(game, 4000); await frames(3);
+    const m0 = game.money; await keyE();
+    for (let i = 0; i < 60 && !j.done; i++) { await frames(4); M_run(0.1); }
+    M.look();
+    const L = SB.roll(game, j);
+    check(j.done?.outcome === 'ok' && JSON.stringify(j.done.loot) === JSON.stringify(L) && L.coins >= 450 && L.coins <= 900, `opened: ${JSON.stringify(j.done)}`);
+    check(game.money - m0 === L.coins && L.items.every(([id]) => inv().count(id) >= 1) && inv().count('strongbox_open') === 1 && !game.carry.held, `paid ${game.money - m0}; ${inv().count('strongbox_open')} trophy; held ${game.carry.held}`);
+    const o = {}; M.save(o); M.reset(JSON.parse(JSON.stringify(o))); M.look(); M_run(0.6); check(game.money - m0 === L.coins && inv().count('strongbox_open') === 1, 'a second load pays nothing');
+    check(!inv().count('map_half_a') && !inv().count('map_half_b'), 'the halves are gone');
+    console.log(`strongbox solo: site ${d0.toFixed(0)} tiles off, ${j.data.posts.length} guards, loot ${JSON.stringify(L)}`);
+    // Peaceful: no guards, by night either
+    M.list.clear(); M.list.set('@', { id: '@' }); game.difficulty = 'peaceful'; clock(dayMs(WORKDAY, 11)); const j2 = await takeBox(M, [key]); check(j2, 'taken again');
+    if (j2) { j2.stage = 'site'; j2.data = { ...j2.data, joined: true }; clock(dayMs(WORKDAY, 1)); game.teleport(j2.site.x, j2.site.y + 15); await readyGround(game, 6000); M_run(0.3); M_run(0.3); check(!SBOX.guardsOf(game, j2).length, 'peaceful: no guards'); M.finish(j2, 'fail', { why: 'time' }); }
+  }));
+  await test('job (english): lure and guards', boxed(async ({ M }) => {
+    const W = w(), c0 = game.places.poiOf(campKey());
+    let x = c0.x + 20.5, y = c0.y + 0.5; for (let k = 0; k < 40 && [0, 4, 8, 12, 16].some(i => W.natWater(x + i, y)); k++) y += 7;
+    game.teleport(x - 1, y + 1); await readyGround(game, 6000);
+    const j = { id: 'jl', kind: 'strongbox', crew: [ME()], site: { x, y }, data: { posts: [[x + 3, y, 'esqueleto']], down: [] } };
+    const m = game.mobs.summon('esqueleto', x + 3, y); Object.assign(m, { guard: 'jl', gi: 0, post: [x + 3, y], sleep: true });
+    const S = { hearT: 0, mySwing: 0, ears: null }, peer = (px, gait, crouch) => [{ conn: 'c1', x: px, y, gm: 'survival', e: { x: px, y, gait, crouch, held: null } }];
+    const walk = (gait, crouch, from, n = 8) => { for (let i = 0; i < n; i++) { game.time += 0.25; SB.hear(game, j, S, peer(from + i * (gait ? 1.2 : 0.3), gait, crouch), 0.3); } };
+    try {
+      walk(1, true, x - 4); check(m.sleep, 'crouching within 9: no noise');
+      walk(0, false, x - 4); check(m.sleep, 'walking slowly: no noise');
+      walk(1, false, x - 14, 3); check(m.sleep, 'jogging 12 away: not heard');
+      walk(1, false, x - 4); check(!m.sleep, 'jogging within 9 wakes it');
+      // A lure: woken, it goes to it before the nearest player
+      const d = { id: 'rattle', extra: { lure: madridMs() }, x: x + 15, y, z: 0, scene: W, t: 1 }; game.gather.drops.push(d);
+      const P = [{ x: x - 2, y, me: true }], d0 = Math.hypot(m.x - d.x, m.y - d.y);
+      for (let i = 0; i < 20; i++) { game.time += 0.1; game.mobs.move(m, P, 0.1, { cap: 6, dmg: 1 }); }
+      check(Math.hypot(m.x - d.x, m.y - d.y) < d0 - 1.5, `to the lure: ${d0.toFixed(1)} → ${Math.hypot(m.x - d.x, m.y - d.y).toFixed(1)}`);
+      // And a lure landing near a sleeping one wakes it
+      m.sleep = true; m.x = x + 3; game.mobs.lureAt = -1; game.time += 0.3; S.hearT = 0; SB.hear(game, j, S, peer(x - 30, 0, false), 0.3); check(m.sleep, 'a lure 12 away: still asleep');
+      d.x = x + 8; game.mobs.lureAt = -1; game.time += 0.3; S.hearT = 0; SB.hear(game, j, S, peer(x - 30, 0, false), 0.3); check(!m.sleep, 'a lure within 9 wakes it');
+      // The sleep travels in 'mobs' as a 6th field, and an old list (5 fields) still reads
+      m.sleep = true; const L = game.live, was = { joined: L.joined, net: L.net }, sent = []; L.joined = true; L.net = { send: o => sent.push(o) }; game.mobs.lastSent = ''; game.mobs.timers.send = 1;
+      try { game.mobs.update(0.01); } finally { L.joined = was.joined; L.net = was.net; }
+      const row = sent.find(o => o.t === 'mobs')?.m?.find(r => r[0] === m.id); check(row && row[5] === 1, `sent asleep: ${JSON.stringify(row)}`);
+      const keepList = game.mobs.list; game.mobs.netList([[m.id, 'esqueleto', x, y, 0, 1], [999, 'limo', x, y, 0]]); check(game.mobs.list[0].sleep && !game.mobs.list[1].sleep, 'a guest draws it asleep'); game.mobs.list = keepList;
+      // Perf: 5 guards asleep and two players near
+      for (let i = 1; i < 5; i++) { const q = game.mobs.summon('limo', x + Math.cos(i) * 3, y + Math.sin(i) * 3); Object.assign(q, { guard: 'jl', gi: i, post: [q.x, q.y], sleep: true }); }
+      let ms = 0; const ps = [{ conn: 'a', x: x - 10, y, gm: 'survival', e: { x: x - 10, y, gait: 0, crouch: true } }, { conn: 'b', x: x + 11, y, gm: 'survival', e: { x: x + 11, y, gait: 0, crouch: false } }];
+      for (let i = 0; i < 600; i++) { game.time += 1 / 60; const t0 = performance.now(); SB.hear(game, j, S, ps, 1 / 60); ms += performance.now() - t0; }
+      check(ms / 600 < 0.05, `guards asleep: ${(ms / 600).toFixed(4)} ms a frame`); console.log(`strongbox perf: ${(ms / 600).toFixed(4)} ms a frame with 5 guards asleep and 2 players near`);
+    } finally { game.gather.drops = game.gather.drops.filter(q => q.id !== 'rattle'); for (const q of [...game.mobs.list]) if (q.guard === 'jl') game.mobs.remove(q); }
+  }));
+  // Bea's game, apart: its own jobs (a Missions of its own), wallet, backpack and arms; what it asks goes as claims that the host
+  // (this game) answers late, twice or never, and the jobs reach it late (the whole list now and then)
+  const beaGame = () => {
+    const items = new Map(), G = {
+      world: w(), days: game.days, time: 0, money: 1000, scene: null, player: { x: 0, y: 0, face: { x: 1, y: 0 } }, live: { peers: new Map() }, mobs: { list: [] },
+      addMoney(n) { this.money += n; }, onSave() {}, neighbors: { addPoints() {}, hearts: () => 5, people: [] }, rep: null, stats: null, gather: { throwOut() {}, chips() {} },
+      carry: { bigNow: true, held: null, set(id) { this.held = id || null; } }, barrow: { decides: () => false, claim: null },
+      inv: { weight: true, slots: [], add(id, n = 1, extra) { for (let i = 0; i < n; i++) this.slots.push({ id, n: 1, ...extra }); return 0; }, count(id) { return this.slots.filter(s => s?.id === id).length; }, remove(id, n) { for (let i = 0; i < n; i++) { const k = this.slots.findIndex(s => s?.id === id); if (k >= 0) this.slots.splice(k, 1); } }, changed() {} },
+    };
+    G.scene = G.world; G.missions = new MissionsCls(G); G.items = items;
+    return G;
+  };
+  await test('dos (english): strongbox for two, requests lost, late and twice; each paid once', boxed(async ({ M }) => {
+    const key = campKey(); if (!key) { check(false, 'no camp'); return; }
+    const L = live(), was = { joined: L.joined, role: L.role }, r = seeded(9), q = [], Bg = beaGame(), BM = Bg.missions, P = p();
+    const A0 = game.money; let step = 0, lost = 0, lostAns = 0, twice = 0, late = 0;
+    const asBea = fn => { const d = Object.getOwnPropertyDescriptor(Profile, 'id'); Object.defineProperty(Profile, 'id', { configurable: true, get: () => 'id-bea' }); try { return fn(); } finally { Object.defineProperty(Profile, 'id', d); } };
+    Bg.barrow.claim = (kind, k, data, done) => q.push({ kind, k, data: { ...data, by: 'id-bea', k: kind }, done, fate: r(), when: step + 1 + Math.floor(r() * 3) });
+    const peer = { id: 'id-bea', name: 'Bea', playing: true, sc: 'world', entity: { update() {}, x: P.x, y: P.y, to: [P.x, P.y] } };
+    const both = (x, y) => { game.teleport(x, y); Bg.player.x = x; Bg.player.y = y; peer.entity.x = x; peer.entity.y = y; peer.entity.to = [x, y]; };
+    try {
+      L.joined = true; L.role = 'host'; L.peers.set('w-bea', peer);
+      const j = await takeBox(M, [key]); check(j, 'taken'); if (!j) return;
+      const [tx, ty] = j.data.tile, poi = game.places.poiOf(key);
+      for (; step < 500 && !(j.done && M.paid[j.id] !== undefined && BM.paid[j.id] !== undefined && !game.carry.held && !Bg.carry.held); step++) {
+        game.time += 0.2; Bg.time = game.time;
+        // (the host answers what has arrived; some never arrive, some answers get lost, some arrive twice)
+        for (const m of q.filter(m => !m.over && m.when <= step)) {
+          m.over = true;
+          if (m.fate < 0.2) { lost++; m.done(null); continue; }
+          if (m.when > step - 1 && m.fate > 0.75) late++;
+          const extra = {}; let ok = false;
+          try { ok = !!CLAIMS.job(game, m.data, {}, m.k, extra); } catch { ok = false; }
+          if (m.fate > 0.9) { twice++; try { CLAIMS.job(game, m.data, {}, m.k, {}); } catch { /* twice */ } }
+          if (m.fate < 0.35) lostAns++;
+          m.done(m.fate < 0.35 ? null : { ok, ...extra });
+        }
+        q.splice(0, q.length, ...q.filter(m => !m.over));
+        M.runT = 0; M_run(0.2);
+        if (step % 3 === 0) asBea(() => BM.share([...M.list.values()].map(x => structuredClone(x))));
+        asBea(() => { BM.slow = 0; BM.update(0.2); });
+        const jb = BM.get(j.id);
+        // What each one does, by the stage seen in their own game
+        if (!j.crew.includes('id-bea')) { if (step % 4 === 0) asBea(() => BM.join(j.id)); continue; }
+        if (j.stage === 'map') { both(poi.x + 30, poi.y); if (jb?.data.halves?.b === 'id-bea' && step % 4 === 1) asBea(() => BM.event('join_halves')); continue; }
+        if (j.stage === 'site') { both(tx + 0.5, ty + 1.6); if (step % 5 === 0 && w().digDepth(tx, ty) < SBOX.DIGS) w().digTile(tx, ty, -1, game.days.dayIndex); continue; }
+        if (j.stage === 'carry' && !j.done) {
+          both(SBOX.ANVIL[0] - 1, SBOX.ANVIL[1]);
+          if (game.carry.held === 'strongbox' && step % 4 === 2) M.event('open');
+          if (Bg.carry.held === 'strongbox' && step % 4 === 2) asBea(() => BM.event('open'));
+        }
+      }
+      // Both games close and open again with what they had saved: nothing more
+      asBea(() => { const o = {}; BM.save(o); BM.reset(JSON.parse(JSON.stringify(o))); BM.share([...M.list.values()].map(x => structuredClone(x))); BM.look(); });
+      const o = {}; M.save(o); M.reset(JSON.parse(JSON.stringify(o))); M.look();
+      const Lt = j.done?.loot?.coins || 0;
+      check(j.done?.outcome === 'ok' && Lt >= 300, `done: ${JSON.stringify(j.done)} at step ${step} (stage ${j.stage}, ${JSON.stringify(j.data.found)})`);
+      check(game.money - A0 === Lt && Bg.money - 1000 === Lt, `each paid once: Ana ${game.money - A0}, Bea ${Bg.money - 1000}, loot ${Lt}`);
+      check(inv().count('strongbox_open') === 1 && !Bg.inv.count('strongbox_open') && !game.carry.held && !Bg.carry.held, `one trophy, for who started it; no box left (${game.carry.held} ${Bg.carry.held}; trophies ${inv().count('strongbox_open')} ${Bg.inv.count('strongbox_open')}; by ${j.by})`);
+      check(lost + lostAns > 1 && twice > 0, `${lost} requests and ${lostAns} answers lost, ${twice} twice, ${late} late`);
+      console.log(`strongbox two clients: ${step} steps, ${lost} requests and ${lostAns} answers lost, ${twice} twice; loot ${Lt} each; found by ${j.data.found?.by}`);
+      // The partner goes away holding half B: it goes back to the chest, and the one left takes it there
+      M.list.clear(); M.list.set('@', { id: '@' }); q.length = 0; game.money = 1000;
+      const j2 = await takeBox(M, [key]); check(j2, 'taken again'); if (!j2) return;
+      check(CLAIMS.job(game, { by: 'id-bea', k: 'job', ev: 'join', jid: j2.id }, {}, 'x', {}) && j2.data.halves.b === 'id-bea', `Bea has half B: ${JSON.stringify(j2.data.halves)}`);
+      peer.playing = false; M.lastSeen.set('id-bea', game.time - 700); M.runT = 0; M_run(0.2);
+      check(M.isAway(j2, 'id-bea') && j2.data.halves.b === 'chest', `away: half B back in the chest ${JSON.stringify(j2.data.halves)}`);
+      game.teleport(j2.data.chest.x + 1, j2.data.chest.y); M.event('chest');
+      check(j2.data.joined && j2.stage === 'site', `alone with both halves: ${j2.stage}`);
+      M.finish(j2, 'fail', { why: 'left' });
+    } finally { L.joined = was.joined; L.role = was.role; L.peers.delete('w-bea'); }
+  }));
+  // Played with the keys: E (on what the cursor would aim at), Q, and the left button on the canvas; the cursor's point in the world given
+  const aimOn = pred => { const T = game.aimTargets(p(), game.scene).filter(pred); game.mouse = { in: false }; game.aimed = () => (T[0] ? { ...T[0], t: 1 } : null); return T[0] || null; };
+  const keyQ = async () => { for (const t of ['keydown', 'keyup']) dispatchEvent(new KeyboardEvent(t, { code: 'KeyQ', key: 'q', bubbles: true })); await frames(3); };
+  const playBox = withPartner => boxed(async ({ M, clock }) => {
+    const key = campKey(); if (!key) { check(false, 'no camp'); return; }
+    const L = live(), was = { joined: L.joined, role: L.role }, P = p();
+    const peer = { id: 'id-bea', name: 'Bea', playing: true, sc: 'world', entity: { update() {}, x: P.x + 1.5, y: P.y, to: [P.x + 1.5, P.y] } };
+    const near = (x, y) => { peer.entity.x = x; peer.entity.y = y; peer.entity.to = [x, y]; };
+    const stages = [];
+    try {
+      if (withPartner) { L.joined = true; L.role = 'host'; L.peers.set('w-bea', peer); }
+      const j = await takeBox(M, [key]); check(j, 'taken'); if (!j) return;
+      const poi = game.places.poiOf(key);
+      if (withPartner) {
+        check(CLAIMS.job(game, { by: 'id-bea', k: 'job', ev: 'join', jid: j.id }, {}, 'x', {}) && j.data.halves.b === 'id-bea', 'Bea joins with half B');
+        M_run(0.6); holdId('map_half_a'); near(P.x + 1.6, P.y);
+        check(aimOn(a => a.join), 'Bea aimed at, with my half in the hand'); await keyE(); M_run(0.6);
+        check(j.data.joined && j.stage === 'site', `E on Bea: the halves together (${j.stage})`);
+      } else {
+        const c = await atChest(poi); check(c, 'the chest'); if (!c) return;
+        check(aimOn(a => a.model?.name?.startsWith('treasure')), 'the chest aimed at'); await keyE(); M_run(0.6);
+        check(j.stage === 'site' && inv().count('map_half_b') === 1, `half B with E on the chest: ${j.stage}`);
+      }
+      stages.push(j.stage);
+      // By night, at the site: the rattle thrown 14 tiles off with the left button (with a partner, she throws hers)
+      clock(dayMs(WORKDAY, 1)); const [tx, ty] = j.data.tile; game.teleport(tx + 0.5, ty + 2.1); await readyGround(game, 6000); for (let i = 0; i < 4; i++) { M_run(0.3); await frames(2); }
+      const G = SBOX.guardsOf(game, j); check(G.length >= 3 && G.every(m => m.sleep), `${G.length} guards asleep (${G.map(m => m.woke || 'z').join()})`);
+      const lx = tx + 0.5 + 14, ly = ty + 0.5;
+      let lure = null, d0 = 0, lureDbg = '';
+      await digIt(j, true, async () => {
+        if (withPartner) { near(tx + 12, ty); game.gather.drops.push({ id: 'rattle', extra: { lure: madridMs() }, x: lx, y: ly, z: 3, vz: 0, t: 0, scene: w(), owner: 'id-bea', nid: 'bea:1', born: game.time }); }
+        else { inv().add('rattle', 1); holdId('rattle'); game.mousePoint = () => [lx, ly]; await frames(3); await click(); }
+        for (let i = 0; i < 90 && !(lure = game.gather.drops.find(d => d.id === 'rattle' && d.extra?.lure && d.z === 0 && !(d.vz > 0))); i++) await frames(1);
+        check(lure && Math.hypot(lure.x - lx, lure.y - ly) < 0.5 && !inv().count('rattle'), `the rattle where the cursor was: ${lure && [lure.x.toFixed(1), lure.y.toFixed(1)]} (rattles ${inv().count('rattle')}, held ${inv().held?.id})`);
+        d0 = Math.min(...G.map(m => Math.hypot(m.x - lx, m.y - ly)));
+        lureDbg = `z ${lure?.z?.toFixed(2)} vz ${lure?.vz?.toFixed(1)} live ${game.mobs.lures().length} t ${lure?.t?.toFixed(2)}`;
+      });
+      stages.push(j.stage);
+      for (let i = 0; i < 300 && lure?.lureT !== undefined && game.time - lure.lureT < 4; i++) await frames(1);   // (a few seconds of the game's own time, also when the machine is slow)
+      const dist = m => Math.hypot(m.x - lx, m.y - ly), woke = SBOX.guardsOf(game, j).filter(m => !m.sleep), d1 = Math.min(Infinity, ...woke.map(dist));
+      check(j.stage === 'carry' && game.carry.held === 'strongbox', `dug up with clicks: ${j.stage} depth ${j.data.depth} held ${game.carry.held} · ${digLog.splice(0).join(' | ')} · ${SBOX.guardsOf(game, j).map(m => `${m.woke || 'z'}:${Math.hypot(m.x - lx, m.y - ly).toFixed(1)}`).join()}`);
+      check(woke.length && d1 < d0 - 0.5, `woken guards go to the rattle: ${d0.toFixed(1)} → ${d1.toFixed(1)} (${woke.map(m => `${m.woke}:${dist(m).toFixed(1)}`).join()}; the lure ${lure ? (game.time - (lure.lureT ?? NaN)).toFixed(1) : '-'} s old; ${lureDbg}; now z ${lure?.z} in ${game.gather.drops.includes(lure)})`);
+      // Q puts it down, E takes it up again
+      P.face.x = 0; P.face.y = 1; await keyQ(); check(!game.carry.held, `Q: down (turned away from the hole)`); const on = w().placedNear(P.x, P.y, 3).find(o => o.placed === 'strongbox');
+      check(on, 'on the ground'); if (on) { aimOn(a => a.kind === 'placed' && a.o === on); await keyE(); } check(game.carry.held === 'strongbox', 'E: in the arms again');
+      // With a partner beside: a helping hand; then she goes away half way
+      if (withPartner) {
+        near(P.x + 1.2, P.y); const help = game.carry.speedMul(); near(P.x + 6, P.y); const alone = game.carry.speedMul();
+        check(help > alone + 0.05, `a helping hand: ${help.toFixed(2)} with Bea, ${alone.toFixed(2)} alone`);
+        peer.playing = false; M.lastSeen.set('id-bea', game.time - 700); M.runT = 0; M_run(0.2); check(M.isAway(j, 'id-bea'), 'Bea away');
+      }
+      // Home: Bruno's anvil, E, the lock
+      clock(dayMs(WORKDAY, 9)); game.teleport(SBOX.ANVIL[0] - 1.3, SBOX.ANVIL[1] + 0.3); await readyGround(game, 4000); await frames(3);
+      const m0 = game.money; check(aimOn(a => a.sys === game.missions), 'the anvil aimed at'); await keyE();
+      for (let i = 0; i < 60 && !j.done; i++) { await frames(4); M_run(0.1); }
+      M.look(); stages.push(j.done?.outcome);
+      check(j.done?.outcome === 'ok' && game.money - m0 === j.done.loot.coins && !game.carry.held && inv().count('strongbox_open') === 1, `the lock broken: ${JSON.stringify(j.done)} paid ${game.money - m0}`);
+      if (withPartner) check(j.done.away?.includes('id-bea'), 'Bea, away at the end, is not paid');
+      console.log(`strongbox with keys ${withPartner ? 'and a partner' : 'alone'}: ${stages.join(' → ')}; loot ${JSON.stringify(j.done?.loot)}`);
+    } finally { delete game.aimed; if (withPartner) { L.joined = was.joined; L.role = was.role; L.peers.delete('w-bea'); } }
+  });
+  await test('play (english): the strongbox alone, with the keys', playBox(false));
+  await test('play (english): the strongbox with a partner, with the keys', playBox(true));
   const gossiping = fn => social(() => routine(async o => {
     const N = Nb(); N.flags = {}; newsList();
     for (const id of IDS) N.friends[id] = { pts: 150, talk: 0, gift: -1, events: [3, 6], intro: 0 };

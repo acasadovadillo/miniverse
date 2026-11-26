@@ -36,6 +36,8 @@ export function carriedModel(id) { return meshes(parts(id)); }
 export const HOLD = {
   shoulder: { pos: [-0.19, -0.08, -0.1], rot: [-0.07, Math.PI / 2, 0], scale: [1.26, 1.05, 1.05] },
   across: { pos: [0, -0.1, -0.06], rot: [0, 0, 0], scale: [1, 1, 1] },
+  // (the strongbox: hugged in front, its foot about the hips, its lid under the chin)
+  front: { pos: [0, -0.76, 0.33], rot: [0.08, 0, 0], scale: [1, 1, 1] },
 };
 // The arms (persona.js bones: arms[0] is the right one; x negative raises the arm forward, z opens it out, the
 // forearm's x negative bends the elbow). shoulder: the right hand up on the log in front of the shoulder, the left one
@@ -43,6 +45,7 @@ export const HOLD = {
 export const ARMS = {
   shoulder: { R: [-0.7, 0, -0.45], fR: -2.1, swingL: 0.6 },
   across: { R: [-0.28, 0, 0.25], L: [-0.28, 0, -0.25], fR: -1.85, fL: -1.85 },
+  front: { R: [-0.42, 0, -0.18], L: [-0.42, 0, 0.18], fR: -0.95, fL: -0.95 },
 };
 export function placeCarried(o, id, fit) {
   const H = HOLD[BULKY[id].hold] || HOLD.across, [x, y, z] = H.pos;
@@ -67,6 +70,7 @@ export function holdPose(P, kind) {
 export const VIEW = {
   shoulder: { pos: [0.3, -0.27, -0.16], rot: [0.06, Math.PI / 2 + 0.05, 0], scale: [1.26, 1.05, 1.05] },
   across: { z: -0.5, rot: [-0.45, Math.PI, 0], tilt: [-0.45, -1.25], scale: [1, 1, 1] },
+  front: { pos: [0, -0.62, -0.72], rot: [0.18, 0, 0], scale: [1, 1, 1] },   // (the box's lid at the bottom of the screen)
 };
 const TAN = Math.tan(35 * Math.PI / 180);   // (half the first person field of view, 70°)
 const TIP_AT = -0.45, EDGE = -0.8;           // (how high the hooves and the top of its body go: fractions of half the screen, down)
@@ -216,10 +220,12 @@ export function pushedView(key, turn = 0) {
 export const HORSE_LOAD = {
   shoulder: { pos: [0, 1.07, -0.46], rot: [0, 0, 0.04], scale: [1, 1, 1] },
   across: { pos: [0.03, 1.03, -0.55], rot: [0.742, 1.112, -0.631], scale: [0.74, 0.74, 0.74] },
+  front: { pos: [0, 1.0, -0.52], rot: [0, Math.PI / 2, 0.06], scale: [0.85, 0.85, 0.85] },   // (the strongbox, lashed across the croup)
 };
 export const BOW_LOAD = {
   shoulder: { pos: [0, 0.335, 0.64], rot: [0, 0, 0], scale: [0.85, 0.9, 0.9] },
   across: { pos: [0, 0.33, 0.6], rot: [0, -Math.PI / 2, 0], scale: [0.72, 0.72, 0.72] },
+  front: { pos: [0, 0.335, 0.58], rot: [0, 0, 0], scale: [0.8, 0.8, 0.8] },
 };
 // The thing to put there: as it lies on the ground (also the carcass)
 export function loadModel(id) { return meshes(partsOf(id)); }

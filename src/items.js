@@ -213,12 +213,15 @@ Object.assign(ITEMS, {
   desk: { place: 'furniture' },
   // (table games, tablegames.js: the table with its baize; the dice and the box go on a table. tableKit: what one plays with it)
   game_table: { place: 'furniture' }, dice: { tableKit: 'crows' }, tile_box: { tableKit: 'tiles' },
+  // (the smugglers' strongbox, missions/strongbox.js: the two halves of Inés's map, tokens of the job (job: its id); the rattle, a
+  // lure thrown with the left button; the box once open, a trophy. The strongbox itself is a big thing: carry-items.js)
+  map_half_a: { stack: 1, hide: true }, map_half_b: { stack: 1, hide: true }, rattle: { stack: 1, lure: true }, strongbox_open: { place: 'furniture' },
   // (the watchtowers one builds, 9 and 12 m: world/tower.js)
   watchtower: { place: 'furniture' },
   watchtower_tall: { place: 'furniture' },
 });
 defineNames({ cana: ITEMS.cana, cana_fibra: ITEMS.cana_fibra }, 'item', ['desc']);
-defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair, pew: ITEMS.pew, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall, shop_counter: ITEMS.shop_counter, display_shelf: ITEMS.display_shelf, goods_crate: ITEMS.goods_crate, desk: ITEMS.desk, game_table: ITEMS.game_table, dice: ITEMS.dice, tile_box: ITEMS.tile_box }, 'item');
+defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair, pew: ITEMS.pew, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall, shop_counter: ITEMS.shop_counter, display_shelf: ITEMS.display_shelf, goods_crate: ITEMS.goods_crate, desk: ITEMS.desk, game_table: ITEMS.game_table, dice: ITEMS.dice, tile_box: ITEMS.tile_box, map_half_a: ITEMS.map_half_a, map_half_b: ITEMS.map_half_b, rattle: ITEMS.rattle, strongbox_open: ITEMS.strongbox_open }, 'item');
 // (the saddlebags hold 12 stacks since Plan F, saddlebags.js: their description comes from the language files; with
 // ?alforjas=0 they keep 9, and the old text)
 if (!apagada('alforjas')) defineNames({ alforjas: ITEMS.alforjas }, 'item', ['desc']);

@@ -102,7 +102,7 @@ export class Hunt {
     return best;
   }
   target(p, held, def) {
-    if (def?.food || def?.heal || def?.buff) return null;   // (con comida en la mano, el clic es para comer)
+    if (def?.food || def?.heal || def?.buff || def?.lure) return null;   // (con comida en la mano, el clic es para comer; with the rattle, to throw it)
     const e = this.prey(p, def);
     if (!e) return null;
     return { tile: null, ok: true, auto: true, prey: e, label: t('hunt.attack', { target: e.name || kindNoun(e) }), use: () => this.hit(e, def) };

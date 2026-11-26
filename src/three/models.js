@@ -1417,6 +1417,74 @@ BUILD.log = m => {
   m.geo('logBark', G.bark, 0, r, 0).geo('logEnd', G.butt, 0, r, 0).geo('logEnd', G.top, 0, r, 0);
   m.cyl('logBark', 0.16, r * 1.75, 0.02, 0.026, 0.004, 0.1, 6, [0.5, 0, 0.35]).cyl('logBark', -0.26, r * 1.7, -0.03, 0.022, 0.004, 0.08, 6, [-0.6, 0, -0.3]);
 };
+// ---------- the smugglers' strongbox (missions/strongbox.js) and Bruno's anvil ----------
+// An old oak chest, its planks greyed and its iron gone rusty from years in the ground: corner irons, two bands over the
+// rounded lid, rivets, a ring at each end, the hasp and a heavy padlock, earth still stuck to it. The origin at the middle
+// of its foot, its front (the lock) to +z. Open: the lid thrown back on its hinges, the padlock lying beside it
+Object.assign(OWN, {
+  sbOak: () => mat({ map: modelMats().dark.map, color: '#a89a8a', roughness: 0.92 }),
+  sbOak2: () => mat({ map: modelMats().dark.map, color: '#a89a8a', roughness: 0.92, side: THREE.DoubleSide }),   // (the lid: its inside shows when open)
+  sbIron2: () => mat({ color: apagado('#3b3029'), metalness: 0.45, roughness: 0.72, side: THREE.DoubleSide }),
+  sbSeam: () => mat({ color: '#1e1712', roughness: 1 }),
+  sbIron: () => mat({ color: apagado('#3b3029'), metalness: 0.45, roughness: 0.72 }),
+  sbRust: () => mat({ color: apagado('#6a3f26'), metalness: 0.3, roughness: 0.85 }),
+  sbDirt: () => mat({ color: apagado('#4d3a28'), roughness: 1 }),
+});
+const SB_DOME = new THREE.CylinderGeometry(1, 1, 1, 16, 1, false, 0, Math.PI);   // (half a drum: its round side to +x, along y)
+function strongboxModel(m, open) {
+  const W = 0.36, D = 0.24, H = 0.36, LID = 0.12, BANDS = [-0.19, 0.19];
+  for (const z of [-0.17, 0.17]) m.box('sbOak', -W + 0.03, 0, z - 0.035, W - 0.03, 0.035, z + 0.035);   // (the runners)
+  m.box('sbOak', -W, 0.035, -D, W, H, D);
+  for (const y of [0.14, 0.25]) for (const s of [-1, 1]) m.box('sbSeam', -W - 0.002, y, s * D - 0.004, W + 0.002, y + 0.006, s * D + 0.004);   // (the seams between the planks)
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {   // (the corner irons)
+    m.box('sbIron', sx * (W - 0.065), 0.03, sz * D, sx * (W + 0.006), H, sz * (D + 0.008));
+    m.box('sbIron', sx * W, 0.03, sz * (D - 0.065), sx * (W + 0.008), H, sz * (D + 0.006));
+  }
+  for (const b of BANDS) for (const s of [-1, 1]) {
+    m.box('sbIron', b - 0.03, 0.03, s * D, b + 0.03, H, s * (D + 0.009));
+    for (const y of [0.09, 0.2, 0.31]) m.ball('sbRust', b, y, s * (D + 0.011), 0.011, 0.011, 0.007, 6);
+  }
+  for (const sx of [-1, 1]) {   // (a ring at each end, on its plate)
+    m.box('sbIron', sx * W, 0.19, -0.06, sx * (W + 0.01), 0.29, 0.06);
+    m.geo('sbIron', TORUS, sx * (W + 0.022), 0.205, 0, [0, Math.PI / 2, 0.25], [0.05, 0.05, 0.08]);
+  }
+  // (the earth still on it: the foot and the corners)
+  m.box('sbDirt', -W - 0.006, 0, D - 0.02, -0.05, 0.07, D + 0.014).box('sbDirt', 0.12, 0, -D - 0.014, W + 0.006, 0.05, -D + 0.02).box('sbDirt', W - 0.02, 0, -0.1, W + 0.012, 0.09, 0.16);
+  const lid = (rx, at) => {   // (the lid and its bands, turned rx about the hinge at the back of the top)
+    const turn = (x, y, z) => [x, at[1] + y * Math.cos(rx) - z * Math.sin(rx), at[2] + y * Math.sin(rx) + z * Math.cos(rx)];
+    m.geo(rx ? 'sbOak2' : 'sbOak', SB_DOME, ...turn(0, 0, D), [rx, 0, Math.PI / 2], [LID, 2 * W + 0.02, D + 0.01]);
+    for (const b of BANDS) m.geo(rx ? 'sbIron2' : 'sbIron', SB_DOME, ...turn(b, 0.002, D), [rx, 0, Math.PI / 2], [LID + 0.008, 0.06, D + 0.02]);
+  };
+  if (!open) {
+    lid(0, [0, H, -D]);
+    m.box('sbIron', -0.04, H - 0.12, D + 0.008, 0.04, H + 0.05, D + 0.02);              // (the hasp, down from the lid)
+    m.box('sbRust', -0.05, H - 0.23, D + 0.02, 0.05, H - 0.11, D + 0.06);              // (the padlock)
+    m.geo('sbIron', TORUS, 0, H - 0.1, D + 0.04, [0, 0, 0], [0.032, 0.04, 0.05]);
+    m.box('sbSeam', -0.008, H - 0.2, D + 0.06, 0.008, H - 0.165, D + 0.062);          // (its keyhole)
+    m.ball('sbDirt', -0.12, H + 0.09, 0.05, 0.07, 0.02, 0.05, 6).ball('sbDirt', 0.22, H + 0.07, -0.08, 0.05, 0.018, 0.06, 6);
+  } else {
+    lid(-1.95, [0, H, -D]);
+    m.box('sbSeam', -W + 0.035, H, -D + 0.035, W - 0.035, H + 0.002, D - 0.035);        // (inside: dark, empty)
+    m.box('sbOak', -W, H - 0.03, -D, W, H + 0.012, -D + 0.035).box('sbOak', -W, H - 0.03, D - 0.035, W, H + 0.012, D);   // (the rim of the walls)
+    m.box('sbRust', W + 0.06, 0, 0.12, W + 0.16, 0.05, 0.24);                          // (the broken padlock, on the ground)
+    m.geo('sbIron', TORUS, W + 0.11, 0.05, 0.25, [Math.PI / 2, 0, 0.6], [0.032, 0.04, 0.05]);
+  }
+}
+BUILD.strongbox = m => strongboxModel(m, false);
+BUILD.strongbox_open = m => strongboxModel(m, true);
+// Bruno's anvil, by his forge in the village: on an oak stump, its horn to +x, the hammer on its face, the tongs against the
+// stump and the quench bucket beside it
+VILLAGE.anvil = m => {
+  m.cyl('logBark', 0, 0, 0, 0.3, 0.27, 0.55, 12).cyl('logEnd', 0, 0.55, 0, 0.27, 0.27, 0.006, 12);
+  m.box('sbIron', -0.22, 0.556, -0.13, 0.2, 0.6, 0.13).box('sbIron', -0.12, 0.6, -0.075, 0.1, 0.7, 0.075).box('sbIron', -0.26, 0.7, -0.1, 0.21, 0.765, 0.1);
+  m.box('steel', -0.28, 0.765, -0.11, 0.22, 0.8, 0.11).box('sbIron', -0.36, 0.745, -0.06, -0.27, 0.8, 0.06);
+  m.geo('sbIron', CONE, 0.36, 0.772, 0, [0, 0, -Math.PI / 2], [0.07, 0.3, 0.06]);
+  m.box('sbSeam', -0.2, 0.8, -0.02, -0.165, 0.802, 0.02);   // (the hardy hole)
+  m.box('dark', -0.22, 0.8, 0.03, 0.06, 0.822, 0.055).box('sbIron', 0.04, 0.8, 0.005, 0.11, 0.85, 0.08);   // (the hammer)
+  for (const s of [-1, 1]) m.geo('sbIron', new THREE.BoxGeometry(0.016, 0.6, 0.016), -0.28 + s * 0.012, 0.3, 0.24, [0.32, 0, s * 0.05]);   // (the tongs)
+  m.cyl('sbOak', -0.62, 0, 0.12, 0.17, 0.19, 0.34, 14).cyl('water', -0.62, 0.3, 0.12, 0.165, 0.165, 0.006, 14);
+  for (const y of [0.05, 0.27]) m.cyl('sbIron', -0.62, y, 0.12, 0.172 + y * 0.06, 0.174 + y * 0.06, 0.025, 14);
+};
 // The cut end of a log: the rings round a pith a little off centre, the heartwood darker, the bark round it and two
 // cracks out from the middle
 let RINGS;
@@ -1782,7 +1850,7 @@ function lieBox(id) { const m = getModel(id), b = new THREE.Box3(); for (const s
 // next one on it, turned round (its legs to the grips)
 export const LOAD_IN = { log: { len: 0.68, thick: 0.85, side: 0.088 }, carcass: { k: 0.74, rise: 0.62 } };
 function barrowLoads(m, F, ids, y) {
-  const logs = ids.filter(id => !BULKY[id].prey), meat = ids.filter(id => BULKY[id].prey), L = LOAD_IN.log, cz = (TRAY.Z0 + TRAY.Z1) / 2;
+  const logs = ids.filter(id => id === 'log'), meat = ids.filter(id => id !== 'log'), L = LOAD_IN.log, cz = (TRAY.Z0 + TRAY.Z1) / 2;   // (the strongbox lies as the carcasses do)
   if (logs.length) {
     const at = logs.length === 1 ? [[0, y, cz]] : [[-L.side, y, cz - 0.01], [L.side, y, cz + 0.01]];
     if (logs.length === 3) at.push([0, y + 0.135, cz]);

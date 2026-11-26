@@ -9,6 +9,12 @@
 //
 // Jugando juntos, los lleva quien lleva el mundo (el mundo del servidor): los hace aparecer alrededor de cada uno, los
 // mueve y les dice a los demás dónde están; los demás le dicen a quién pegan y él les dice cuándo les muerden.
+//
+// The guards of a job (missions/strongbox.js): m.guard (the job's id), m.post (where it stands), m.sleep. Asleep, a guard
+// does nothing (no pathing); the job wakes it (wake). Awake, it goes to the nearest live lure first (a thrown rattle,
+// lures), then after whoever is near as any other, and with nobody, back to its post, where it falls asleep again. The
+// sleep travels as an optional 6th field of the 'mobs' message (an older game ignores it).
+import { madridMs } from './time.js';
 import { MONSTERS, DIFF } from './combat.js';
 import { collide } from './physics.js';
 import { CHUNK } from './world/gen.js';
@@ -20,6 +26,8 @@ export const DARK = 7;                          // con esta luz o menos aparecen
 const RING = [14, 26];                          // a qué distancia de quien juega aparecen
 const AWAY = 12, FAR = 48, AROUND = 40;         // nunca más cerca de nadie; más lejos de todos, se van; los que cuentan
 const CHASE = 10, BITE = 0.6;                   // a qué distancia persiguen y muerden
+export const LURE_S = 20, LURE_PULL = 22;       // (guards) how long a thrown rattle sounds, and from how far it pulls them
+const RESLEEP = 20;                             // (guards) the calm at their post before they sleep again
 const SPAWN_EVERY = 1, SEND_EVERY = 0.15;
 const NIGHT_TYPES = [['limo', 0.55], ['esqueleto', 0.45]];
 const GM = ['survival', 'creative', 'survival', 'spectator'];   // (el modo de los demás, por su número)
@@ -105,7 +113,7 @@ export class Mobs {
     }
     if (g.live.joined && (this.timers.send += dt) >= SEND_EVERY) {
       this.timers.send = 0;
-      const m = this.list.map(m => [m.id, m.type, r2(m.x), r2(m.y), m.hurt > 0 ? 1 : 0]), s = JSON.stringify(m);
+      const m = this.list.map(m => (m.sleep ? [m.id, m.type, r2(m.x), r2(m.y), m.hurt > 0 ? 1 : 0, 1] : [m.id, m.type, r2(m.x), r2(m.y), m.hurt > 0 ? 1 : 0])), s = JSON.stringify(m);
       if (s !== this.lastSent) { this.lastSent = s; g.live.net?.send({ t: 'mobs', m }); }
     }
   }
@@ -124,11 +132,20 @@ export class Mobs {
   move(m, fighters, dt, diff) {
     const g = this.game, def = m.def;
     m.cool = Math.max(0, m.cool - dt); m.hurt = Math.max(0, m.hurt - dt);
+    if (m.sleep) { m.dir = [0, 0]; return; }   // (a guard asleep: nothing at all)
     let t = null, td = CHASE;
     const outside = !inBounds(m.x, m.y);   // (desde fuera no se persigue a quien está en el pueblo)
     for (const q of fighters) { const d = distOf(q.x, q.y, m.x, m.y); if (d < td && !(outside && inBounds(q.x, q.y))) { td = d; t = q; } }
     let vx = 0, vy = 0;
-    if (t && td > 0.01) { vx = dxOf(t.x, m.x) / td; vy = (t.y - m.y) / td; m.dir = [vx, vy]; }
+    // (a guard awake: to a lure before anybody; with nobody near, back to its post, and to sleep)
+    const goal = m.guard ? this.lureFor(m) || (!t && m.post ? { x: m.post[0], y: m.post[1], post: true } : null) : null;
+    if (goal) {
+      t = null;
+      const gd = distOf(goal.x, goal.y, m.x, m.y);
+      if (gd > 0.7) { vx = dxOf(goal.x, m.x) / gd; vy = (goal.y - m.y) / gd; m.dir = [vx, vy]; m.calm = 0; }
+      else { m.dir = [0, 0]; if (goal.post && (m.calm = (m.calm || 0) + dt) > RESLEEP) { m.sleep = true; m.calm = 0; } return; }
+    }
+    else if (t && td > 0.01) { vx = dxOf(t.x, m.x) / td; vy = (t.y - m.y) / td; m.dir = [vx, vy]; }
     else if ((m.wander -= dt) <= 0) { m.wander = 1 + Math.random() * 2; const a = Math.random() * 6.28; m.dir = Math.random() < 0.4 ? [0, 0] : [Math.cos(a) * 0.4, Math.sin(a) * 0.4]; }
     if (!vx && !vy) [vx, vy] = m.dir;
     if (m.hurt > 0.25 && m.from) { const dx = dxOf(m.x, m.from[0]), dy = m.y - m.from[1], d = Math.hypot(dx, dy) || 1; vx = dx / d * 2.5; vy = dy / d * 2.5; }   // (empujón al recibir un golpe)
@@ -145,6 +162,23 @@ export class Mobs {
       else g.live.order(t.conn, { t: 'hurt', dmg, x: r2(m.x), y: r2(m.y) });
     }
   }
+  // (guards) Wakes one up; and the lures sounding now: thrown rattles on the ground, for LURE_S from when this game saw them land
+  wake(m) { if (m?.sleep) { m.sleep = false; m.calm = 0; } }
+  lures() {
+    const g = this.game, now = g.time, out = [];
+    for (const d of g.gather?.drops || []) {
+      if (d.id !== 'rattle' || !d.extra?.lure || d.scene !== this.world || d.z > 0.05) continue;
+      if (d.lureT === undefined) d.lureT = d.extra.lure > madridMs() - 6e4 ? now : -1e9;   // (an old one, from before: silent)
+      if (now - d.lureT < LURE_S) out.push(d);
+    }
+    return out;
+  }
+  lureFor(m) {
+    if (this.lureAt !== this.game.time) { this.lureAt = this.game.time; this.lureList = this.lures(); }
+    let best = null, bd = LURE_PULL;
+    for (const d of this.lureList) { const k = distOf(d.x, d.y, m.x, m.y); if (k < bd) { bd = k; best = d; } }
+    return best;
+  }
   remove(m, sun = false) {
     const i = this.list.indexOf(m);
     if (i >= 0) this.list.splice(i, 1);
@@ -153,9 +187,9 @@ export class Mobs {
   // (invitado) Donde los tiene quien lleva el mundo: [[id, tipo, x, y, herido]]
   netList(arr) {
     const old = new Map(this.list.map(m => [m.id, m]));
-    this.list = arr.filter(([, type]) => MONSTERS[type]).map(([id, type, x, y, hurt]) => {   // (una criatura de una versión más nueva, que este juego no conoce, no se ve)
+    this.list = arr.filter(([, type]) => MONSTERS[type]).map(([id, type, x, y, hurt, sleep]) => {   // (una criatura de una versión más nueva, que este juego no conoce, no se ve)
       const m = old.get(id) || new Mob(type, x, y, id);
-      m.netTo = [x, y];
+      m.netTo = [x, y]; m.sleep = sleep === 1;
       if (hurt && m.hurt <= 0) m.hurt = 0.4;
       return m;
     });
@@ -182,9 +216,10 @@ export class Mobs {
   }
   // (quien lleva el mundo) Un golpe desde from; by: la conexión de quien lo ha dado (null: tú)
   damage(m, dmg, from, by) {
-    m.hp -= dmg; m.hurt = 0.4; m.from = from;
+    m.hp -= dmg; m.hurt = 0.4; m.from = from; this.wake(m);
     if (m.hp > 0) return false;
     this.remove(m);
+    if (m.guard) this.game.missions?.guardDown?.(m);
     if (by === null) this.game.combat.reward(m);
     else this.game.live.net?.send({ t: 'mobdead', id: m.id, x: r2(m.x), y: r2(m.y), type: m.type }, by);
     return true;

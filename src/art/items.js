@@ -147,6 +147,12 @@ Object.assign(DRAW, {
   baba(R, g) { ellipse(g, 8, 11, 6, 3, '#6ad84a'); ellipse(g, 8, 9, 4, 3, '#8ae86a'); R(6, 8, 2, 1, '#ffffff'); },
   // Mapas: el pergamino en blanco y el dibujado (tierra, agua y una cruz)
   mapa_vacio(R) { R(3, 3, 10, 10, '#e8d8b0'); R(3, 3, 10, 1, '#c8b088'); R(3, 12, 10, 1, '#b89868'); R(2, 3, 1, 10, '#a8764a'); R(13, 3, 1, 10, '#a8764a'); },
+  // (the halves of Inés's map, missions/strongbox.js: old yellowed paper torn down a jagged line; a dotted way and half of the
+  // cross on each one)
+  map_half_a(R) { R(2, 3, 7, 10, '#d8c48e'); R(2, 3, 1, 10, '#8a6a3e'); for (const [y, w] of [[3, 7], [5, 8], [7, 6], [9, 8], [11, 7]]) R(2 + w, y, 1, 2, '#c8b07a'); R(3, 4, 4, 3, '#8aa060'); for (const x of [4, 6, 8]) R(x, 9, 1, 1, '#7a3a24'); R(8, 7, 1, 1, '#b8282a'); R(7, 6, 1, 1, '#b8282a'); R(3, 12, 5, 1, '#b89c66'); },
+  map_half_b(R) { R(7, 3, 7, 10, '#d8c48e'); R(13, 3, 1, 10, '#8a6a3e'); for (const [y, w] of [[3, 0], [5, -1], [7, 1], [9, -1], [11, 0]]) R(7 + w, y, 1, 2, '#c8b07a'); R(9, 8, 4, 4, '#5a86a8'); for (const x of [8, 10]) R(x, 6, 1, 1, '#7a3a24'); R(9, 5, 1, 1, '#b8282a'); R(10, 4, 1, 1, '#b8282a'); R(8, 12, 5, 1, '#b89c66'); },
+  // (the rattle: three knuckle bones tied on a cord, with a loop to throw it by)
+  rattle(R, g) { line(g, 3, 3, 8, 8, '#b89a62'); line(g, 4, 3, 9, 8, '#8a6e40'); blob(g, 3, 3, 2, '#b89a62'); for (const [x, y] of [[8, 9], [11, 8], [10, 12]]) { blob(g, x, y, 2, '#ece2c8'); R(x - 1, y - 1, 1, 1, '#fffaf0'); R(x, y + 1, 1, 1, '#b8ac90'); } R(8, 10, 3, 1, '#8a6e40'); },
   mapa(R) { R(3, 3, 10, 10, '#e8d8b0'); R(4, 4, 5, 4, '#7ab85a'); R(8, 7, 4, 4, '#5a9ad8'); R(4, 9, 3, 3, '#c8b070'); R(2, 3, 1, 10, '#a8764a'); R(13, 3, 1, 10, '#a8764a'); R(9, 5, 1, 1, '#e83a3a'); R(10, 4, 1, 1, '#e83a3a'); R(10, 6, 1, 1, '#e83a3a'); R(11, 5, 1, 1, '#e83a3a'); },
   frasco(R) { R(6, 1, 4, 2, '#a8764a'); R(7, 3, 2, 3, '#d8eef8'); R(4, 6, 8, 8, '#d8eef8'); R(5, 7, 6, 6, '#a8cce0'); R(5, 7, 2, 3, '#f4fbff'); },
   // Alambique: base de piedra, el soporte con el quemador y tres frascos

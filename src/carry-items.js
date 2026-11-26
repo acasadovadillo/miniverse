@@ -55,11 +55,16 @@ export const BULKY = {
   carcass_sheep: { kg: 25, hold: 'across', slow: 0.8, prey: 'oveja', extra: 'hueso', color: '#e4dccb', drops: [['carne_cordero', 1, 3], ['piel', 1, 1], ['lana', 1, 3]] },
   carcass_goat: { kg: 22, hold: 'across', slow: 0.8, prey: 'cabra', extra: 'hueso', color: '#b0a088', drops: [['carne_cabra', 1, 2], ['piel', 1, 1], ['hueso', 1, 1]] },
   carcass_pig: { kg: 35, hold: 'across', slow: 0.8, prey: 'cerdo', extra: 'manteca', color: '#e0a898', drops: [['carne_cerdo', 2, 3], ['piel', 1, 1], ['manteca', 1, 2]] },
+  // (the smugglers' strongbox, missions/strongbox.js: hugged to the chest. self: it is its own part, so with the slot inventory or in
+  // creative it goes into the backpack as itself: Carry.giveParts)
+  strongbox: { kg: 60, hold: 'front', slow: 0.6, self: true, parts: [] },
 };
 // The carcass each prey leaves (only the adults of these; birds, rabbits and the young drop their meat as before)
 export const CARCASS_OF = Object.fromEntries(Object.entries(BULKY).filter(([, b]) => b.prey).map(([id, b]) => [b.female ? b.prey + ':f' : b.prey, id]));   // ('ciervo:f': a hind's, with no antlers)
 // What a big thing is worth as things of the backpack: the log, 4 wood; a carcass, the most of each of its drops
 export const BULKY_PARTS = Object.fromEntries(Object.entries(BULKY).map(([id, b]) => [id, b.parts || b.drops.map(([m, , max]) => [m, max])]));
+// (a big thing that is its own part goes as a drop as itself: never through BULKY_PARTS, which would turn it into nothing)
+for (const [id, b] of Object.entries(BULKY)) if (b.self) delete BULKY_PARTS[id];
 export const isBulky = id => !!BULKY[id];
 
 // kg of one of a thing: its own weight, or by its kind; 0.2 if nothing says

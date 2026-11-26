@@ -212,7 +212,7 @@ export class Combat {
 
   // Atacar lo que haya delante
   target(p, held, def) {
-    if (!this.monsters?.length) return null;
+    if (!this.monsters?.length || def?.lure) return null;   // (the rattle in the hand: the click throws it, missions/strongbox.js)
     // (en primera persona, a la que está en la cruceta)
     const g = this.game, aim = CAM.first && g.mouse ? g.aimed() : null, m = CAM.first && g.mouse ? (aim?.kind === 'monster' ? aim.e : null) : this.inFront(p);
     if (!m && !def?.weapon) return null;

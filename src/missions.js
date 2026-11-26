@@ -1,5 +1,5 @@
 // Jobs: what the village asks for that takes a while and is better between two (docs/planes/gta/PLAN-I-juntos.md §1.3, §2, §3.4).
-// Each kind is a file of missions/ (drive.js). They are offered by their giver, in a talk, and on the village's board.
+// Each kind is a file of missions/ (drive.js, strongbox.js). They are offered by their giver, in a talk, and on the village's board.
 //
 // A job is an item of everybody's (ItemSync 'missions', livesync.js), written only by whoever decides the world:
 //   { id, kind, by (who started it), nm, crew: [players], away: [those gone for a while], stage, since, until (ms), site: { x, y, poi? },
@@ -26,9 +26,10 @@ import { hud } from './ui/hud.js';
 import { t, tHtml } from './i18n.js';
 import { apagada } from './opciones.js';
 import { drive } from './missions/drive.js';
+import { strongbox } from './missions/strongbox.js';
 import { talkOptions } from './talk.js';
 
-export const KINDS = { drive };
+export const KINDS = { drive, strongbox };
 const ON = !apagada('misiones');   // (?misiones=0: nothing is offered nor shown here; the jobs of the world go on)
 const DAY = 864e5, WEEK = 7 * DAY;
 export const AWAY_S = 600, DROP_MS = 3 * DAY, JOIN_R = 12, GIVER_HEARTS = 2, REP = 15, FRIEND = 30;
@@ -64,7 +65,7 @@ export class Missions {
     this.clear();
   }
   clear() {
-    this.paid = {}; this.history = []; this.left = [];
+    this.paid = {}; this.history = []; this.left = []; this.mine = {};   // (mine: job → what this game already did of it, once: { box, opened, day })
     this.seen = new Map();     // (here) job → its stage last told
     this.lastSeen = new Map(); // (whoever decides) player → game time they were last here
     this.sayT = -Infinity; this.lineNow = ''; this.slow = 0; this.told = new Set(); this.wait = false; this.v = 0;
@@ -79,11 +80,12 @@ export class Missions {
     if (isMap(S.paid)) this.paid = S.paid;
     if (Array.isArray(S.history)) this.history = S.history.filter(Array.isArray).slice(-HIST);
     if (Array.isArray(S.left)) this.left = S.left.filter(x => typeof x === 'string').slice(-HIST);
+    if (isMap(S.mine)) for (const [id, v] of Object.entries(S.mine)) if (isMap(v)) this.mine[id] = v;
     for (const j of this.jobs()) { this.seen.set(j.id, j.stage); KINDS[j.kind].load?.(this.game, j); }
   }
   save(out) {
     out.missions = [...this.list.values()].map(clone);
-    if (Object.keys(this.paid).length || this.history.length || this.left.length) out.jobs = { paid: this.paid, history: this.history, left: this.left };
+    if (Object.keys(this.paid).length || this.history.length || this.left.length || Object.keys(this.mine).length) out.jobs = { paid: this.paid, history: this.history, left: this.left, ...(Object.keys(this.mine).length && { mine: this.mine }) };
   }
 
   // ---------- everybody's ----------
@@ -106,6 +108,13 @@ export class Missions {
   isAway(j, id) { return Array.isArray(j.away) && j.away.includes(id); }
   here(j) { return j.crew.filter(id => !this.isAway(j, id)); }
   changed() { this.v++; this.look(); this.game.onSave?.(); }
+  // What this game already did of a job (kept in the save, so a reload never does it twice); old notes go after 20 days
+  mineOf(id) {
+    const day = this.game.days?.realDay ?? 0;
+    let v = this.mine[id];
+    if (!v) { for (const [k, q] of Object.entries(this.mine)) if (day - (q.day ?? day) > 20) delete this.mine[k]; this.mine[id] = v = { day }; }
+    return v;
+  }
 
   // ---------- whoever decides ----------
   mark(what, kind, v) { const it = this.list.get('@') || { id: '@' }; it[what] = { ...(isMap(it[what]) ? it[what] : {}), [kind]: v }; this.list.set('@', it); }
@@ -138,6 +147,7 @@ export class Missions {
     if (j.done || j.crew.includes(by)) return j.crew.includes(by) && !j.done;
     if (j.crew.length >= 4 || KINDS[j.kind].closed(j) || this.running().some(q => q.crew.includes(by))) return false;
     j.crew = [...j.crew, by];
+    try { KINDS[j.kind].entered?.(this.game, j, by); } catch (e) { reportFault(e, 'Missions.enter'); }
     this.changed();
     return true;
   }
@@ -145,6 +155,7 @@ export class Missions {
     if (j.done || !j.crew.includes(by)) return false;
     j.crew = j.crew.filter(x => x !== by);
     if (Array.isArray(j.away)) j.away = j.away.filter(x => x !== by);
+    try { KINDS[j.kind].quitted?.(this.game, j, by); } catch (e) { reportFault(e, 'Missions.quit'); }
     if (!j.crew.length) this.finish(j, 'fail', { why: 'left' }); else this.changed();
     return true;
   }
@@ -213,8 +224,8 @@ export class Missions {
     this.ask({ ev: 'accept', kind, ...(KINDS[kind].propose?.(this.game) || {}) }, ok => { if (ok) Audio.unlock(); else { Audio.error(); hud.toast(t('job.no'), 'warn'); } });
   }
   join(jid) { this.ask({ ev: 'join', jid }, ok => { if (ok) Audio.unlock(); else { Audio.error(); hud.toast(t('job.no_join'), 'warn'); } }); }
-  leave(jid) { this.ask({ ev: 'leave', jid }, ok => { if (ok) { this.left = [...this.left, jid].slice(-HIST); this.game.onSave?.(); } }); }
-  event(ev, data) { const j = this.active; if (j) this.ask({ ev, jid: j.id, ...data }); }
+  leave(jid) { const j = this.get(jid); if (j) try { KINDS[j.kind].leaving?.(this.game, j); } catch (e) { reportFault(e, 'Missions.leave'); } this.ask({ ev: 'leave', jid }, ok => { if (ok) { this.left = [...this.left, jid].slice(-HIST); this.game.onSave?.(); } }); }
+  event(ev, data, done) { const j = this.active; if (j) this.ask({ ev, jid: j.id, ...data }, done); else done?.(false, {}); }
   title(kind) { return t(`job.${kind}.title`); }
   // (the board's second page) The posters: [{ kind, why, join }]
   posters() { return ON ? Object.keys(KINDS).slice(0, 3).map(kind => ({ kind, why: this.why(kind), join: this.running().find(j => j.kind === kind && !j.crew.includes(me()) && !KINDS[j.kind].closed(j)) || null })) : []; }
@@ -269,7 +280,7 @@ export class Missions {
     for (const [id, d] of Object.entries(this.paid)) if (day - d > 20) delete this.paid[id];
     this.history = [...this.history, [day, j.kind, ok ? (away ? 'away' : 'ok') : 'fail']].slice(-HIST);
     if (ok && !away) {
-      const r = K.reward(j);
+      const r = K.reward(j, g);
       if (r.coins > 0) g.addMoney(r.coins);
       for (const [id, n] of r.items || []) { const left = g.inv.add(id, n); if (left) g.gather.throwOut(id, left); }
       g.neighbors.addPoints(K.giver, FRIEND);
@@ -287,7 +298,8 @@ export class Missions {
     if (!this.world) return;
     // (an animal of a job that is no more, after a copy of the world put back: it goes)
     if ((this.strayT = (this.strayT ?? 5) - dt) <= 0) { this.strayT = 30; if (this.decides() && (!g.live?.joined || g.live.role === 'host')) for (const a of [...g.ranch.animals]) if (a.drove && !this.list.has(a.drove)) g.ranch.remove(a); }
-    if (!this.list.size) return;
+    // (with no job in the world, only now and then: a map half or a box left from one that is no more)
+    if (!this.list.size) { if ((this.idleT = (this.idleT ?? 0) - dt) <= 0 && !Profile.server && g.player) this.idleT = this.client() ? 0.5 : 2; return; }
     if (this.decides()) this.run(dt);
     if (Profile.server || !g.player) return;
     if ((this.slow -= dt) > 0) return;
@@ -295,7 +307,10 @@ export class Missions {
     this.look();
     const j = this.active;
     if (j) try { KINDS[j.kind].tell?.(g, j); } catch (e) { reportFault(e, 'Missions.tell'); }
+    this.client();
   }
+  // Each kind's own of this player, also with no job of theirs (true: call again soon)
+  client() { let soon = false; for (const K of Object.values(KINDS)) try { soon = !!K.each?.(this.game) || soon; } catch (e) { reportFault(e, 'Missions.each'); } return soon; }
   minutes(j) { return Math.max(0, Math.ceil((j.until - now()) / 6e4)); }
   // What the line of the first steps says of it (steps.js), or ''. Minimal HUD: a while after each stage, near its place and at the end
   line() {
@@ -320,6 +335,27 @@ export class Missions {
     for (const j of this.running()) if (j.crew.includes(dog.owner) && KINDS[j.kind].dog?.(this.game, j, dog, owner, dt)) return true;
     return false;
   }
+
+  // (game.js) What the cursor offers of a job (the partner with the other half, Bruno's anvil…), and the same without a cursor
+  aimables(p, sc, box) {
+    if (sc !== this.world || !this.on) return null;
+    let out = null;
+    for (const K of Object.values(KINDS)) { const L = K.aimables?.(this.game, p, box); if (L?.length) (out ||= []).push(...L); }
+    return out;
+  }
+  interact(p, sc) {
+    if (sc !== this.world || !this.on) return null;
+    for (const K of Object.values(KINDS)) { const a = K.interact?.(this.game, p); if (a) return a; }
+    return null;
+  }
+  // (gather.js) The left button with the rattle in the hand: thrown (the strongbox's lure)
+  target(p, held, def) { return held?.id === 'rattle' && this.game.scene === this.world && this.game.gamemode !== 'spectator' ? strongbox.rattleTarget(this.game, p) : null; }
+  // (explore.js) E on the chest of a camp or a tower: a job's, before its own loot (null: as always)
+  chestAct(poi) { const j = this.on && this.active; return j ? KINDS[j.kind].chestAct?.(this.game, j, poi) || null : null; }
+  // (carry.js speedMul) What slows you with a job's big thing in the arms, if a job says (0: as always)
+  helpSlow(id) { return id === 'strongbox' && this.list.size ? strongbox.helpSlow(this.game) : 0; }
+  // (mobs.js) A guard of a job killed: it does not come back
+  guardDown(m) { const j = this.get(m.guard); if (j && !j.done && Number.isInteger(m.gi) && !(j.data.down || []).includes(m.gi)) { j.data = { ...j.data, down: [...(j.data.down || []), m.gi] }; this.changed(); } }
 
   // ---------- the journal ----------
   journal() {

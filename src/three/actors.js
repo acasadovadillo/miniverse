@@ -1359,6 +1359,19 @@ function monsterModel(type) {
 function animateMonster(m, e, dt, t) {
   const u = m.root.userData;
   m.phase += dt * (4 + m.speed * 5);
+  // (a job's guard asleep, missions/strongbox.js: the slime flattened and breathing slowly, the skeleton sitting slumped on
+  // the ground; k eases into it and out of it)
+  const k = u.sleepK = (u.sleepK || 0) + ((e.sleep ? 1 : 0) - (u.sleepK || 0)) * Math.min(1, dt * 2.5);
+  if (k > 0.02 && e.type !== 'murcielago') {
+    const b = Math.sin(t * 1.3 + m.phase * 0.01) * 0.025;
+    if (e.type === 'limo') { u.body.scale.set(1 + 0.2 * k, 1 - 0.36 * k + b, 1 + 0.2 * k); u.body.position.y = 0; }
+    else {
+      u.body.position.y = -0.43 * k; u.body.rotation.x = 0.32 * k + b;
+      for (const L of u.limbs.legs) L.rotation.x = -1.45 * k;
+      u.limbs.arms[0].rotation.x = u.limbs.arms[1].rotation.x = -0.35 * k; u.limbs.arms[0].rotation.z = 0.15 * k; u.limbs.arms[1].rotation.z = -0.15 * k;
+    }
+    if (k > 0.5) return;
+  } else if (u.sleepK !== undefined && e.type === 'esqueleto') { u.body.position.y = 0; u.body.rotation.x = 0; u.limbs.arms[0].rotation.z = u.limbs.arms[1].rotation.z = 0; }
   if (e.type === 'limo') { const s = Math.sin(m.phase * 1.5); u.body.scale.set(1 + s * 0.08, 1 - s * 0.12, 1 + s * 0.08); u.body.position.y = Math.max(0, s) * 0.12 * Math.min(1, m.speed); }
   else if (e.type === 'murcielago') { const f = Math.sin(t * 22 + m.phase) * 0.9; u.wings[0].rotation.z = f; u.wings[1].rotation.z = -f; }
   else { const k = Math.min(1, m.speed), s = Math.sin(m.phase) * 0.7 * k; u.limbs.legs[0].rotation.x = s; u.limbs.legs[1].rotation.x = -s; u.limbs.arms[0].rotation.x = -s - 0.3; u.limbs.arms[1].rotation.x = s - 0.3; }

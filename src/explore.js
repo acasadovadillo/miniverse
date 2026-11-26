@@ -689,6 +689,8 @@ export class Explore {
       }
       const c = this.chestOf(poi);
       if (c && this.level(c, p) && Math.hypot(p.x - c.x, p.y - c.y) < 1.4) {
+        const job = g.missions?.chestAct?.(poi);   // (a half of the strongbox's map in it: missions/strongbox.js)
+        if (job) return job;
         const d = this.world.delta(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK), true);
         if (d.opened?.[poi.key]) return { text: t('place.chest.empty'), run: () => Audio.error() };
         return { text: t('place.chest.open'), run: () => this.openPoiChest(poi, d) };
@@ -748,6 +750,8 @@ export class Explore {
       else {
         const c = this.chestOf(poi);
         if (c && this.level(c, p)) out.push({ kind: 'sys', e: null, box: box(c.x, c.y, 0.45, 0.45, c.up || 0, (c.up || 0) + 0.7), model: { name: `treasure:${c.open ? 1 : 0}`, x: c.x, y: c.y, yaw: c.yaw || 0, lift: (poi.z || 0) + (c.up || 0) }, exact: true, act: () => {
+          const job = g.missions?.chestAct?.(poi);   // (a half of the strongbox's map in it: missions/strongbox.js)
+          if (job) return job;
           const d = this.world.delta(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK), true);
           return d.opened?.[poi.key] ? { text: t('place.chest.empty'), run: () => Audio.error() } : { text: t('place.chest.open'), run: () => this.openPoiChest(poi, d) };
         } });
