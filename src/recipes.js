@@ -233,6 +233,10 @@ export const RECIPES = [
   R('banco', 'shop_counter', 1, [['tablas', 10], ['lingote_cobre', 1]]),
   R('banco', 'display_shelf', 1, [['tablas', 8]]),
   R('banco', 'goods_crate', 1, [['tablas', 4]]),
+  // (table games, tablegames.js)
+  R('banco', 'game_table', 1, [['tablas', 8], ['tela', 1]]),
+  R('banco', 'dice', 1, [['hueso', 1], ['cuero', 1]]),
+  R('banco', 'tile_box', 1, [['tablas', 3], ['hueso', 1]]),
   R('banco', 'barber_chair', 1, [['tablas', 4], ['cuero', 2], ['lingote_hierro', 1]]),
   R('cocina', 'sidra', 2, [['manzana', 3]]),
   R('cocina', 'cerveza', 2, [['trigo', 2], ['miel', 1]]),

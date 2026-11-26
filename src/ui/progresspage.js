@@ -45,7 +45,7 @@ export function completion(game) {
 export const STAT_GROUPS = [
   ['work', ['talados', 'picados', 'cosechas', 'piezas', 'cocinados', 'productos']],
   ['nature', ['peces', 'cazados', 'criaturas', 'trailsFollowed', 'mascotas']],
-  ['village', ['encargos', 'regalos', 'proyectos', 'ganado', 'donados']],
+  ['village', ['encargos', 'regalos', 'proyectos', 'jobs_done', 'games_played', 'games_won', 'games_coins', 'ganado', 'donados']],
   ['travel', ['lugares', 'profundidad', 'tesoros', 'cofres', 'templos', 'faros']],
 ];
 export function playedText(ms) { const m = Math.floor((ms || 0) / 60000); return t('gui.progress.played_for', { h: Math.floor(m / 60), m: m % 60 }); }

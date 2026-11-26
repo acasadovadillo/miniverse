@@ -55,7 +55,7 @@ export const rugRect = (tx, ty, k = 0) => { const [w, h] = RUG_SIZES[(k || 0) % 
 export const TABLE_SIZES = [[2, 1], [1, 2], [2, 2], [3, 1], [1, 3], [3, 2], [2, 3]];
 export const tableRect = (tx, ty, k = 0) => { const [w, h] = TABLE_SIZES[(k || 0) % TABLE_SIZES.length]; return { x0: tx - Math.floor((w - 1) / 2), y0: ty - Math.floor((h - 1) / 2), w, h }; };
 // Las sillas que miran a una mesa se meten debajo: el asiento bajo el tablero y el respaldo fuera
-export const TABLES = new Set(['mesa', 'mesa_grande']), TUCK = 0.42;
+export const TABLES = new Set(['mesa', 'mesa_grande', 'game_table']), TUCK = 0.42;
 export const footTile = (tx, ty, rot) => { const [dx, dy] = front(rot); return [tx + dx, ty + dy]; };
 // Las casillas que ocupa además de la suya
 export function extraTiles(id, tx, ty, rot) {

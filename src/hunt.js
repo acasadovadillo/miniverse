@@ -82,7 +82,7 @@ export const kindName = e => { const k = nameKey(e); return k ? t('wild.' + k) :
 export class Hunt {
   constructor(game) { this.game = game; }
   // ¿Se le puede pegar? (los de otra persona, no)
-  canHit(e, who = me()) { return !!PREY[e.type] && !(e.owner && e.owner !== who); }
+  canHit(e, who = me()) { return !!PREY[e.type] && !e.drove && !(e.owner && e.owner !== who); }
   // A quién se le pegaría ahora: al que está bajo el cursor (o, sin ratón y con un arma, al que está delante)
   prey(p, def) {
     const g = this.game;

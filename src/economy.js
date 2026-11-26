@@ -81,7 +81,7 @@ export const SHOPS = {
   },
   anselmo: {
     title: 'Taberna de Anselmo', hours: [10, 26],
-    stock: [{ id: 'cerveza', price: 45 }, { id: 'sidra', price: 40 }, { id: 'apple_juice', price: 35 }, { id: 'hidromiel', price: 90 }, { id: 'pan', price: 70 }, { id: 'pollo_asado', price: 90 }, { id: 'estofado', price: 150 }, { id: 'filete', price: 130 }, { id: 'venado_asado', price: 160 }, { plan: 'taburete', price: 40 }, { plan: 'barra', price: 90 }, { plan: 'barril', price: 160 }, { plan: 'barber_chair', price: 220 }],
+    stock: [{ id: 'cerveza', price: 45 }, { id: 'sidra', price: 40 }, { id: 'apple_juice', price: 35 }, { id: 'hidromiel', price: 90 }, { id: 'pan', price: 70 }, { id: 'pollo_asado', price: 90 }, { id: 'estofado', price: 150 }, { id: 'filete', price: 130 }, { id: 'venado_asado', price: 160 }, { plan: 'taburete', price: 40 }, { plan: 'barra', price: 90 }, { plan: 'barril', price: 160 }, { id: 'dice', price: 40 }, { id: 'tile_box', price: 60 }, { plan: 'game_table', price: 200 }, { plan: 'barber_chair', price: 220 }],
   },
   bruno: {
     title: 'Herrería de Bruno', hours: [8, 17],

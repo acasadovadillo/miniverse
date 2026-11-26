@@ -57,7 +57,7 @@ export class RoutineView {
   // ---------- at table ----------
   eat(game, N, p, dt) {
     for (const n of N.people) {
-      const s = n.spot, on = n.meal && !n.hidden && n.still && s && Math.hypot(n.x - p.x, n.y - p.y) < FAR && (n.pose || s.room === 'taberna');
+      const s = n.spot, on = n.meal && !game.tables?.holder(n) && !n.hidden && n.still && s && Math.hypot(n.x - p.x, n.y - p.y) < FAR && (n.pose || s.room === 'taberna');
       let m = this.meals.get(n);
       if (m && (!on || m.spot !== s)) { this.group.remove(m.group); this.meals.delete(n); m = null; }
       if (!on) continue;

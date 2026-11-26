@@ -101,11 +101,14 @@ export class Board {
     for (;;) {
       const reqs = this.requests(), opts = reqs.map(r => r.done ? t('board.row.done', { name: PEOPLE[r.who].name }) : t('board.row', { name: PEOPLE[r.who].name, what: countOf(r.item, r.n), reward: r.reward, have: g.inv.count(r.item) }));
       const wanted = g.law?.posters() || [], up = wanted.length ? opts.push(t('law.poster.read')) - 1 : -1;
+      const jobs = g.missions?.on ? 1 : 0;   // (the jobs, its second page: missions.js)
+      if (jobs) opts.push(t('job.board'));
       opts.push(t('board.projects'), t('common.close'));
       const pick = await hud.ask(t('board.title'), t('board.ask'), opts);
       if (pick === opts.length - 1) break;
       if (pick === up) { await hud.say(t('board.name'), wanted.slice(0, 4).map(q => t('law.poster', { name: q.name, n: q.bounty }))); continue; }
       if (pick === opts.length - 2) { await this.projectsMenu(); continue; }
+      if (jobs && pick === opts.length - 3) { await g.missions.board(); if (g.missions.active) break; continue; }
       const r = reqs[pick];
       if (r.done) continue;
       if (!this.canDeliver(r)) { Audio.error(); await hud.say(t('board.name'), [t('board.short', { what: countOf(r.item, Math.max(1, r.n - g.inv.count(r.item))) })]); continue; }

@@ -74,6 +74,9 @@ export const Audio = {
   },
   door: () => tone([[180, 0.08, 'triangle', 0.08], [140, 0.12, 'triangle', 0.08]]),
   chop() { Audio.noiseHit(500, 0.09, 0.35); tone([[110, 0.06, 'triangle', 0.08]]); },
+  // The table games: three dice on the wood, a tile put down
+  dice() { for (let i = 0; i < 7; i++) setTimeout(() => { Audio.noiseHit(1500 + Math.random() * 1400, 0.025, 0.16 - i * 0.015); tone([[820 + Math.random() * 500, 0.018, 'triangle', 0.03]]); }, 90 + i * 62 + Math.random() * 26); },
+  tile() { Audio.noiseHit(1250, 0.035, 0.24); tone([[430, 0.03, 'triangle', 0.06], [250, 0.03, 'triangle', 0.05]]); },
   clink() { tone([[1400, 0.04, 'square', 0.04], [1050, 0.06, 'square', 0.03]]); Audio.noiseHit(2500, 0.05, 0.15); },
   // The hammer: a short knock of iron on wood (or on stone, or into straw); and the chalk line of a plan
   hammer(kind) {

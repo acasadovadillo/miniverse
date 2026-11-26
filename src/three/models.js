@@ -19,6 +19,7 @@ import { mailbox, MAIL_MATS } from './mailbox3d.js';
 import { pew } from './chapel3d.js';
 import { desk } from './law3d.js';
 import { shopCounter, displayShelf, goodsCrate } from './shop3d.js';
+import { cupModel, diceModel, tileBox, gameTable } from './tgmodels.js';
 import { tintOf } from './tints.js';
 import { trough, hitchingPost } from './stable3d.js';
 import { rodRest } from './rest3d.js';
@@ -651,6 +652,7 @@ const BUILD = {
   },
   pew(m) { pew(m); },   // (chapel3d.js)
   desk(m) { desk(m); },   // (law3d.js)
+  game_table(m) { gameTable(m); }, dice(m) { diceModel(m); }, tile_box(m) { tileBox(m); }, tg_cup(m) { cupModel(m); },   // (the table games: tgmodels.js)
   shop_counter(m) { shopCounter(m); },   // (a player's business: shop3d.js)
   display_shelf(m) { displayShelf(m); },
   goods_crate(m) { goodsCrate(m); },
@@ -1334,6 +1336,7 @@ const OWN = {
   logBark: () => mat({ map: bark(), roughness: 0.95 }), logEnd: () => mat({ map: ringsTex(), roughness: 0.85 }),
   carcass: () => mat({ vertexColors: true, roughness: 0.85 }),
   // (the wheelbarrow's heap of sacks: the burlap of the tarp over them and of the sacks)
+  baize: () => mat({ color: apagado('#2f6a48'), roughness: 1 }),   // (the game table's)
   tarp: () => mat({ color: apagado('#8c7b5a'), roughness: 1, side: THREE.DoubleSide }),
   // (the towers' other stones: the same textures, another tone)
   towerWall_granite: () => towerCut(mat({ map: modelMats().towerWall.map, color: '#ccd2d8', roughness: 0.92 })), towerStone_granite: () => towerCut(mat({ map: modelMats().towerStone.map, color: '#cfd5da', roughness: 0.9 })),

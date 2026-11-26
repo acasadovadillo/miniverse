@@ -595,6 +595,7 @@ export class Actors {
       }
       if (ANIMALS[e.type].swims) y = WATER_Y - 0.06 + Math.sin(t * 1.5 + x) * 0.015;
       // (el caballo vadea más hondo que lo que da groundY: pisa el fondo, como montado)
+      else if (e.drove && scene.waterDepth) { const dd = scene.waterDepth(e.x, e.y); if (dd > 0.2) y = WATER_Y - Math.min(dd, COW_SWIM); }   // (a job's cow crossing a river: its back out of the water)
       else if (e.type === 'caballo' && scene.waterDepth) { const dd = scene.waterDepth(e.x, e.y); if (dd > 0.3) y = WATER_Y - dd; }
       if (m.root.userData.horse) {
         // (a horse: its mud, the shake after a brushing (a.act, local) and, if it is yours or your partner's and comes at a
@@ -923,6 +924,8 @@ export class Actors {
       for (const k of P.shins || []) k.rotation.x = pz.kind === 'sit' ? Math.PI / 2 : 0.1;
       if (pz.kind === 'floorSit') { for (const a of P.arms) a.rotation.x = 0.45; P.torso.rotation.x = -0.12; }
       else for (const a of P.arms) a.rotation.x = -0.35;
+      // (at a table game, the forearms resting on its edge: tablegames.js)
+      if (pz.kind === 'sit' && e.tableHands > (this.game?.time ?? 0)) { for (let i = 0; i < 2; i++) { P.arms[i].rotation.x = -0.62; P.arms[i].rotation.z = (i === 0 ? 1 : -1) * 0.12; if (P.fore?.[i]) P.fore[i].rotation.x = -0.72; } P.torso.rotation.x = 0.07; }
     }
     if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
@@ -1159,6 +1162,7 @@ const GESTURES = {
 // The gestures of social.js: what each one does, at its moment k (0 to 1), with s the side of the arm (-1 the right, 1 the
 // left: + raises it outwards). ax: the arm forward (negative raises it), az: sideways, fx: the elbow (negative bends it),
 // ay: the arm's turn about its length (- turns the forearm in), hx: the head (positive, down), hz: its tilt, tx: the trunk (positive, forward). How long it lasts, in seconds
+const COW_SWIM = 0.92;
 export const EMOTES = {
   wave: { dur: 1.1, pose: (k, s) => ({ ax: -2.55, az: s * (0.3 + 0.3 * Math.sin(k * Math.PI * 6)), fx: -0.5 }) },
   nod: { dur: 0.8, pose: k => ({ hx: 0.34 * Math.sin(k * Math.PI * 2) ** 2 }) },
@@ -1196,6 +1200,11 @@ export const EMOTES = {
   arrest: { dur: 2.2, pose: (k, s) => { const e = Math.min(1, k * 5, (1 - k) * 4), q = e * e * (3 - 2 * e); return { ax: -1.28 * q, az: s * 0.1 * q, ay: -s * 0.25 * q, fx: -0.18 * q, tx: 0.16 * q, hx: 0.04 * q }; } },
   stagger: { dur: 1.1, both: true, pose: (k, s) => { const e = Math.min(1, k * 8) * (1 - k); return { ax: -0.7 * e * 1.6, az: s * 0.9 * e, fx: -0.9 * e, tx: -0.5 * e, hx: -0.35 * e }; } },
   pay: { dur: 1.7, pose: (k, s) => { const e = Math.min(1, k * 4, (1 - k) * 4), q = e * e * (3 - 2 * e); return { ax: -1.02 * q, az: -s * 0.06 * q, ay: s * 0.7 * q, fx: -0.5 * q, hx: 0.12 * q, tx: 0.08 * q }; } },
+  // The table games (tablegames.js), drawn by each game and never sent. roll: a short throw of the forearm over the table; place:
+  // leaning in, the arm out to the table and back; cheer: both fists up
+  roll: { dur: 0.75, pose: (k, s) => { const a = Math.min(1, k * 5, (1 - k) * 3.2), f = k < 0.45 ? Math.sin(k / 0.45 * Math.PI) : -0.5 * Math.sin((k - 0.45) / 0.55 * Math.PI); return { ax: -0.95 * a - 0.3 * f * a, az: -s * 0.08 * a, fx: -0.75 * a - 0.5 * f * a, tx: 0.16 * a, hx: 0.14 * a }; } },
+  place: { dur: 0.95, pose: (k, s) => { const a = Math.min(1, k * 3.4, (1 - k) * 2.8), q = a * a * (3 - 2 * a); return { ax: -1.12 * q, az: -s * 0.1 * q, fx: -0.22 * q, tx: 0.3 * q, hx: 0.2 * q }; } },
+  cheer: { dur: 1.1, both: true, pose: (k, s) => { const a = Math.min(1, k * 5, (1 - k) * 4), p = Math.sin(k * Math.PI * 6) ** 2; return { ax: (-2.3 - 0.2 * p) * a, az: s * 0.3 * a, fx: -0.6 * a, hx: -0.14 * a }; } },
   // whistle: the fingers to the mouth, the head up a touch, held for about half a second
   whistle: { dur: 0.9, pose: (k, s) => ({ ax: -1.2, az: -s * 0.1, ay: -s * 0.85, fx: -2.25, hx: -0.06 }) },
 };

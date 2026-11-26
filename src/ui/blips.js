@@ -254,7 +254,7 @@ blips.source('traps', (out, { game }) => {
 });
 // Where a first step sends you (smarthud.js puts it in map.goal), the marked route's target and the pins others shared
 blips.source('marks', (out, { game }) => {
-  const R = game.route, G = game.map?.goal;
+  const R = game.route, G = game.map?.goal || (!game.smartHud && game.steps?.over ? game.missions?.goal() : null);   // (the full interface has no gold mark: the job's place, on the maps)
   if (G) out.add('goal', G.x, G.y);
   if (R?.active) { const b = out.add('route', R.target.x, R.target.y); b.name = R.target.name || ''; b.color = accent.route; }   // (in its colour, like its line)
   if (R?.pins) for (const [conn, q] of R.pins) { const b = out.add('pin', q.x, q.y); b.name = q.own ? q.name : q.name ? `${q.by}: ${q.name}` : q.by; b.conn = conn; }

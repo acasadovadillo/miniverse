@@ -359,7 +359,7 @@ export class Neighbors {
     const now = this.clock(dt);
     this.sync();
     for (const n of this.people) {
-      const who = this.game.talk?.holder(n) || null;   // (you, or another player, talking with them: talk.js)
+      const who = this.game.talk?.holder(n) || this.game.tables?.holder(n) || null;   // (you, or another player, talking with them: talk.js; or playing with them: tablegames.js)
       if (n.talkWith !== who) n.talkWith = who;
       n.lookedAt = !!who || n.hold > 0;
       if (n.def.law && this.game.law?.drive(n, dt)) continue;   // (after somebody: law.js moves him)

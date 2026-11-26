@@ -83,7 +83,9 @@ const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', '
   // (its breed and what it is like, Plan R4-3: horsebreeds.js; breed is its coat)
   'race', 'gene', 'mix',
   // (Plan R4-4, horselead.js: who has its reins, never kept; and the knot it is tied with, kept)
-  'lead', 'tie'];
+  'lead', 'tie',
+  // (the job a cow is of, missions/drive.js: it has no home nor owner, and the drive moves it)
+  'drove'];
 // Lo de una versión más nueva del juego: un animal de una clase que esta no conoce no se mueve ni se dibuja, pero se
 // guarda y se reparte tal cual (unknown); y de los demás, lo guardado que esta no conoce (unknownFields) se conserva
 const KNOWN_FIELDS = new Set([...KEEP, 'x', 'y']);
@@ -198,6 +200,20 @@ export class Ranch {
     this.notifyMail();
   }
   save(out) { out.animals = [...this.animals.map(a => a.toSave()), ...this.unknown]; out.farm = this.farm; }
+  // (missions/drive.js, whoever decides the world) A cow of a job, and one of them that stays with somebody
+  addDrove(job, type, x, y) {
+    const a = new Animal({ type, name: this.freeName(type), x, y, at: [+x.toFixed(2), +y.toFixed(2)], born: this.today - 20, outDay: this.today, breed: this.randomBreed(type), drove: job, named: true });
+    this.animals.push(a);
+    return a;
+  }
+  keepDrove(a, owner) {
+    const home = this.homes(a.def.home).find(h => h.free > 0);
+    if (!home) return false;
+    delete a.drove;
+    Object.assign(a, { owner, grazing: false, grazeHome: null });
+    this.assign(a, home.tile);
+    return true;
+  }
   // Uno que ha muerto (gone: para que una lista de antes de saberlo no lo resucite, jugando juntos)
   remove(a) {
     const i = this.animals.indexOf(a);
@@ -366,6 +382,7 @@ export class Ranch {
     // (lejos: de todos los que juegan, también los de los demás; el servidor sin pantalla no tiene a nadie suyo)
     const players = g.mobs.players();
     for (const a of this.animals) {
+      if (a.drove) continue;   // (a job's: missions/drive.js moves it)
       const def = a.def, far = !players.some(q => Math.abs(a.x - q.x) + Math.abs(a.y - q.y) <= 60), grazer = GRAZERS.has(a.type);
       a.young = this.young(a);
       if (def.pet) { this.updatePet(a, dt, night); continue; }
@@ -639,6 +656,7 @@ export class Ranch {
     // Sentado (con clic derecho o con X): se queda ahí, también de noche, hasta que se le levanta
     if (a.sit) { a.vx = a.vy = 0; a.tx = a.x; a.ty = a.y; a.fetch = null; a.sleep = false; return; }
     if (a.type === 'perro' && a.fetch) return this.fetch(a, dt, owner);
+    if (a.type === 'perro' && owner && g.missions?.dogWork(a, owner, dt)) { a.sleep = false; return; }   // (a drive: it brings the strays back)
     const follow = owner && a.type === 'perro' && !night;
     if (follow) {
       a.sleep = false;
@@ -780,6 +798,7 @@ export class Ranch {
     const winter = this.days.season === 3, news = [], care = this.game.horsecare;
     care?.dawn(day);
     for (const a of this.animals) {
+      if (a.drove) continue;
       const def = a.def;
       a.young = this.young(a);
       if (def.pet || def.ride) {
@@ -956,7 +975,7 @@ export class Ranch {
   // llevan tu nombre y los que no son de nadie (los comprados antes de que llevaran dueño, que son de la granja)
   assignable(kind, tile) {
     const here = a => a.home && a.home[0] === tile[0] && a.home[1] === tile[1];
-    return this.animals.filter(a => a.def.home === kind && !a.stray && !a.rider && !here(a) && (!a.owner || a.owner === me())).sort((a, b) => !!this.homeOf(a) - !!this.homeOf(b));
+    return this.animals.filter(a => a.def.home === kind && !a.stray && !a.rider && !a.drove && !here(a) && (!a.owner || a.owner === me())).sort((a, b) => !!this.homeOf(a) - !!this.homeOf(b));
   }
   // Que un animal pase a vivir en una casa: aparece delante de ella (no saben buscar el camino desde lejos). at: para
   // que, jugando juntos, el anfitrión también lo ponga ahí
@@ -1199,7 +1218,7 @@ export class Ranch {
   // Lo que tienes en la mano y le encanta a este animal (para que busque pareja), o null
   loveFood(a) {
     const held = this.game.inv.held?.id, foods = LOVE_FOOD[a.type];
-    if (!held || !foods || this.young(a)) return null;
+    if (!held || !foods || a.drove || this.young(a)) return null;
     return foods.includes(held) || (a.def.bird && PECKS.test(held)) ? held : null;
   }
   // Dárselo: se pone en celo un rato (salvo si ya lo está o acaba de tener una cría)
@@ -1218,6 +1237,7 @@ export class Ranch {
   // Hablar con un animal: ponerle nombre, recoger lo suyo, acariciarlo; al caballo propio, su menú
   talk(a) {
     const def = a.def, mine = a.owner === me(), g = this.game;
+    if (a.drove) return this.game.missions.animalAct(a);   // (a job's: missions.js)
     if (a.stray) return { text: `Adoptar ${a.type === 'perro' ? 'al perro' : 'al gato'}`, run: () => this.adopt(a) };
     if (!a.named && (!a.owner || mine)) return { text: `Ponerle nombre ${a.def.baby ? 'a la cría' : ''}`.trim(), run: () => this.name(a) };
     const grass = GRAZERS.has(a.type) ? `ha pastado ${Math.min(this.needOf(a), this.grazedOn(a))}/${this.needOf(a)}` : '';   // (lo que lleva hoy)

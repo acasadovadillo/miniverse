@@ -15,7 +15,7 @@ import { setFamilyHouse } from './world/village.js';
 // (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
 // (rules, worldSpawn, weatherLock y difficulty: las reglas del mundo, dónde aparecen los nuevos, el tiempo que ha
 // puesto un op y la dificultad)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'wear', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'places1', 'law'];
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'wear', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'places1', 'law', 'missions'];
 
 // Lo del mundo guardado que este juego no conoce: de una versión más nueva (una clave que se añadió después). Quien lleva
 // el mundo lo vuelve a guardar tal cual (ver worldOf en live.js), para no perderlo. RETIRED: lo que se quitó del juego
@@ -82,6 +82,8 @@ export const BLOBS = {
   wear: { get: g => ({ d: g.wear.v.d }), set: (g, v) => { if (g.live.role !== 'host') g.wear.share(v); } },
   // (who owes what to the law, law.js: only whoever runs the world writes it; as a list of elements, below)
   law: { get: g => g.law.v, set: (g, v) => { if (g.live.role !== 'host') g.law.share(v); } },
+  // (the jobs, missions.js: only whoever runs the world writes them; here whole, for a game from before)
+  missions: { get: g => (g.missions ? [...g.missions.list.values()] : []), set: (g, v) => { if (g.live.role !== 'host') g.missions?.share(v); } },
   maps: { get: g => g.maps.data, set: (g, v) => { g.maps.data = v || {}; } },   // (lo dibujado en los mapas)
   defaultGamemode: { get: g => g.defaultGamemode, set: (g, v) => { g.defaultGamemode = v; } },
 };
@@ -115,10 +117,13 @@ export const COLLECTIONS = {
     // guard(g, id, field, value, peerId, el) → may this guest's change of one field stand? el: the element as the guest's
     // batch leaves it so far. Plan F §3.2: the horses' rider, bagsBy, bags, bond and whistle fields (saddlebags.js
     // horseGuard); every other field and animal passes
-    guard: (g, id, f, v, pid, el) => (g.saddlebags?.guard ? g.saddlebags.guard(id, f, v, pid, el) : true) },
+    // (and a job's animal, missions/drive.js: nobody makes it theirs but by the job)
+    guard: (g, id, f, v, pid, el) => (el?.drove && (f === 'drove' || f === 'owner' || f === 'home' || f === 'at' || f === 'ready' || f === 'expecting') ? false : g.saddlebags?.guard ? g.saddlebags.guard(id, f, v, pid, el) : true) },
   family: { items: g => g.family.netItems(), whole: (g, v) => g.family.netItems(v || {}), apply: (g, ops) => g.family.netApply(ops), guestDrops: false },
   // (hostOnly: a guest's change of it is never taken, whatever it is; it goes back as it is here)
   law: { items: g => g.law.netItems(), whole: (g, v) => new Map(Object.entries(isMap(v) ? v : {})), apply: (g, ops) => g.law.netApply(ops), guestDrops: false, hostOnly: true },
+  // (guestWrites: false: a guest never writes it, whatever they send goes back as it is here; they ask with claims.js)
+  missions: { items: g => (g.missions ? g.missions.netItems() : new Map()), whole: (g, v) => new Map((Array.isArray(v) ? v : []).filter(j => typeof j?.id === 'string').map(({ id, ...o }) => [id, o])), apply: (g, ops) => g.missions?.netApply(ops), guestDrops: false, guestWrites: false },
   farm: { items: g => g.ranch.farmItems(), whole: (g, v) => g.ranch.farmItems(v || {}), apply: (g, ops) => g.ranch.farmApply(ops), counters: { hay: [0, Infinity] }, guestDrops: true },
 };
 const OPS = new Set(['put', 'set', 'del', 'add', 'drop']);
@@ -233,7 +238,7 @@ export class ItemSync {
     for (const op of ops) {
       if (!valid(op)) continue;
       const [kind, id, f, v] = op, have = cur.get(id);
-      if (!fromHost && !trusted && this.def.hostOnly) { back.push(have ? ['put', id, JSON.parse(JSON.stringify(have))] : ['drop', id]); continue; }
+      if (!fromHost && !trusted && (this.def.hostOnly || this.def.guestWrites === false)) { back.push(have ? ['put', id, copy(have)] : ['drop', id]); continue; }
       if (kind === 'drop') {
         if (!fromHost && !trusted && !this.def.guestDrops) { if (have) back.push(['put', id, JSON.parse(JSON.stringify(have))]); continue; }   // (que lo vuelva a tener)
         this.gone.add(id);

@@ -210,12 +210,14 @@ Object.assign(ITEMS, {
   shop_counter: { place: 'furniture' }, display_shelf: { place: 'furniture' }, goods_crate: { place: 'furniture' },
   // (a writing desk, two tiles: the constable's; three/law3d.js)
   desk: { place: 'furniture' },
+  // (table games, tablegames.js: the table with its baize; the dice and the box go on a table. tableKit: what one plays with it)
+  game_table: { place: 'furniture' }, dice: { tableKit: 'crows' }, tile_box: { tableKit: 'tiles' },
   // (the watchtowers one builds, 9 and 12 m: world/tower.js)
   watchtower: { place: 'furniture' },
   watchtower_tall: { place: 'furniture' },
 });
 defineNames({ cana: ITEMS.cana, cana_fibra: ITEMS.cana_fibra }, 'item', ['desc']);
-defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair, pew: ITEMS.pew, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall, shop_counter: ITEMS.shop_counter, display_shelf: ITEMS.display_shelf, goods_crate: ITEMS.goods_crate, desk: ITEMS.desk }, 'item');
+defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair, pew: ITEMS.pew, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall, shop_counter: ITEMS.shop_counter, display_shelf: ITEMS.display_shelf, goods_crate: ITEMS.goods_crate, desk: ITEMS.desk, game_table: ITEMS.game_table, dice: ITEMS.dice, tile_box: ITEMS.tile_box }, 'item');
 // (the saddlebags hold 12 stacks since Plan F, saddlebags.js: their description comes from the language files; with
 // ?alforjas=0 they keep 9, and the old text)
 if (!apagada('alforjas')) defineNames({ alforjas: ITEMS.alforjas }, 'item', ['desc']);

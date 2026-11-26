@@ -118,6 +118,11 @@ import * as BR from './bizrules.js';
 import { CLAIMS } from './claims.js';
 import { bizJournal } from './ui/shopadmin.js';
 import { Business } from './business.js';
+import { TableGames, RULES as RULES_TG, liveRec, GAMES_A_DAY, LOST_A_DAY } from './tablegames.js';
+import * as TGT from './tg/tiles.js';
+import * as TGAI from './tg/ai.js';
+import * as DRIVE from './missions/drive.js';
+const TG_CAPS = { games: GAMES_A_DAY, lost: LOST_A_DAY };
 import { wayRound } from './world/walkways.js';
 import { CHAPEL, LOTS, WALK_NODES, setProjects, keepClear, townDigWhy as townWhy } from './world/village.js';
 import { PROJECTS } from './board.js';
@@ -2017,7 +2022,7 @@ async function soloTests(game) {
     const H = game.pauseHub, $ = id => document.getElementById(id), rows = () => [...$('j-tabs').children], seen = [];
     H.open('journal');
     try {
-      check(rows().length === JOURNAL_PAGES.filter(q => !q.when || q.when(game)).length && rows().length === (apagada('naturebook') ? 7 : 8) && rows().every(r => r.dataset.jtab && r.textContent.trim() && !r.textContent.includes('journal.')), `pages: ${rows().map(r => r.textContent)}`);
+      check(rows().length === JOURNAL_PAGES.filter(q => !q.when || q.when(game)).length && rows().length === (apagada('naturebook') ? 7 : 8) + (game.missions?.on ? 1 : 0) && rows().every(r => r.dataset.jtab && r.textContent.trim() && !r.textContent.includes('journal.')), `pages: ${rows().map(r => r.textContent)}`);
       check(document.querySelectorAll('#j-tabs .sel').length === 1 && $('j-body').innerHTML.length > 40, 'no page at the start');
       for (let i = 0; i < rows().length; i++) { pauseKey('ArrowDown'); const on = document.querySelector('#j-tabs .sel'); seen.push(on.dataset.jtab); check(on.classList.contains('on') && $('j-body').innerHTML.length > 30, `page ${on.dataset.jtab}`); }
       check(new Set(seen).size === rows().length, `the list does not go through all: ${seen}`);
@@ -5945,7 +5950,8 @@ async function soloTests(game) {
       const [ai, aa] = io('animals'), [fi, fa] = io('farm'), [mi, ma] = io('family'), [li, la] = io('law');
       return { st, law: { netItems: li, netApply: la }, ranch: { netItems: ai, netApply: aa, farmItems: fi, farmApply: fa }, family: { netItems: mi, netApply: ma } };
     };
-    const H = fake(), I = fake(), sync = () => Object.fromEntries(Object.keys(COLLECTIONS).map(k => [k, new ItemSync(k)]));
+    const NETS = ['animals', 'family', 'farm'];   // (those this test plays with; the jobs, missions.js, have their own)
+    const H = fake(), I = fake(), sync = () => Object.fromEntries(NETS.map(k => [k, new ItemSync(k)]));
     for (const g of [H, I]) g.st.animals.set('vaca', { type: 'vaca', love: 5 });
     const sh = sync(), si = sync();
     let seq = 0, acked = -1;
@@ -5955,7 +5961,7 @@ async function soloTests(game) {
     const fromH = n => ({ n, ops: sh[n].diff(H), ack: acked });
     const toI = m => si[m.n].apply(I, m.ops, true, m.ack, { full: !!m.full });
     const json = (g, n) => JSON.stringify([...g.st[n]].sort());
-    const same = () => Object.keys(COLLECTIONS).every(n => json(H, n) === json(I, n));
+    const same = () => NETS.every(n => json(H, n) === json(I, n));
     // Nace una cría en H mientras I acaricia la vaca: lo de I llega cuando H ya ha mandado la cría
     H.st.animals.set('cria', { type: 'vaca', named: false }); I.st.animals.get('vaca').love = 6;
     const m1 = fromI('animals'), h1 = fromH('animals');
@@ -10604,6 +10610,378 @@ async function soloTests(game) {
     B.settle(key, B.now() + 1); check(B.at(key), 'lost'); for (let i = 0; i < 6; i++) { B.rescueT = 0; B.ownerTick(); }
     check(!B.at(key) && inv().count('huevo') === 5 && inv().count('miel') === 3 && game.money === m0 + 40, `back: ${inv().count('huevo')}, ${inv().count('miel')}, ${game.money - m0}`);
   }));
+  // ---------- Plan I-1: table games and jobs (docs/planes/gta/PLAN-I-juntos.md §10) ----------
+  const Tg = () => game.tables, Ms = () => game.missions, ME = () => Profile.id || 'me', live = () => game.live;
+  const TAV = { mine: [4, 37], marta: '3,37', paco: '8,37', stool: [5, 35], bar: '2,34' };
+  // At the tavern, at a fixed hour: the neighbours where their routine puts them; the player on a chair or a stool
+  const tavern = fn => routine(async o => {
+    const T = Tg(), money = game.money, p0 = { x: p().x, y: p().y }, keepT = { escrow: T.escrow, paid: T.paid, rivals: T.rivals, rng: T.rng }, W = w(), keepF = JSON.parse(JSON.stringify(Nb().friends));
+    T.escrow = {}; T.paid = []; T.rivals = {}; game.money = 500;
+    const at = ms => { o.clock(ms); for (const n of Nb().people) n.placeAt(ms); };
+    const seat = async ([x, y]) => { if (p().pose) game.rest.stand(); game.teleport(x + 0.5, y + 1.6); await frames(2); const o2 = W.placedNear(x + 0.5, y + 0.5, 1.2).find(q => (q.placed === 'silla' || q.placed === 'taburete') && q.tile[0] === x && q.tile[1] === y); check(o2, `no seat at ${x},${y}`); game.rest.sit(o2); T.look(); return o2; };
+    const clean = () => { for (const tile of [...T.index.keys()]) { const d = W.deltas.get(T.index.get(tile)); if (d?.tg) delete d.tg[tile]; if (d?.tgkit) delete d.tgkit[tile]; } T.scan(); T.timers.clear(); T.acks.clear(); T.seen.clear(); };
+    try { at(dayMs(WORKDAY, 18)); await fn({ ...o, T, W, at, seat, clean }); }
+    finally { clean(); if (p().pose) game.rest.stand(); Object.assign(T, keepT); game.money = money; game.addMoney(0); Nb().friends = keepF; game.teleport(p0.x, p0.y); }
+  });
+  const playOut = (T, tile, guard = 400) => { for (let i = 0; i < guard; i++) { const r = T.at(tile); if (!r || r.ph !== 'play') return r; const s = r.seats[r.st.turn]; if (s.npc) { T.timers.get(r.id) && (T.timers.get(r.id).think = 0); T.run(0.05); } else { const L = RULES_TG[r.game].legal(r.st, r.st.turn); T.move(r.game === 'crows' ? (r.st.crows >= 2 && L.includes('bank') ? 'bank' : 'roll') : L[0]); } } return T.at(tile); };
+  await test('tg (english): crows rules', async () => {
+    const R = RULES_TG.crows, rolls = v => { let i = 0; return () => (v[i++ % v.length] - 1) / 6 + 0.01; };
+    let st = R.start(2, () => 0); check(st.turn === 0 && R.legal(st, 0).join() === 'roll' && !R.legal(st, 1).length, 'first move: only roll');
+    st = R.apply(st, 'roll', rolls([1, 4, 5])); check(st.pot === 9 && st.crows === 1 && st.turn === 0 && R.legal(st, 0).includes('bank'), `one crow: ${JSON.stringify(st)}`);
+    st = R.apply(st, 'roll', rolls([1, 6, 6])); check(st.pot === 21 && st.crows === 2, 'two crows add up');
+    st = R.apply(st, 'roll', rolls([1, 2, 2])); check(st.turn === 1 && st.bank[0] === 0 && st.last.k === 'bust' && st.last.n === 25, `the third crow takes the pot: ${JSON.stringify(st.last)}`);
+    st = R.apply(st, 'roll', rolls([6, 6, 6])); st = R.apply(st, 'bank'); check(st.bank[1] === 18 && st.turn === 0 && st.round === 2, 'bank');
+    st.bank[0] = 15; st = R.apply(st, 'roll', rolls([1, 1, 1])); check(st.bank[0] === 5 && st.last.k === 'murder', 'a murder: −10');
+    check(R.apply(st, 'bank') === null, 'no bank on a pot of 0');
+    // Everybody gets the same turns: the first reaches 50, the second still answers
+    st = { ...R.start(2, () => 0), bank: [45, 40] }; st = R.apply(st, 'roll', rolls([6, 6, 6])); st = R.apply(st, 'bank'); check(!st.over && st.turn === 1, 'the last seat answers');
+    st = R.apply(st, 'roll', rolls([6, 6, 6])); st = R.apply(st, 'roll', rolls([5, 5, 5])); st = R.apply(st, 'bank'); check(st.over && R.result(st).win.join() === '1', `the answer wins: ${JSON.stringify(R.result(st))}`);
+    st = { ...R.start(3, () => 0), bank: [10, 10, 10] }; st = R.drop(st, 0); check(st.turn === 1 && st.out.includes(0), 'a seat leaves: the next plays');
+  });
+  await test('tg (english): tiles rules', async () => {
+    const R = RULES_TG.tiles, all = TGT.allTiles();
+    check(all.length === 21 && new Set(all.map(q => q.join())).size === 21 && all.every(([a, b]) => a <= b && b <= 5), '21 unique tiles');
+    for (let k = 0; k < 40; k++) { const r = seeded(k + 3), st = R.start(2 + (k % 3), r), dbl = st.hands.map(h => Math.max(-1, ...h.filter(q => q[0] === q[1]).map(q => q[0]))), top = Math.max(...dbl); if (top >= 0) check(dbl[st.turn] === top, `the highest double starts: ${JSON.stringify(st.hands)}`); check(st.hands.flat().length + st.pile.length === 21, 'all the tiles'); }
+    let st = { bridge: [[2, 4]], ends: [2, 4], start: 0, hands: [[[0, 1], [4, 5]], [[3, 3]]], pile: [[1, 1]], passes: 0, drew: false, turn: 0, out: [] };
+    check(R.apply(st, ['play', 0, 'l']) === null && R.apply(st, 'draw') === null, 'an illegal end, and no draw while one can be played');
+    st = R.apply(st, ['play', 1, 'r']); check(st.ends[1] === 5 && st.bridge.at(-1).join() === '4,5' && st.turn === 1, 'played at the right end');
+    st = R.apply(st, 'draw'); check(st.turn === 0 && st.hands[1].length === 2 && !st.pile.length, 'drawn and not playable: the turn passes');
+    st = R.apply(st, 'pass'); st = R.apply(st, 'pass'); check(st.over && R.result(st).blocked && R.result(st).win.join() === '0', `blocked: the lowest pips win: ${JSON.stringify(R.result(st))}`);
+    const tie = { ...st, hands: [[[0, 2]], [[1, 1]]] }; check(R.result(tie).draw && R.result(tie).win.length === 2, 'a tie: a draw');
+    let e = { bridge: [[3, 3]], ends: [3, 3], start: 0, hands: [[[3, 0]], [[5, 5], [1, 2]]], pile: [], passes: 0, drew: false, turn: 0, out: [] }; e = R.apply(e, ['play', 0, 'l']); check(e.over && R.result(e).win.join() === '0', 'the empty hand wins');
+  });
+  await test('tg (english): ai styles', async () => {
+    const r = seeded(29), N = 2000, bankAt = {}, ev = {};
+    for (const temper of Object.keys(TGAI.NERVE)) {
+      let w = 0, banked = 0, nb = 0;
+      for (let i = 0; i < N; i++) {
+        let st = RULES_TG.crows.start(2, r), k = 0;
+        while (!st.over && k++ < 2000) {
+          const s = st.turn, mv = s === 0 ? (RULES_TG.crows.legal(st, s).includes('bank') && st.crows >= 2 && st.pot >= 17 ? 'bank' : 'roll') : TGAI.AI.crows(st, s, temper, r);
+          check(RULES_TG.crows.legal(st, s).includes(mv), `illegal AI move ${mv}`);
+          if (s === 1 && st.crows === 2 && st.pot >= 16 && st.pot < 22 && RULES_TG.crows.legal(st, s).includes('bank') && st.bank[1] + st.pot < 50) { banked += mv === 'roll' ? 1 : 0; nb++; }
+          st = RULES_TG.crows.apply(st, mv, r);
+        }
+        const res = RULES_TG.crows.result(st); w += res.draw ? 0.5 : res.win[0] === 0 ? 1 : 0;
+      }
+      bankAt[temper] = banked / Math.max(1, nb); ev[temper] = 2 * w / N - 1;
+    }
+    check(bankAt.gruff > bankAt.shy + 0.5, `gruff banks later than shy (how often each rolls on with two crows and 16 to 21 in the pot): ${JSON.stringify(bankAt)}`);
+    check(Object.values(ev).every(v => Math.abs(v) <= 0.1), `crows EV of the reference player within ±10 %: ${JSON.stringify(ev)}`);
+    let tw = 0; for (let i = 0; i < N; i++) { let st = RULES_TG.tiles.start(2, r), k = 0; while (!st.over && k++ < 500) { const mv = TGAI.AI.tiles(st, st.turn, st.turn ? 'gruff' : 'shy', r); const nx = RULES_TG.tiles.apply(st, mv, r); check(nx, `illegal tiles move ${JSON.stringify(mv)}`); st = nx; } const res = RULES_TG.tiles.result(st); tw += res.draw ? 0.5 : res.win[0] === 0 ? 1 : 0; }
+    check(tw / N > 0.38 && tw / N < 0.62, `tiles styles close: ${tw / N}`);
+    console.log(`tg ai: crows EV of the reference player ${Object.entries(ev).map(([k, v]) => `${k} ${(v * 100).toFixed(1)} %`).join(', ')}; rolls on with two crows and 16-21 ${Object.entries(bankAt).map(([k, v]) => `${k} ${(v * 100).toFixed(0)} %`).join(', ')}; tiles shy vs gruff ${(tw / N * 100).toFixed(1)} %`);
+  });
+  await test('tg (english): seat and claim alone', tavern(async ({ T, seat }) => {
+    const marta = nb('marta'); check(marta && !marta.hidden && marta.pose?.kind === 'sit', `Marta is at her table at 18:00: ${JSON.stringify(marta?.spot?.kind)}`);
+    await seat(TAV.mine); check(T.mine?.table.key === TAV.marta, `sat at Marta's table: ${JSON.stringify(T.mine?.table)}`);
+    check(T.peopleAt(T.mine.table).some(q => q.npc && q.id === 'marta') && T.limitOf('marta') === 25, 'Marta plays for up to 25');
+    const m0 = game.money; T.open('crows', 25, ['marta']);
+    const r = T.at(TAV.marta); check(r?.ph === 'play' && r.pot === 50 && game.money === m0 - 25 && T.escrow[r.id]?.stake === 25, `started in the same frame, the stake once: ${JSON.stringify(r && { ph: r.ph, pot: r.pot })} ${m0 - game.money}`);
+    T.notice(TAV.marta); T.books(); check(game.money === m0 - 25, 'the stake taken once');
+    check(!game.busy && game.tables.holder(marta), 'the game does not stop; Marta stays');
+    const end = playOut(T, TAV.marta); check(end?.ph === 'end', `played out: ${end?.ph}`);
+    T.notice(TAV.marta); const won = end.res.win.includes(end.seats.findIndex(s => s.who === ME()));
+    check(game.money === m0 - 25 + (won ? 50 : 0) && !T.escrow[end.id] && T.paid.includes(end.id), `paid once: ${game.money - m0} won ${won}`);
+    T.notice(TAV.marta); T.settle(TAV.marta, T.rec(TAV.marta)); check(game.money === m0 - 25 + (won ? 50 : 0), 'a second look pays nothing');
+    check(T.rival('marta').n === 1 && T.rival('marta').lost === (won ? 25 : 0), `Marta's day: ${JSON.stringify(T.rival('marta'))}`);
+    game.time += 13; T.books(); check(!T.rec(TAV.marta)?.past?.[end.id], 'taken: the record of what was due goes');
+  }));
+  await test('tg (english): cost of a game in sight, and of none', tavern(async ({ T, seat }) => {
+    const run = n => { let ms = 0; for (let i = 0; i < n; i++) { game.time += 1 / 60; const t0 = performance.now(); T.update(1 / 60); ms += performance.now() - t0; } return ms / n; };
+    T.index.clear(); const none = run(600);
+    await seat(TAV.mine); T.open('crows', 0, ['marta']); const one = run(600), parts = {};
+    for (const k of ['look', 'books', 'run', 'scan', 'notice', 'touched']) { const f = T[k].bind(T); let ms = 0; T[k] = (...x) => { const t0 = performance.now(); const r = f(...x); ms += performance.now() - t0; return r; }; run(600); parts[k] = (ms / 600).toFixed(4); T[k] = f; }
+    console.log(`tg cost: ${none.toFixed(4)} ms a frame with no game, ${one.toFixed(4)} ms with one in sight (${JSON.stringify(parts)})`);
+    check(none < 0.02 && one < 0.1, `cost: ${none.toFixed(4)} / ${one.toFixed(4)} ms ${JSON.stringify(parts)}`);
+  }));
+  await test('tg (english): pot paid once, refunds and draws', tavern(async ({ T, W, seat }) => {
+    await seat(TAV.mine); const k = T.index.get(TAV.marta) || `${Math.floor(3 / CHUNK)},${Math.floor(37 / CHUNK)}`, d = W.delta(...k.split(',').map(Number), true), m0 = game.money;
+    const make = (id, res, pay) => { (d.tg ||= {})[TAV.marta] = { id, game: 'crows', ph: 'end', seats: [{ who: ME(), in: 1 }, { who: 'id-bea', in: 1 }], stake: 20, n: 9, pot: 40, at: Date.now(), res, past: { [id]: { pay, stake: { [ME()]: 20, 'id-bea': 20 }, at: Date.now() } } }; T.index.set(TAV.marta, k); };
+    T.escrow.g1 = { stake: 20, tile: TAV.marta, at: Date.now(), w: 'l' }; make('g1', { win: [0] }, { [ME()]: 40, 'id-bea': 0 });
+    T.notice(TAV.marta); T.notice(TAV.marta); live().applyChunk(k, [['tg', TAV.marta, structuredClone(d.tg[TAV.marta])]]); check(game.money === m0 + 40 && T.paid.includes('g1'), `a win pays the pot once (with a late echo): ${game.money - m0}`);
+    T.escrow.g2 = { stake: 20, tile: TAV.marta, at: Date.now(), w: 'l' }; make('g2', { abort: 1 }, { [ME()]: 20, 'id-bea': 20 }); T.notice(TAV.marta); check(game.money === m0 + 60, 'called off: the stake back');
+    T.escrow.g3 = { stake: 20, tile: TAV.marta, at: Date.now(), w: 'l' }; make('g3', { win: [0, 1], draw: 1 }, { [ME()]: 20, 'id-bea': 20 }); T.notice(TAV.marta); check(game.money === m0 + 80, 'a draw splits');
+    // The decider's split: three seats of 5 and two winners, to the coin
+    const rec = { id: 'g4', game: 'crows', seats: [{ who: 'a', in: 1 }, { who: 'b', in: 1 }, { who: 'c', in: 1 }], stake: 5, pot: 15 }; T.finish(rec, { win: [0, 2], draw: true }); const pay = rec.past.g4.pay;
+    check(pay.a + pay.b + pay.c === 15 && pay.b === 0 && Math.abs(pay.a - pay.c) === 1, `split to the coin: ${JSON.stringify(pay)}`);
+  }));
+  await test('tg (english): refund on load', tavern(async ({ T }) => {
+    const m0 = game.money, out = {};
+    T.escrow = { gone1: { stake: 30, tile: TAV.paco, at: Date.now() - 31 * 6e4, w: 'l' }, young: { stake: 10, tile: TAV.paco, at: Date.now(), w: 'l' }, other: { stake: 7, tile: TAV.paco, at: 0, w: 's' } };
+    T.save(out); T.reset(JSON.parse(JSON.stringify(out))); T.lost();
+    check(game.money === m0 + 30 && !T.escrow.gone1 && T.escrow.young && T.escrow.other && T.paid.includes('gone1'), `only a lost one older than 30 min, of this world, comes back: ${game.money - m0} ${Object.keys(T.escrow)}`);
+    T.lost(); check(game.money === m0 + 30, 'once');
+    T.reset({}); check(!Object.keys(T.escrow).length && !T.paid.length, 'an old save without tg loads');
+  }));
+  await test('tg (english): rival caps', tavern(async ({ T, at }) => {
+    const day = game.days.realDay;
+    T.rivals.paco = { day, n: 3, lost: 0 }; check(T.why('paco', 5) === 'today', 'a 4th game with Paco is refused');
+    T.rivals.paco = { day, n: 1, lost: 150 }; check(T.limitOf('paco') === 0 && T.why('paco', 5) === 'money' && T.why('paco', 0) === null, 'Paco stops once he has lost 150 (for fun he still plays)');
+    T.rivals.paco = { day: day - 1, n: 3, lost: 150 }; check(T.why('paco', 25) === null && T.limitOf('paco') === 25, 'the next day it starts again');
+  }));
+  await test('tg (english): guest cannot write tables', tavern(async ({ T, W }) => {
+    const k = `${Math.floor(3 / CHUNK)},${Math.floor(37 / CHUNK)}`, d = W.delta(...k.split(',').map(Number), true);
+    d.tg = { [TAV.marta]: { id: 'gx', game: 'crows', ph: 'play', seats: [{ who: ME(), in: 1 }, { who: 'id-bea', in: 1 }], stake: 5, pot: 10, n: 0, st: RULES_TG.crows.start(2, () => 0), past: {} } }; T.scan();
+    const A = T.arbitrate(k, [['tg', TAV.marta, { id: 'gx', pot: 9999 }], ['tg', null, {}], ['tgkit', '1,1', ['dice']], ['floor', '1,1', 'suelo_madera']]);
+    check(A.ok.length === 1 && A.back.length === 3 && A.back[0][2].pot === 10, `sent back as it is here: ${JSON.stringify(A.back).slice(0, 200)}`);
+    const t0 = W.touches; live().applyChunk(k, [['tg', TAV.marta, { ...d.tg[TAV.marta], n: 1 }]]); check(W.touches === t0, 'a table op does not rebuild the chunk');
+    // Only your own hand is drawn: the others' tiles show their backs
+    d.tg[TAV.marta] = { ...d.tg[TAV.marta], game: 'tiles', st: RULES_TG.tiles.start(2, seeded(5)) }; T.scan(); T.mine = { table: T.tableAt(TAV.marta) };
+    check(JSON.stringify(T.hand) === JSON.stringify(d.tg[TAV.marta].st.hands[0]), 'my hand');
+  }));
+  await test('tg (english): no double money', tavern(async ({ T, W }) => {
+    const k = `${Math.floor(8 / CHUNK)},${Math.floor(37 / CHUNK)}`, d = W.delta(...k.split(',').map(Number), true), m0 = game.money, out = {};
+    // The loser's game crashed after the result and before settling: on load it finds the result and does not refund
+    T.escrow.gL = { stake: 25, tile: TAV.paco, at: Date.now() - 60 * 6e4, w: 'l' }; T.save(out);
+    d.tg = { [TAV.paco]: { past: { gL: { pay: { [ME()]: 0, 'id-bea': 50 }, stake: { [ME()]: 25, 'id-bea': 25 }, at: Date.now() } } } };
+    T.reset(JSON.parse(JSON.stringify(out))); T.books(); T.lost(); for (const tile of T.index.keys()) T.settle(tile, T.rec(tile));
+    check(game.money === m0 && T.paid.includes('gL') && !T.escrow.gL, `the loser is not refunded: ${game.money - m0}`);
+    // A save from before the game (no escrow) and a result saying you lost: the stake goes now
+    d.tg[TAV.paco].past.gM = { pay: { [ME()]: 0 }, stake: { [ME()]: 25 }, at: Date.now() }; T.notice(TAV.paco); check(game.money === m0 - 25, `a stake never taken is taken: ${game.money - m0}`);
+  }));
+  await test('tg (english): needs keep running', tavern(async ({ T, seat }) => {
+    await seat(TAV.mine); T.open('tiles', 0, ['marta']); await frames(8); await sleep(150); game.tableUI.frame();
+    check(!game.busy && document.getElementById('s-table')?.classList.contains('show'), `the window is open and the game goes on: ${JSON.stringify({ mine: !!T.mine, mode: game.mode, busy: game.busy, ui: !!game.tableUI, rec: T.at(TAV.marta)?.ph })}`);
+    const N = game.needs, r0 = N?.v?.rest ?? N?.rest; if (N && Number.isFinite(r0)) { for (let i = 0; i < 30; i++) game.update(0.5); const r1 = N.v?.rest ?? N.rest; check(r1 >= r0, `rest does not drop seated: ${r0} → ${r1}`); }
+    game.rest.stand(); T.look(); const r = T.at(TAV.marta); check(!r || r.ph !== 'play' || r.seats.find(s => s.who === ME()).out, 'getting up leaves the game');
+  }));
+  // Two clients (fake games of their own: coins, escrow, save) at one table, the host deciding; their requests late, lost or
+  // answered twice, their games closed and opened again: the coins add up to the last one
+  await test('tg (english): two clients, late and lost messages: the coins add up', tavern(async ({ T, W }) => {
+    const r = seeded(17), tile = TAV.paco, k = `${Math.floor(8 / CHUNK)},${Math.floor(37 / CHUNK)}`, q = [], clock = { t: 0 }, host = T, people = [];
+    const keep = { peopleAt: host.peopleAt, seated: host.seated, rng: host.rng };
+    host.peopleAt = () => people; host.seated = () => true; host.rng = seeded(3);
+    const mk = (id, name) => {
+      const g = { selfId: id, world: W, scene: W, time: 0, money: 1000, player: { name }, days: game.days, neighbors: game.neighbors, rep: null, stats: null, social: null, live: { joined: true, hostConn: 1, peers: new Map() }, gather: {}, addMoney(n) { this.money += n; }, onSave() {} };
+      g.barrow = { decides: () => false, claim: (kind, kk, data, done) => { q.push({ kind, data: { ...structuredClone(data), by: id, k: kind }, done, when: clock.t + r() * 1.5, fate: r() }); return 'x'; } };
+      const T2 = new TableGames(g); g.tables = T2; T2.lostT = 999; return { id, g, T: T2 };
+    };
+    const A = mk('id-ana', 'Ana'), B2 = mk('id-bea', 'Bea'), both = [A, B2], start = () => both.reduce((s, c) => s + c.g.money + Object.values(c.T.escrow).reduce((a, e) => a + e.stake, 0), 0), total0 = start();
+    people.push({ id: A.id, name: 'Ana', at: [7.6, 37.5, 1.57] }, { id: B2.id, name: 'Bea', at: [9.4, 37.5, -1.57] });
+    let games = 0, lost = 0, crashes = 0;
+    const ended = new Set();
+    for (let step = 0; step < 9000 && games < 20; step++) {
+      clock.t += 0.2; for (const c of both) c.g.time = clock.t;
+      const rec = host.at(tile);
+      if (rec?.ph === 'end' && !ended.has(rec.id)) { ended.add(rec.id); games++; }
+      if ((!rec || rec.ph === 'end') && !q.length) { if (rec?.ph === 'end') host.drop(W.deltas.get(k), tile); A.T.mine = B2.T.mine = { table: host.tableAt(tile) }; A.T.open(r() < 0.6 ? 'crows' : 'tiles', [5, 10, 25, 50][Math.floor(r() * 4)]); }
+      else if (rec?.ph === 'open' && !A.T.waiting && !B2.T.waiting && r() < 0.5) B2.T.join();
+      else if (rec?.ph === 'play' && r() < 0.6) { const c = both.find(x => rec.seats[rec.st.turn]?.who === x.id); if (c && !c.T.waiting) { if (r() < 0.02) c.T.stand(); else { const L = RULES_TG[rec.game].legal(rec.st, rec.st.turn); c.T.move(L[Math.floor(r() * L.length)]); } } }
+      // (the host gets them in order, late; a tenth never; a tenth of the answers are lost; some come twice)
+      for (const m of q.filter(m => !m.over && m.when <= clock.t)) {
+        m.over = true;
+        if (m.fate < 0.1) { lost++; m.done(null); continue; }
+        const d = W.delta(...k.split(',').map(Number), true), extra = {}; let ok = false;
+        try { ok = !!CLAIMS[m.kind](game, m.data, d, k, extra); } catch (e) { ok = false; }
+        if (m.fate > 0.93) { try { CLAIMS[m.kind](game, m.data, d, k, {}); } catch { /* twice */ } }
+        m.done(m.fate < 0.2 ? null : { ok });
+      }
+      q.splice(0, q.length, ...q.filter(m => !m.over));
+      if (step % 3 === 0) host.run(0.6);
+      for (const c of both) { c.T.scan(); c.T.notice(tile); if (step % 5 === 0) { c.T.books(); c.T.lost(); } }
+      // (a game closes with what it had saved, and opens again)
+      if (step % 211 === 210) { const c = both[Math.floor(r() * 2)], o = { tg: structuredClone({ escrow: c.T.escrow, paid: c.T.paid, rivals: c.T.rivals }) }; c.T.reset(o); c.T.mine = { table: host.tableAt(tile) }; crashes++; }
+    }
+    for (let i = 0; i < 40; i++) { clock.t += 2; for (const c of both) { c.g.time = clock.t; c.T.scan(); c.T.notice(tile); c.T.books(); } const rec = host.at(tile); if (rec && liveRec(rec)) host.finish(rec, { abort: true }); for (const m of q.splice(0)) { const d = W.delta(...k.split(',').map(Number), true); try { CLAIMS[m.kind](game, m.data, d, k, {}); } catch { /* */ } m.done({ ok: true }); } }
+    // (what is still in an escrow belongs to a result not yet seen: none may be left)
+    for (const c of both) for (const [gid, E] of Object.entries(c.T.escrow)) { E.at = 0; c.T.lost(); }
+    const total = start();
+    host.peopleAt = keep.peopleAt; host.seated = keep.seated; host.rng = keep.rng;
+    check(games >= 10 && lost > 5, `${games} games, ${lost} lost on the way`);
+    check(total === total0, `the coins add up: ${total0} → ${total} (Ana ${A.g.money}, Bea ${B2.g.money}; escrows ${JSON.stringify([A.T.escrow, B2.T.escrow])})`);
+    console.log(`tg two clients: ${games} games, ${lost} requests lost, ${crashes} games reopened; coins ${total0} = ${total}`);
+  }));
+  await test('tg (english): coins per hour against the neighbours (no money machine)', async () => {
+    // A perfect player, against each regular, the most each one lets you play a day: what is won in a day and in an hour of games
+    const r = seeded(41), N = 3000, stakes = { marta: 25, paco: 25, eusebio: 50, ines: 10, anselmo: 25 };
+    let perDay = 0, perHour = 0;
+    for (const [id, stake] of Object.entries(stakes)) {
+      const temper = PEOPLE[id].temper; let w = 0, moves = 0;
+      for (let i = 0; i < N; i++) { let st = RULES_TG.crows.start(2, r); while (!st.over) { const s = st.turn, mv = s === 0 ? (RULES_TG.crows.legal(st, s).includes('bank') && st.crows >= 2 && st.pot >= 17 ? 'bank' : 'roll') : TGAI.AI.crows(st, s, temper, r); st = RULES_TG.crows.apply(st, mv, r); moves++; } const res = RULES_TG.crows.result(st); w += res.draw ? 0.5 : res.win[0] === 0 ? 1 : 0; }
+      const ev = (2 * w / N - 1) * stake, secs = moves / N * 4.5;   // (about 4.5 s a move, with the throws and the neighbours' thinking)
+      perDay += Math.min(TG_CAPS.games * ev, TG_CAPS.lost); perHour = Math.max(perHour, ev * 3600 / secs);
+    }
+    check(perDay < 60 && perHour < 120, `expected coins: ${perDay.toFixed(0)} a day, ${perHour.toFixed(0)} an hour at most`);
+    console.log(`tg money: a perfect player expects ${perDay.toFixed(1)} coins a day from all the regulars (3 games each), ${perHour.toFixed(1)} an hour against the best one`);
+  });
+  // ---------- jobs ----------
+  const jobbed = fn => routine(async o => {
+    const M = Ms(), keep = { list: new Map(M.list), paid: M.paid, history: M.history }, money = game.money, p0 = { x: p().x, y: p().y }, keepF = JSON.parse(JSON.stringify(Nb().friends)), rep = game.rep.v.pts;
+    M.list.clear(); M.paid = {}; M.history = []; game.money = 500; Nb().friend('rosa').pts = 300; Nb().friend('rosa').intro = 0; game.rep.v.pts = 150;
+    o.clock(dayMs(WORKDAY, 11)); for (const n of Nb().people) n.placeAt(game.days.now);
+    try { await fn({ ...o, M }); }
+    finally { for (const a of [...game.ranch.animals]) if (a.drove) game.ranch.remove(a); M.list = keep.list; M.paid = keep.paid; M.history = keep.history; game.money = money; game.addMoney(0); Nb().friends = keepF; game.rep.v.pts = rep; game.teleport(p0.x, p0.y); }
+  });
+  const boardNear = async () => { game.teleport(BOARD.x, BOARD.y + 1.2); await frames(2); };
+  await test('job (english): old save and old world', jobbed(async ({ M }) => {
+    M.reset({}); check(!M.list.size && !M.active, 'a world without missions');
+    M.reset({ missions: [{ id: 'zz', kind: 'smuggle', crew: ['x'], site: {}, data: {} }] }); const o = {}; M.save(o); check(o.missions.length === 1 && o.missions[0].kind === 'smuggle' && !M.running().length, 'an unknown kind is kept as it is');
+    check(LS.SHARED.includes('missions') && LS.COLLECTIONS.missions && LS.BLOBS.missions, 'shared');
+    const a = game.ranch.addDrove('j1', 'vaca', 10, 10), s = a.toSave(); check(s.drove === 'j1' && JSON.stringify(s).includes('"drove"'), 'a cow with drove survives the save'); game.ranch.remove(a);
+    M.reset({});
+  }));
+  await test('job (english): crew and reward once', jobbed(async ({ M }) => {
+    await boardNear(); M.accept('drive'); const j = M.active;
+    check(j && j.kind === 'drive' && j.crew.join() === ME() && game.ranch.animals.filter(a => a.drove === j.id).length === 5, `taken: ${JSON.stringify(j && { site: j.site, crew: j.crew })}`);
+    check(M.why('drive') === 'busy' && !M.create({ by: 'id-bea', kind: 'drive', nm: 'Bea' }), 'only one at a time');
+    // A guest's change of the item comes back; joining goes by the claim, near the board; after the point of no return, no
+    const S = new ItemSync('missions'); S.reset(game); const back = S.apply(game, [['set', j.id, 'crew', ['id-bea']], ['drop', j.id], ['put', 'new', { kind: 'drive' }]], false, null, { peer: { id: 'id-bea' } });
+    check(back.length === 3 && j.crew.join() === ME() && !M.list.has('new'), `a guest never writes it: ${JSON.stringify(back).slice(0, 160)}`);
+    const L = live(), was = { joined: L.joined, role: L.role };
+    try {
+      L.joined = true; L.role = 'host'; L.peers.set('w-bea', { id: 'id-bea', name: 'Bea', playing: true, sc: 'world', entity: { update() {}, x: BOARD.x, y: BOARD.y, to: [BOARD.x, BOARD.y] } });
+      const ask = (ev, by, more = {}) => CLAIMS.job(game, { by, k: 'job', ev, jid: j.id, ...more }, {}, 'x', {});
+      check(ask('join', 'id-bea') && j.crew.includes('id-bea'), 'the partner joins');
+      j.stage = 'road'; check(!ask('join', 'id-cris') && !j.crew.includes('id-cris'), 'too late to join');
+      // Bea goes away for a while: she is marked away, and is not paid
+      M.lastSeen.set('id-bea', game.time - 700); L.peers.get('w-bea').playing = false; M.runT = 0; M.run(0.1);
+      check(M.isAway(j, 'id-bea') && M.here(j).join() === ME(), `away: ${JSON.stringify(j.away)}`);
+      const m0 = game.money; M.finish(j, 'ok', { n: 5 }); M.look();
+      check(game.money === m0 + 300 && M.paid[j.id] !== undefined && j.done.away.includes('id-bea'), `paid once: ${game.money - m0}`);
+      const o = {}; M.save(o); M.reset(JSON.parse(JSON.stringify(o))); M.look(); check(game.money === m0 + 300, 'a second load pays nothing');
+    } finally { L.joined = was.joined; L.role = was.role; L.peers.delete('w-bea'); }
+    check(M.why('drive') === 'week', 'once a week');
+  }));
+  await test('job (english): drive herd', jobbed(async ({ M }) => {
+    const mk = (x, y) => ({ x, y, m: { vx: 0, vy: 0, walk: 0 } }), env = { free: () => 1, head: [0, 0], mobs: [], torches: [], now: 0 };
+    const run = (cows, pushers, s = 6) => { for (let i = 0; i < s * 10; i++) { env.now += 0.1; DRIVE.herdStep(cows, pushers, 0.1, env); } };
+    let cows = [mk(0, 0), mk(1.5, 0.5), mk(-1, 1.2), mk(0.5, -1.4), mk(-1.5, -0.5)]; run(cows, [{ x: -6, y: 0, R: DRIVE.PUSH.foot }], 4);
+    const cx = c => c.reduce((s, q) => s + q.x, 0) / c.length; check(cx(cows) > 2, `away from a walker within 7: ${cx(cows).toFixed(2)}`);
+    const far = [mk(0, 0), mk(1, 0)]; run(far, [{ x: -9, y: 0, R: DRIVE.PUSH.foot }], 3); check(Math.abs(cx(far) - 0.5) < 0.6, 'not from one 9 away on foot');
+    const rid = [mk(0, 0), mk(1, 0)]; run(rid, [{ x: -9, y: 0, R: DRIVE.PUSH.horse }], 3); check(cx(rid) > 1.5, 'from a rider 9 away');
+    cows = [mk(0, 0), mk(1.5, 0.5), mk(-1, 1.2), mk(0.5, -1.4), mk(-1.5, -0.5)]; let worst = 0;
+    for (let i = 0; i < 40; i++) { run(cows, [{ x: cx(cows) - 5, y: Math.sin(i) * 3, R: DRIVE.PUSH.foot }], 1); const X = cx(cows), Y = cows.reduce((s, q) => s + q.y, 0) / 5; worst = Math.max(worst, ...cows.map(c => Math.hypot(c.x - X, c.y - Y))); }
+    check(worst < 8 && cx(cows) > 25, `they keep within 8 of the centre (${worst.toFixed(1)}) and go (${cx(cows).toFixed(0)})`);
+    // The job: four in the yard is done; one is kept by who started; the others go, by whoever decides only
+    await boardNear(); M.accept('drive'); const j = M.active, L = game.ranch.animals.filter(a => a.drove === j.id);
+    j.stage = 'road'; L.forEach((a, i) => { a.x = 15 + i * 2.5; a.y = 12; }); const W = w(), tile = [13, 8], placedEst = W.canPlace(...tile, 'establo', null) ? (W.place(...tile, 'establo'), true) : false;
+    for (let i = 0; i < 300 && !j.done; i++) M.run(0.1);
+    check(j.done?.outcome === 'ok' && j.done.n === 5, `delivered: ${JSON.stringify(j.done)} ${j.data.in}`);
+    M.look(); const keep = game.ranch.animals.find(a => a.id === j.done.keep);
+    check(keep && DRIVE.drive.mayKeep(game, j, ME()), 'the kept cow waits');
+    if (placedEst) { const ok = CLAIMS.job(game, { by: ME(), k: 'job', ev: 'keep', jid: j.id }, {}, 'x', {}); check(!ok, 'kept only standing by it'); game.teleport(keep.x, keep.y + 1); await frames(2); check(CLAIMS.job(game, { by: ME(), k: 'job', ev: 'keep', jid: j.id }, {}, 'x', {}) && !keep.drove && keep.owner === ME() && keep.home, `kept, with a home: ${JSON.stringify(keep.home)}`); }
+    for (let i = 0; i < 500; i++) M.run(0.2);
+    check(!game.ranch.animals.some(a => a.drove === j.id && a.id !== j.done.keep), 'the others are sold on');
+    if (placedEst) { if (keep) game.ranch.remove(keep); W.unplace({ tile, layer: 'placed', placed: 'establo' }); }
+    // A failure takes every cow of it away
+    M.list.clear(); M.list.set('@', { id: '@' }); await boardNear(); M.accept('drive'); const j2 = M.active; check(j2, 'taken again'); M.finish(j2, 'fail', { why: 'time' }); check(!game.ranch.animals.some(a => a.drove === j2.id), 'failed: no cow left');
+  }));
+  await test('job (english): drive perf', jobbed(async ({ M }) => {
+    await boardNear(); M.accept('drive'); const j = M.active; check(j, 'taken');
+    const L = game.ranch.animals.filter(a => a.drove === j.id), [x, y] = [L[0].x, L[0].y], Li = live(), was = { joined: Li.joined, role: Li.role };
+    game.teleport(x - 9, y); await readyGround(game, 6000); j.stage = 'gather';
+    try {
+      Li.joined = true; Li.role = 'host';
+      for (const [n, dx] of [['w1', -6], ['w2', 7]]) Li.peers.set(n, { id: 'id-' + n, name: n, playing: true, sc: 'world', entity: { update() {}, x: x + dx, y: y + 2, to: [x + dx, y + 2], mount: n === 'w2' } });
+      const K = DRIVE.drive; let ms = 0;
+      for (let i = 0; i < 600; i++) { for (const [n, q] of Li.peers) if (q.entity) { q.entity.x += Math.sin(i / 20) * 0.04; q.entity.to = [q.entity.x, q.entity.y]; } const t0 = performance.now(); K.update(game, j, 1 / 60); ms += performance.now() - t0; game.time += 1 / 60; }
+      check(ms / 600 < 0.2, `herd step ${(ms / 600).toFixed(3)} ms a frame`); console.log(`drive perf: ${(ms / 600).toFixed(3)} ms a frame with 5 cows and 3 players`);
+    } finally { Li.joined = was.joined; Li.role = was.role; Li.peers.delete('w1'); Li.peers.delete('w2'); }
+  }));
+  // ---------- driven as a player does: the keys of the window, getting up, and the herd pushed by the body ----------
+  const keyTap = code => { for (const t of ['keydown', 'keyup']) dispatchEvent(new KeyboardEvent(t, { code, key: code.replace('Digit', ''), bubbles: true })); };
+  const tick = async (n = 6) => { for (let i = 0; i < n; i++) { await frames(4); } await sleep(130); game.tableUI.frame(); };
+  const myTurn = (T, tile) => { const r = T.at(tile), i = T.mySeat; return r?.ph === 'play' && i >= 0 && r.st.turn === i ? r : null; };
+  // Plays it out with the keys: Crows rolls on to two crows and then banks; Bridge plays its first tile, or draws or passes
+  const byKeys = async (T, tile, most = 500) => {
+    for (let k = 0; k < most; k++) {
+      const r = T.at(tile);
+      if (!r || r.ph === 'end' || r.ph === 'idle') return r;
+      const mine = myTurn(T, tile);
+      if (mine && !T.waiting) {
+        if (r.game === 'crows') keyTap(r.st.crows >= 2 && r.st.pot ? 'Digit2' : 'Digit1');
+        else { const L = RULES_TG.tiles.legal(r.st, mine.st.turn), pl = L.find(q => Array.isArray(q)); keyTap(pl ? `Digit${Math.min(9, pl[1] + 1)}` : 'Digit1'); }
+      }
+      await tick(2);
+    }
+    return T.at(tile);
+  };
+  await test('play (english): Crows and Bridge against the neighbours, with the keys; and getting up half way', tavern(async ({ T, seat, at }) => {
+    await seat(TAV.mine); await tick(); const win = document.getElementById('s-table');
+    check(win.classList.contains('show') && win.querySelector('.tg-card'), 'the window opened by itself');
+    // Crows for 10: the second stake button, then 1 deals
+    [...win.querySelectorAll('.tg-stakes button')].find(b => b.textContent === '10')?.click(); const m0 = game.money; keyTap('Digit1'); await tick();
+    let r = T.at(TAV.marta); check(r && (r.ph === 'play' || r.ph === 'end') && r.game === 'crows' && game.money === m0 - 10, `Crows started with the keys: ${r?.ph} ${m0 - game.money}`);
+    r = await byKeys(T, TAV.marta); check(r?.ph === 'end', `Crows played out: ${r?.ph}`); T.notice(TAV.marta);
+    const w1 = r.res.win?.includes(r.seats.findIndex(s => s.who === ME())), m1 = game.money; check(m1 === m0 - 10 + (w1 ? 20 : 0), `Crows paid: ${m1 - m0}`);
+    for (let i = 0; i < 4; i++) await tick(8);
+    // Bridge for fun
+    T.drop(w().deltas.get(T.index.get(TAV.marta)), TAV.marta); T.scan(); await tick();
+    [...win.querySelectorAll('.tg-card')][1]?.click(); [...win.querySelectorAll('.tg-stakes button')][0]?.click(); await tick(); keyTap('Digit1'); await tick();
+    r = T.at(TAV.marta); check(r?.game === 'tiles' && r.ph === 'play', `Bridge started: ${r?.game} ${r?.ph}`);
+    check(win.querySelectorAll('.tg-mine').length === 5 && win.querySelectorAll('.tg-bridge .tg-tile').length <= 1, 'my five tiles in the window');
+    r = await byKeys(T, TAV.marta); check(r?.ph === 'end' && game.money === m1, `Bridge played out for fun: ${r?.ph} ${game.money - m1}`);
+    // At Paco's at 19:30, for 25, and up after the first roll: Paco keeps the pot
+    at(dayMs(WORKDAY, 19.5)); await seat([9, 37]); await tick(); T.drop(w().deltas.get(T.index.get(TAV.marta)), TAV.marta);
+    const m2 = game.money; [...win.querySelectorAll('.tg-stakes button')].find(b => b.textContent === '25')?.click(); keyTap('Digit1'); await tick();
+    r = T.at(TAV.paco); check(r?.ph === 'play' && game.money === m2 - 25, `with Paco: ${r?.ph}`);
+    for (let i = 0; i < 40 && !myTurn(T, TAV.paco); i++) await tick(2); if (myTurn(T, TAV.paco)) { keyTap('Digit1'); await tick(); }
+    keys.up = true; await frames(3); keys.up = false; await tick(4);
+    r = T.at(TAV.paco); T.notice(TAV.paco); check(r?.ph === 'end' && r.res.left && game.money === m2 - 25 && !win.classList.contains('show'), `up half way: the stake is lost, the window closes (${r?.ph} ${JSON.stringify(r?.res)} ${game.money - m2})`);
+    console.log(`play: Crows ${w1 ? 'won' : 'lost'} for 10, Bridge for fun, up half way at Paco's for 25; coins ${m0} → ${game.money}`);
+  }));
+  await test('play (english): a game table at home, against a partner who gets up half way', routine(async o => {
+    const W = w(), T = Tg(), L = live(), was = { joined: L.joined, role: L.role }, money = game.money, p0 = { x: p().x, y: p().y }, keepE = T.escrow;
+    o.clock(dayMs(WORKDAY, 20)); T.escrow = {};
+    // A bit of ground with room for the table and two chairs (east and west of it)
+    let X = null, Y = null; find: for (let y = 70; y < 140; y += 3) for (let x = 50; x < 120; x += 3) { if ([[0, 0], [-1, 0], [1, 0]].every(([i, j]) => W.canPlace(x + i, y + j, 'silla', null)) && W.canPlace(x, y, 'game_table', null)) { X = x; Y = y; break find; } }
+    check(X !== null, 'no room for a game table'); if (X === null) return;
+    game.teleport(X + 0.5, Y + 2.5); await readyGround(game, 5000); await frames(2);
+    W.place(X, Y, 'game_table'); W.place(X - 1, Y, 'silla', 1); W.place(X + 1, Y, 'silla', 3); T.memo.clear();
+    const key = `${X},${Y}`;
+    try {
+      // The dice: from the hand onto the table (the left button's target)
+      game.money = 400; inv().add('dice', 1); inv().select(inv().slots.findIndex(s => s?.id === 'dice'));
+      game.mouseTile = () => [X, Y]; const tg = T.target(p(), { id: 'dice', n: 1 }, ITEMS.dice); check(tg?.ok && tg.tile.join() === key, `aiming at the table with the dice: ${JSON.stringify(tg?.tile)}`); if (tg) tg.use();
+      check(!inv().count('dice') && T.kitAtRaw(key).includes('dice'), 'on the table');
+      L.joined = true; L.role = 'host';
+      L.peers.set('w-bea', { id: 'id-bea', name: 'Bea', playing: true, sc: 'world', entity: { update() {}, x: X + 1.38, y: Y + 0.5, to: [X + 1.38, Y + 0.5], pose: { kind: 'sit', yaw: -Math.PI / 2, h: 0.14 } } });
+      const chair = W.placedNear(X - 0.5, Y + 0.5, 1).find(q => q.placed === 'silla' && q.tile[0] === X - 1); game.rest.sit(chair); T.look(); await tick();
+      check(T.mine?.table.key === key && T.peopleAt(T.mine.table).some(q => q.id === 'id-bea'), `at the table with Bea: ${JSON.stringify(T.mine?.table)}`);
+      const win = document.getElementById('s-table'); [...win.querySelectorAll('.tg-stakes button')].find(b => b.textContent === '50')?.click(); const m0 = game.money; keyTap('Digit1'); await tick();
+      let r = T.at(key); check(r?.ph === 'open', `invited: ${r?.ph}`);
+      const bea = (k, more = {}) => CLAIMS[k](game, { by: 'id-bea', k, tile: key, gid: T.at(key)?.id, nm: 'Bea', ...more }, W.delta(Math.floor(X / CHUNK), Math.floor(Y / CHUNK), true), `${Math.floor(X / CHUNK)},${Math.floor(Y / CHUNK)}`, {});
+      check(bea('tg_sit'), 'Bea joins'); T.notice(key); r = T.at(key); check(r.ph === 'ante' && game.money === m0 - 50, `the coins down: ${r.ph}`);
+      check(bea('tg_ante') && T.at(key).ph === 'play' && T.at(key).pot === 100, 'the game is on, the pot is 100');
+      for (let i = 0; i < 6; i++) { const q = T.at(key); if (q.ph !== 'play') break; if (myTurn(T, key)) { keyTap('Digit1'); await tick(); } else bea('tg_move', { n: q.n, mv: 'roll' }); await tick(1); }
+      L.peers.get('w-bea').entity.pose = null; for (let i = 0; i < 20 && liveRec(T.at(key)); i++) { T.run(0.25); await tick(1); }
+      r = T.at(key); T.notice(key); check(r?.res?.abort && game.money === m0, `Bea gets up: called off, the stakes back (${JSON.stringify(r?.res)} ${game.money - m0})`);
+      check(r?.past?.[r.id]?.pay?.['id-bea'] === 50, 'what Bea is due waits for her game');
+      game.rest.stand(); T.takeKit(key, 'dice'); check(inv().count('dice') === 1 && !T.kitAtRaw(key).length, 'the dice back to the hand');
+    } finally {
+      L.joined = was.joined; L.role = was.role; L.peers.delete('w-bea'); delete game.mouseTile; if (p().pose) game.rest.stand();
+      for (const [x, y] of [[X, Y], [X - 1, Y], [X + 1, Y]]) { const v = W.ownAt('placed', x, y); if (v) W.unplace({ tile: [x, y], layer: 'placed', placed: parsePlaced(v)[0] }); }
+      const d = W.deltas.get(`${Math.floor(X / CHUNK)},${Math.floor(Y / CHUNK)}`); if (d?.tg) delete d.tg[key]; if (d?.tgkit) delete d.tgkit[key]; T.scan(); inv().remove('dice', inv().count('dice'));
+      T.escrow = keepE; game.money = money; game.addMoney(0); game.teleport(p0.x, p0.y);
+    }
+  }));
+  // The whole drive, its player walking behind the herd (and, with a partner, her riding ahead): the world's ground, trees and water
+  const driveAll = withPartner => jobbed(async ({ M }) => {
+    await boardNear(); M.accept('drive'); const j = M.active; check(j, 'taken'); if (!j) return;
+    const L = live(), was = { joined: L.joined, role: L.role }, cows = () => game.ranch.animals.filter(a => a.drove === j.id), P = p();
+    const mid = () => { const c = cows(); return [c.reduce((s, a) => s + a.x, 0) / c.length, c.reduce((s, a) => s + a.y, 0) / c.length]; };
+    game.teleport(j.site.x - 6, j.site.y - 6); await readyGround(game, 6000);
+    const gate = [21, 20.9]; let t = 0, stages = [];
+    try {
+      if (withPartner) { L.joined = true; L.role = 'host'; L.peers.set('w-bea', { id: 'id-bea', name: 'Bea', playing: true, sc: 'world', entity: { update() {}, x: P.x, y: P.y, to: [P.x, P.y], mount: true } }); M.enter(j, 'id-bea'); }
+      for (; t < 900 && !j.done; t += 0.2) {
+        const [cx, cy] = mid(), dx = gate[0] - cx, dy = gate[1] - cy, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+        // (behind them, a step to the side of whichever is farthest out)
+        const far = cows().reduce((a, b) => (Math.hypot(b.x - cx, b.y - cy) > Math.hypot(a.x - cx, a.y - cy) ? b : a)), fd = Math.hypot(far.x - cx, far.y - cy);
+        const tx = fd > 5 ? far.x + (far.x - cx) / fd * 2.5 : cx - ux * 5, ty = fd > 5 ? far.y + (far.y - cy) / fd * 2.5 : cy - uy * 5, mx = tx - P.x, my = ty - P.y, m = Math.hypot(mx, my);
+        if (m > 0.1) { const s = Math.min(m, 3.2 * 0.2); P.x += mx / m * s; P.y += my / m * s; P.face.x = mx / m; P.face.y = my / m; }
+        if (withPartner) { const e = L.peers.get('w-bea').entity; const ex = cx + ux * 9 - e.x, ey = cy + uy * 9 - e.y, em = Math.hypot(ex, ey); if (em > 0.1) { const s = Math.min(em, 2 * 0.2); e.x += ex / em * s; e.y += ey / em * s; e.to = [e.x, e.y]; } }
+        game.time += 0.2; game.world.clock += 0.2; M.update(0.2); try { game.ranch.update(0.2); } catch { /* (the farm's own) */ }
+        if (!stages.includes(j.stage)) stages.push(j.stage);
+      }
+      const m0 = game.money; M.look();
+      check(j.done?.outcome === 'ok' && j.done.n >= 4, `delivered in ${t.toFixed(0)} s of play: ${JSON.stringify(j.done)} stages ${stages}; ${cows().length} cows, in the yard ${j.data.in}`);
+      console.log(`drive ${withPartner ? 'with a partner' : 'alone'}: ${t.toFixed(0)} s of play from ${Math.round(Math.hypot(j.site.x - gate[0], j.site.y - gate[1]))} tiles, ${j.done?.n} cows in; paid ${game.money - m0 >= 0 ? M.paid[j.id] !== undefined : '-'}`);
+    } finally { if (withPartner) { L.joined = was.joined; L.role = was.role; L.peers.delete('w-bea'); } }
+  });
+  await test('drive (english): the whole cattle drive alone', driveAll(false));
+  await test('drive (english): the whole cattle drive with a partner riding ahead', driveAll(true));
   const gossiping = fn => social(() => routine(async o => {
     const N = Nb(); N.flags = {}; newsList();
     for (const id of IDS) N.friends[id] = { pts: 150, talk: 0, gift: -1, events: [3, 6], intro: 0 };

@@ -91,6 +91,8 @@ import { Gossip } from './gossip.js';
 import { Chatter } from './chatter.js';
 import { Business, BIZ_THINGS } from './business.js';
 import { Law } from './law.js';
+import { TableGames } from './tablegames.js';
+import { Missions } from './missions.js';
 import { Rumours } from './rumours.js';
 import { Dive } from './dive.js';
 import { Tracks } from './tracks.js';
@@ -247,6 +249,8 @@ export class Game {
     this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
     this.law = this.addSystem(new Law(this));   // the law: crimes, bounties, the constable and the cell (src/law.js; after neighbors and barrow)
     this.business = this.addSystem(new Business(this));   // the players' own shops and taverns (src/business.js; after neighbors, barrow and social)
+    this.tables = this.addSystem(new TableGames(this));   // dice and tiles, with bets (src/tablegames.js; after neighbors, barrow and social)
+    this.missions = this.addSystem(new Missions(this));   // the jobs, alone or in company (src/missions.js; after ranch, talk and live)
     this.rumours = this.addSystem(new Rumours(this));   // the places the neighbours tell you of (src/rumours.js; after places and talk)
     this.chatter = this.addSystem(new Chatter(this));   // the neighbours talking among themselves (src/chatter.js)
     this.money = 0;
@@ -753,6 +757,7 @@ export class Game {
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
     if (o.placed === 'rod_rest') return this.rodrest.action(o, pick);
+    { const q = this.tables.tableAction(o); if (q) return q; }   // (what is on a table to play with: tablegames.js)
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: this.carry.dropFirst() || t('bed.use'), run: () => this.bed(o), alt: pick };   // (with something in the arms: put it down first, carry.js)
     if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon' || o.placed === 'barber_chair' || o.placed === 'pew') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
@@ -889,7 +894,7 @@ export class Game {
   pickUp(o, carry = false) {
     if (o.fixed && !o.yard && !o.build) return false;
     if (this.scene === this.world && o.tile && !this.world.ownAt(o.layer || 'placed', o.tile[0], o.tile[1]) && this.build.lived(o.tile)) return false;   // (of a place where somebody lives)
-    const held = this.business?.protects(o);   // (what a business uses: business.js)
+    const held = this.business?.protects(o) || this.tables?.protects(o);   // (what a business uses: business.js; a table with a game on it: tablegames.js)
     if (held) { this.gather.float(held, '#ffb0a0'); Audio.error(); return false; }
     // (a log or a carcass, taken with B › Remove or X: its parts, as with the slot inventory; it is never moved. carry.js)
     if (BULKY[o.placed]) { const wait = this.carry.notYours(o); if (wait) { this.carry.say(wait); Audio.error(); return false; } if (carry || this.scene.unplace(o) === false) return false; this.carry.forget(o.tile); this.carry.giveParts(o.placed); Audio.pickup(); return true; }   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)

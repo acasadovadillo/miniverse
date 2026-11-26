@@ -165,6 +165,9 @@ export const ACH = [
   tAch('naturalist', g => (g.nature?.count().n || 0) >= 15),
   tAch('naturalist_all', g => !!g.nature && g.nature.count().n >= g.nature.count().total),
   tAch('tracker', trackerDone),
+  // (the table games: tablegames.js)
+  tAch('tavern_regular', S('games_played', 20)),
+  tAch('table_shark', S('games_coins', 500)),
 ];
 export class Achievements {
   constructor(game) { this.game = game; this.got = new Set(); this.t = 0; }

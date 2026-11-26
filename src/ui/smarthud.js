@@ -89,6 +89,8 @@ const TIPS = {
   biz: { key: 'E' },
   // (the first time you owe the law something: law.js)
   wanted: { key: null },
+  // (the first time you sit at a table with something to play, and the first job you are in: tablegames.js, missions.js)
+  table: { key: 'E' }, job: { code: 'KeyJ', key: 'J' },
   // (the wheelbarrow, barrow.js: parked within reach, then pushing it; a big thing on the horse or in the bow, carry.js)
   barrow: { key: 'E' }, pushing: { key: 'Q' }, ride: { key: 'Q' }, bow: { key: null },
   // (the body, Plan E: what to do about the chip under the bars; dirty says its key, X, in the text)
@@ -353,6 +355,7 @@ export class SmartHud {
     if (p !== this.player) this.start(p, T);
     const surv = g.gamemode === 'survival', spect = g.gamemode === 'spectator';
     const talking = g.busy || hud.dialogOpen, wins = !!g.windowsOpen, all = T < this.allUntil, wheel = !!g.wheel?.open;
+    this.showAll = all;   // (missions.js: the objective's line, in sight with Tab)
     const c = g.combat, inv = g.inv, show = (k, s) => { this.until[k] = Math.max(this.until[k] || 0, T + s); };
     const dt = Math.min(0.25, T - (this.last ?? T));
     this.last = T;
@@ -738,7 +741,7 @@ export class SmartHud {
   // The place the current first step sends you to, while it is farther than GOAL_NEAR (null: none). The mark is written
   // only while it shows, and only when it moves on the screen
   goal(g, p, can) {
-    const st = !g.steps.over && g.steps.step, at = st && GOALS[st.id]?.(g, this);
+    const st = !g.steps.over && g.steps.step, at = (st && GOALS[st.id]?.(g, this)) || (g.steps.over ? g.missions?.goal() : null);   // (the first steps win over a job's place)
     const dx = at ? nearX(at.x, p.x) - p.x : 0, dist = at ? Math.hypot(dx, at.y - p.y) : 0;
     const on = !!at && can && dist > GOAL_NEAR;
     this.set('goal', on);
