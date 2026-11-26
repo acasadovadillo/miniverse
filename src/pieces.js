@@ -49,8 +49,13 @@ const PLACE_PIECES = {
   stone_column: { cat: 'Muros', layer: 'placed', kind: 'post', r: 0.25, cost: [['piedra', 5]], needs: 'cantero' },
   slab_roof: { cat: 'Tejados', layer: 'roof', cost: [['piedra', 2]], needs: 'cantero' },
 };
-Object.assign(PIECES, PLACE_PIECES);
-defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar, bell_gable: PIECES.bell_gable, ...LAW_PIECES, ...PLACE_PIECES }, 'piece');
+// (of glass, with thin iron bars: the greenhouse's, greenhouse.js. They never wear: wearrules.js)
+const GLASS_PIECES = {
+  glass_wall: { cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['glass', 2], ['tablas', 1]], needs: 'cantero' },
+  glass_roof: { cat: 'Tejados', layer: 'roof', cost: [['glass', 2], ['tablas', 1]], needs: 'cantero' },
+};
+Object.assign(PIECES, PLACE_PIECES, GLASS_PIECES);
+defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar, bell_gable: PIECES.bell_gable, ...LAW_PIECES, ...PLACE_PIECES, ...GLASS_PIECES }, 'piece');
 export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas'];   // (el hogar, de la casa, se fabrica en el banco)
 
 // Capa de una cosa colocable: las piezas dicen la suya; los objetos de la mochila van en la de objetos

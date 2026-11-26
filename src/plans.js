@@ -49,10 +49,11 @@ export const HITS = {
   muro_madera: 3,
   muro_entramado: 4, ventana: 4, ventana_contraventanas: 4, muro_cuadro: 4, puerta: 4, stone_pillar: 4, limewash_wall: 4,
   iron_bars: 4, cell_door: 4,
-  muro_piedra: 5, bell_gable: 5, ashlar_wall: 5, stone_column: 5, slab_roof: 3,
+  muro_piedra: 5, bell_gable: 5, ashlar_wall: 5, stone_column: 5, slab_roof: 3, glass_wall: 3, glass_roof: 2,
 };
 export const hitsOf = id => HITS[id] || (PIECES[id]?.layer === 'roof' ? 2 : 3);
 const STONE = new Set(['suelo_piedra', 'camino', 'valla_piedra', 'muro_piedra', 'stone_pillar', 'bell_gable', 'ashlar_wall', 'limewash_wall', 'stone_column', 'slab_roof']);
+const GLASS = new Set(['glass_wall', 'glass_roof']);
 const TILES = new Set(['tejado_rojo', 'tejado_azul', 'tejado_gris', 'tejado_verde']);
 
 const LAYERS = new Set(['floor', 'placed', 'roof']);
@@ -448,6 +449,7 @@ export class Plans {
   }
   knock(e) {
     const g = this.game, b = e.pick[0];
+    if (GLASS.has(e.id)) Audio.glass(0.7);
     const kind = STONE.has(e.id) || TILES.has(e.id) ? 'stone' : e.id === 'tejado_paja' ? 'twig' : 'wood';
     g.gather.chips((b[0] + b[3]) / 2, (b[2] + b[5]) / 2, kind, 5);
     Audio.hammer(kind);

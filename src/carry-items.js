@@ -19,7 +19,7 @@ export const WEIGHT = {
   regadera: 1, cana: 0.6, cana_fibra: 0.5, red: 0.4, arco: 1, flecha: 0.03, espada: 1.5, espada_oro: 2, brujula: 0.1, mapa: 0.05, mapa_vacio: 0.05,
   madera: 2, tablas: 0.5, piedra: 1, cobre: 1.5, hierro: 1.5, oro: 1.5, lingote_cobre: 1, lingote_hierro: 1, lingote_oro: 1.2, carbon: 0.3,
   fibra: 0.02, cuerda: 0.05, tela: 0.2, cuero: 0.5, piel: 1, lana: 0.1, lana_fina: 0.1, angora: 0.05, fieltro: 0.2, heno: 0.3, straw: 0.1, harina: 0.5,
-  hueso: 0.3, manteca: 0.3, plumas: 0.02, asta: 1, colmillo: 0.2, frasco: 0.2, baba: 0.1, calavera: 1, abono: 1, manure: 1,
+  hueso: 0.3, manteca: 0.3, plumas: 0.02, asta: 1, colmillo: 0.2, frasco: 0.2, glass: 1, cloche: 1.5, baba: 0.1, calavera: 1, abono: 1, manure: 1,
   huevo: 0.06, huevo_pato: 0.08, huevo_oro: 0.1, manzana: 0.2, coco: 1, pan: 0.5, leche: 1, leche_cabra: 1, nata: 0.5, queso: 0.5, queso_cabra: 0.5,
   mantequilla: 0.25, miel: 0.5, carne_ave: 0.3, carne_conejo: 0.4, estofado: 1, calabaza: 4, sidra: 0.5, cerveza: 0.6, hidromiel: 0.5,
   vela: 0.2, antorcha: 0.5, lampara: 3, candelabro: 4, maceta: 3, mochila: 1.5, alforjas: 2, caballo: 0.05, barca: 0.5,

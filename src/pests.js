@@ -179,6 +179,7 @@ export class Pests {
         const c = d.crops[k];
         if (!c || c.dead || !CROPS[c.id]) continue;
         n++;
+        if (d.cover?.[k]) continue;   // (under its cloche nothing gets at it)
         const by = this.who(d, c, k, day);
         if (!by) continue;
         if (!field) { this.farm.fieldAt(day - 1, cx * CHUNK, cy * CHUNK, F); field = true; }

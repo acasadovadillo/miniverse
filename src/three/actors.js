@@ -283,7 +283,7 @@ export class Actors {
     if (!cerca && (fogged || !FR.intersectsSphere(SPH))) return (m.tier = 3);
     const px = h * this.pxK / Math.max(0.1, d);
     const reg = this.regionOf?.get(`${Math.floor(e.x)},${Math.floor(e.y)}`);
-    const tapada = !!reg && reg !== this.inRegion;   // bajo un tejado que no es el tuyo: se ve por ventanas y puertas
+    const tapada = !!reg && reg !== this.inRegion && !this.view.world?.regions.get(reg)?.glass;   // bajo un tejado que no es el tuyo: se ve por ventanas y puertas
     const was = m.tier ?? 0, up = (i, k) => px >= TIER_PX[i][was <= k ? 1 : 0];
     let t = up(0, 0) ? 0 : up(1, 1) ? 1 : 2;
     // (tapada, a 15 Hz; si se ve grande, desde la puerta o una ventana, a 30: a 15 se notarían los saltos de la cabeza)

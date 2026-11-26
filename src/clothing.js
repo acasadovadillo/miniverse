@@ -61,6 +61,7 @@ const clamp01 = v => (v > 0 ? (v < 1 ? v : 1) : 0);
 //   Tl       climate().Tl at the player (the village is exactly TEMP.tlRef)
 //   season   time.js localSeason (0 spring … 3 winter);  hour: localHour (0..24);  weather: weatherHere (time.js ids)
 //   indoors  under a roof or inside (game.indoors);  pull: what the room pulls to indoorC (TEMP.pull; else indoorPull);  cave: in a cave or underground (airC = caveC, no weather)
+//   glass    °C more under a glass roof, instead of that pull (greenhouse.js; undefined: not under one)
 //   fireD    tiles to the nearest lit fire (Infinity: none);  swim: 'sea' | 'fresh' | null
 //   W, rain, shade   from clothesOf (warmth, rainproof share, sun shade)
 //   wet      0..100 (Body passes wet plus a third of wetLegs);  raining: rain is falling on you (outdoors)
@@ -73,7 +74,8 @@ export function feelOf(env, out = {}) {
   else {
     air = T.base + (env.Tl - T.tlRef) * T.tlScale + (SEASON_C[env.season] || 0) + T.dayAmp * Math.cos((2 * Math.PI * (env.hour - T.warmHour)) / 24) + (WEATHER_C[env.weather] || 0);
     if (SNOWING.has(env.weather)) air = Math.min(air, T.snowCap);
-    if (env.indoors) air += (T.indoorC - air) * (env.pull ?? T.indoorPull);
+    if (env.glass !== undefined) air += env.glass;
+    else if (env.indoors) air += (T.indoorC - air) * (env.pull ?? T.indoorPull);
   }
   if (env.fireD < T.fireR) air += T.fireC * (1 - Math.max(0, env.fireD) / T.fireR);
   if (env.swim) air += env.swim === 'sea' ? T.swimSea : T.swimFresh;

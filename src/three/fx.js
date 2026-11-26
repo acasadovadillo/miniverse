@@ -521,6 +521,7 @@ export class Fx {
   // ---------- ambiente ----------
   updateWeather(t) {
     const w = this.view.weather || {}, c = this.view.camera.position, rain = w.rain || 0, N = this.drop.length;
+    const glass = (rain || w.snow) && !this.view.cave ? this.view.world.panesNear(c) : null;   // (neither falls inside a greenhouse, which one sees into)
     this.rain.visible = !!rain && !this.view.cave;
     this.snow.visible = !!w.snow && !this.view.cave;
     if (this.rain.visible) {
@@ -529,6 +530,7 @@ export class Fx {
         const [a, b, h] = this.drop[i];
         if (i >= n) { p.fill(0, i * 6, i * 6 + 6); continue; }
         const y = 18 - ((t * fall + h * 18) % 18), x = c.x + (a - 0.5) * 50 + y * 0.2, z = c.z + (b - 0.5) * 50, L = 0.7 + h * 0.4;
+        if (glass && this.view.world.underPanes(glass, x, y + this.view.cam.target.y - 2, z)) { p.fill(0, i * 6, i * 6 + 6); continue; }
         p.set([x, y + c.y * 0 + this.view.cam.target.y - 2, z, x - 0.14 * L / 0.5, y + L + this.view.cam.target.y - 2, z], i * 6);
       }
       this.rainGeo.attributes.position.needsUpdate = true;
@@ -537,7 +539,9 @@ export class Fx {
       const p = this.snowGeo.attributes.position.array;
       for (let i = 0; i < N; i++) {
         const [a, b, h] = this.drop[i], y = 16 - ((t * (1.0 + h * 0.5) + h * 16) % 16);
-        p.set([c.x + (a - 0.5) * 44 + Math.sin(t + i) * 0.4, y + this.view.cam.target.y - 2, c.z + (b - 0.5) * 44 + Math.cos(t * 0.7 + i) * 0.4], i * 3);
+        const x = c.x + (a - 0.5) * 44 + Math.sin(t + i) * 0.4, z = c.z + (b - 0.5) * 44 + Math.cos(t * 0.7 + i) * 0.4, Y = y + this.view.cam.target.y - 2;
+        if (glass && this.view.world.underPanes(glass, x, Y, z)) { p[i * 3 + 1] = -1e4; continue; }
+        p.set([x, Y, z], i * 3);
       }
       this.snowGeo.attributes.position.needsUpdate = true;
     }

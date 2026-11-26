@@ -178,7 +178,7 @@ export class World3D {
     // Las ventanas se encienden de noche; los faroles y la lente del faro, también (de día, apagados: antes brillaban igual a
     // mediodía). Son materiales de todo el mundo: dentro de casa, de día, solo suben las pantallas de las lámparas, que solo
     // se ponen dentro (los faroles de la calle se verían encendidos alrededor de la casa)
-    const night = this.view.night, glow = night * 1.2, k = night, ks = Math.max(night, this.game?.indoors ? 0.6 : 0);
+    const night = this.view.night, glow = night * 1.2, k = night, ks = Math.max(night, this.game?.indoors && !this.game.underGlass ? 0.6 : 0);
     for (const m of this.glassMats()) m.emissiveIntensity = glow;
     // (where everybody sleeps or nobody is, the windows are dark: routine3d.js)
     if (this.darkRegions?.size) for (const [fk, mats] of this.fadeMats) if (mats.has('glass') && this.darkRegions.has(fk.slice(0, fk.indexOf('|')))) mats.get('glass').emissiveIntensity = glow * 0.04;
@@ -242,7 +242,7 @@ export class World3D {
     for (const o of data.objects) s += o.key + (o.decor || '') + (o.poi ? `${o.poi.kind}${o.x},${o.y},${o.poi.z || 0}` : '') + (o.crop && farm ? ':' + farm.model(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
-    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + (farm ? farm.soilTone(d, k) : 0) + (farm?.weedy(d, k) ? farm.weedModel(d, k) : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
+    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + (farm ? farm.soilTone(d, k) : 0) + (farm?.weedy(d, k) ? farm.weedModel(d, k) : '') + (farm && d?.cover?.[k] ? farm.bellModel(d, k) : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
     const W = scene.wear?.sig(cx, cy);   // (how worn what is built in it is: wear.js)
     return W?.all ? `${s}w${W.all}` : s;
   }
@@ -277,6 +277,7 @@ export class World3D {
       const k = `${t[0]},${t[1]}`, dl = scene.delta(cx, cy), fm = this.farm(scene);
       LIFT = lv(t[0], t[1]);
       if (fm?.weedy(dl, k)) this.placeModel(fm.weedModel(dl, k), t[0] + 0.5, t[1] + 0.5, weedYaw(t[0], t[1]), plain, c, group, false, LIFT);
+      if (fm && dl?.cover?.[k]) this.placeModel(fm.bellModel(dl, k), t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
       this.placeModel(`tilled:${fm ? fm.soilLook(dl, k) : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}${tilledMore(dl, k, fm)}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {
@@ -328,7 +329,7 @@ export class World3D {
         if (lift) for (let i = from + 1; i < to; i += 3) B.pos[i] += lift;
       }
       const [fadeKey, key] = k.split('#'), mk = B.wr ? key + WORN : key, m = fadeKey ? this.fadeMat(fadeKey, mk) : this.mat(mk), mesh = B.mesh(m);
-      mesh.castShadow = key !== 'glass'; mesh.receiveShadow = true;
+      mesh.castShadow = key !== 'glass' && key !== 'pane'; mesh.receiveShadow = key !== 'pane';
       if (fadeKey) mesh.userData.fade = fadeKey;
       mesh.userData.own = true;
       group.add(mesh);
@@ -339,9 +340,9 @@ export class World3D {
     for (const d of c.doors) {
       const k = `${d.tile[0]},${d.tile[1]}`, fk = d.region && d.side !== 'free' ? `${d.region}|${d.side}` : '';
       const M = k0 => { const key = d.wear && wearKind(k0) !== undefined ? k0 + WORN : k0; return fk ? this.fadeMat(fk, key) : this.mat(key); }, paint = paintKey(d.region);
-      const leaf = d.gate ? gateLeaf(d, { fence: this.mat(d.wear ? 'fence' + WORN : 'fence') }) : doorLeaf(d, { door: M('door'), frame: M('frame'), paint: M(paint), iron: M('iron') });
+      const leaf = d.gate ? gateLeaf(d, { fence: this.mat(d.wear ? 'fence' + WORN : 'fence') }) : d.glass ? doorLeaf(d, { pane: this.mat('pane'), iron: this.mat('paneIron'), kerb: baseMaterials().timber }) : doorLeaf(d, { door: M('door'), frame: M('frame'), paint: M(paint), iron: M('iron') });
       if (d.lift) leaf.position.y += d.lift;   // (a la altura de su casilla)
-      leaf.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      leaf.traverse(o => { if (o.isMesh && !o.userData.glass) { o.castShadow = true; o.receiveShadow = true; } });
       const prev = this.doors.get(k);
       const amount = prev ? prev.amount : scene.doorClosed(...d.tile) ? 0 : 1;
       leaf.userData.setAngle(amount);
@@ -881,14 +882,15 @@ export class World3D {
       r.roof.position.y = L;
       r.roof.userData.chimneys = r.roof.userData.chimneys.map(([x, y, z]) => [x, y + L, z]);
       const mats = [];
-      r.roof.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material) + (o.geometry.attributes.aWear ? WORN : '')); mats.push(o.material); } });
+      r.glass = r.tiles.some(([x, y]) => scene.glassRoofAt?.(x, y));   // (one sees in, and the rain does not fall through it)
+      r.roof.traverse(o => { if (o.isMesh && !o.userData.glass) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material) + (o.geometry.attributes.aWear ? WORN : '')); mats.push(o.material); } });
       this.group.add(r.roof);
       // (casi siempre en el acto: cada casa tiene sus materiales, pero comparten programa; y si se rehace al editar, cerca
       // de la cámara: también en el acto, sin dejar la casa sin tejado)
       this.view.gate?.(r.roof, null, regionBox(r));
       this.stale(false, regionBox(r));
       // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
-      const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));
+      const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y) && !scene.glassRoofAt?.(x, y));
       if (floor.length && roofPitch(scene, r.tiles) === 1) { r.ceil = this.ceiling(floor, r.box, scene); r.ceil.position.y = L; this.group.add(r.ceil); }
       // (sin candelabro por su cuenta: se cuelga como un objeto más; el de las casas del pueblo, las aldeas y la taberna va
       // en sus planos, world/blueprints.js)
@@ -924,6 +926,21 @@ export class World3D {
       out.push(r.cam);
     }
     return out;
+  }
+  // The roofs with glass near a point, or null; and whether a point is under one of them
+  panesNear(c) {
+    const out = (this.panes ||= []);
+    out.length = 0;
+    for (const r of this.regions.values()) if (r.glass && r.top && r.box.x0 < c.x + 28 && r.box.x1 > c.x - 28 && r.box.y0 < c.z + 28 && r.box.y1 > c.z - 28) out.push(r);
+    return out.length ? out : null;
+  }
+  underPanes(list, x, y, z) {
+    for (const r of list) {
+      const b = r.box;
+      if (x < b.x0 || x > b.x1 || z < b.y0 || z > b.y1) continue;
+      if (b.full ?? (b.full = (b.x1 - b.x0) * (b.y1 - b.y0) === r.tiles.length)) { if (y < r.top(x, z)) return true; } else if (this.regionOf.get(`${Math.floor(x)},${Math.floor(z)}`) === r.key && y < r.top(x, z)) return true;
+    }
+    return false;
   }
   // ¿Hay suelo construido aquí? (el jugador pisa un poco más alto)
   floorAt(x, y) { return !!this.scene?.at('floor', Math.floor(x), Math.floor(y)); }

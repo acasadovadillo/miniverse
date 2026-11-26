@@ -64,7 +64,7 @@ export class Mobs {
     for (const o of w.village.objects) if (o.model === 'lamp') best = Math.max(best, 15 - Math.abs(Math.floor(o.x) - tx) - Math.abs(Math.floor(o.y) - ty));   // (la farola del pueblo)
     return Math.max(0, best);
   }
-  lightAt(tx, ty) { return Math.max(this.world.roofAt(tx, ty) ? 0 : this.sky(tx), this.block(tx, ty)); }
+  lightAt(tx, ty) { return Math.max(this.world.roofAt(tx, ty) && !this.world.glassRoofAt?.(tx, ty) ? 0 : this.sky(tx), this.block(tx, ty)); }
   // ¿Puede aparecer aquí un monstruo? Fuera del pueblo, en tierra, sin nada construido ni tejado, sin chocar con nada y a oscuras
   canSpawn(tx, ty) {
     const w = this.world, x = tx + 0.5, y = ty + 0.5;
@@ -100,7 +100,7 @@ export class Mobs {
     for (const m of [...this.list]) {
       if (!players.some(q => distOf(q.x, q.y, m.x, m.y) < FAR)) { this.remove(m); continue; }
       // Con el sol, al rato, se deshacen
-      if (this.sky(m.x) > 11 && !this.world.roofAt(Math.floor(m.x), Math.floor(m.y)) && (m.sun += dt) > 1 + (m.id % 7) * 0.6) { this.remove(m, true); continue; }
+      if (this.sky(m.x) > 11 && (!this.world.roofAt(Math.floor(m.x), Math.floor(m.y)) || this.world.glassRoofAt?.(Math.floor(m.x), Math.floor(m.y))) && (m.sun += dt) > 1 + (m.id % 7) * 0.6) { this.remove(m, true); continue; }
       this.move(m, fighters, dt, diff);
     }
     if (g.live.joined && (this.timers.send += dt) >= SEND_EVERY) {

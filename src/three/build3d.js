@@ -18,6 +18,7 @@ import { injectContact, contactKey } from './contact3d.js';
 import { LOOK, INSIDE } from './wear3d.js';
 import { placeMat, weathered } from './places3d.js';
 import { barsTile, cellDoorTile, cellDoorLeaf } from './law3d.js';   // (a cycle, read only inside functions)
+import { paneMaterial, ironMaterial, glassWall, glassDoorway, glassLeaf, GlassRoof, isGlass } from './glass3d.js';
 
 // Puertas y contraventanas de tablas pintadas con uno de cinco colores minerales por casa, dintel y alféizar en las
 // ventanas, cornisa, esquinas de sillería o de tablas y tapajuntas en los muros, y tejados a dos aguas (ver roof.js)
@@ -50,6 +51,7 @@ export function baseMaterials() {
     plaster: mat({ map: plaster(), color: C.plaster }), stone: mat({ map: stone(C.stone) }), wallStone: mat({ map: stone(C.wallStone) }), siding: mat({ map: siding(), color: C.siding }),
     timber: mat({ map: wood(C.timber), roughness: 0.8 }), frame: mat({ map: wood(C.frame), roughness: 0.7 }), shutter: mat({ map: wood(C.shutter) }), door: mat({ map: wood(C.door) }),
     glass: new THREE.MeshStandardMaterial({ color: PAL.detalle.cristal, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.4, depthWrite: false, emissive: '#ffb050', emissiveIntensity: 0 }),
+    pane: paneMaterial(), paneIron: ironMaterial(),   // (the greenhouse's and the cloches': glass3d.js)
     box: mat({ color: C.box }), soil: mat({ color: C.soil }), leaves: mat({ color: C.leaves, flatShading: true }), bloom: mat({ roughness: 0.6 }),
     painting: mat({ map: artwork('valle') }), floor_madera: mat({ map: planks(), roughness: 0.6, color: C.planks }), floor_piedra: mat({ map: flagstone(), roughness: 0.85, color: C.flag }), floor_camino: mat({ map: gravel(), roughness: 1, color: C.flag }),
     fence: mat({ map: wood(C.fence) }), fenceStone: mat({ map: stone(C.fenceStone) }), roofs, roofEdge: mat({ map: wood(C.frame) }), soffit: mat({ map: planks(), color: C.soffit }),
@@ -110,6 +112,7 @@ const inside = (B, yes) => { if (yes && B.wearNow) B.wearNow *= INSIDE; return B
 // emit(materialKey, side) → Builder en el que añadir esa parte
 export function wallTile(scene, tx, ty, id, emit, extras) {
   if (PIECES[id]?.bars) return barsTile(scene, tx, ty, emit);   // (law3d.js)
+  if (isGlass(id)) return glassWall(emit, tx, ty, wallMask(scene, tx, ty), WALL_H);
   const mask = wallMask(scene, tx, ty), cx = tx + 0.5, cz = ty + 0.5;
   const xArms = [mask & 1 ? 1 : 0, mask & 2 ? -1 : 0].filter(Boolean), zArms = [mask & 4 ? 1 : 0, mask & 8 ? -1 : 0].filter(Boolean);
   // Sin vecinos: un tramo entero a lo largo de x. Recto: un tramo entero, con su hueco si es ventana
@@ -348,6 +351,13 @@ export function doorTile(scene, tx, ty, emit, extras) {
   const next = sideIds.map(v => v && parsePlaced(v)[0]).find(n => PIECES[n]?.kind === 'wall' && !PIECES[n].bars) || 'muro_madera';
   const id = next.startsWith('ventana') || next === 'muro_cuadro' ? 'muro_entramado' : next;
   const side = outward(scene, tx, ty, X), cx = tx + 0.5, cz = ty + 0.5, u0 = X ? tx : ty, c = X ? cz : cx;
+  if (isGlass(id)) {
+    // (in a glass wall: an iron frame, a glazed leaf and a stone step; it opens as it would in any other)
+    glassDoorway(emit, X, c, u0, DOOR.half, DOOR.y1, WALL_H);
+    const out = side === 's' || side === 'e' ? 1 : side === 'n' || side === 'w' ? -1 : 1, swing = side === 'in' || side === 'free' ? out : -out, B = emit('stone', 'free'), m = u0 + 0.5, k0 = side === 'in' ? -0.14 : Math.min(out * 0.5, -out * 0.14), k1 = side === 'in' ? 0.14 : Math.max(out * 0.5, -out * 0.14);
+    if (X) B.box(m - DOOR.half, 0, c + k0, m + DOOR.half, FLOOR_H + 0.015, c + k1); else B.box(c + k0, 0, m - DOOR.half, c + k1, FLOOR_H + 0.015, m + DOOR.half);
+    return { tile: [tx, ty], X, outSign: out, swing, side: 'free', glass: true, hinge: X ? [m - DOOR.half + 0.02, 0, c + swing * 0.05] : [c + swing * 0.05, 0, m - DOOR.half + 0.02], width: DOOR.half * 2 - 0.03 };
+  }
   const mask = wallMask(scene, tx, ty), ends = X ? [!(mask & 2), !(mask & 1)] : [!(mask & 8), !(mask & 4)];
   run(emit, extras, { id, X, c, side, a: u0, b: u0 + 1, holes: [{ u: u0 + 0.5, half: DOOR.half, y0: 0, y1: DOOR.y1, door: true }], ends, tile: [tx, ty] });
   // Marco por los dos lados y escalón de piedra por fuera
@@ -372,6 +382,12 @@ export function doorTile(scene, tx, ty, emit, extras) {
 export function doorLeaf(d, mats) {
   if (d.bars) return cellDoorLeaf(d, mats);
   const lw = d.width, leaf = new Builder().wear(d.wear || 0), bars = new Builder().wear(d.wear || 0);
+  if (d.glass) {
+    const g = glassLeaf(d, mats, DOOR.y1 - 0.04), along = d.X ? [1, 0] : [0, 1], out = d.X ? [0, d.swing] : [d.swing, 0], beta = 1.95;
+    g.position.set(...d.hinge);
+    g.userData.setAngle = a => { const b = beta * a, dx = along[0] * Math.cos(b) + out[0] * Math.sin(b), dz = along[1] * Math.cos(b) + out[1] * Math.sin(b); g.rotation.y = Math.atan2(-dz, dx); };
+    return g;
+  }
   if (mats.paint) {
     // Cinco tablas con su junta, tres travesaños y dos riostras en Z, del color de la casa; pernios de hierro que
     // cruzan la hoja desde la bisagra, y tirador de anilla
@@ -545,12 +561,15 @@ export function roofRegion(scene, tiles, regionKey) {
     const m = Math.max(Math.abs(sx), Math.abs(sy));
     return m ? [(sx / m) * ROOF.over, (sy / m) * ROOF.over] : [0, 0];
   };
-  const byMat = new Map(), soffit = new Builder(), fascia = new Builder();
+  const byMat = new Map(), soffit = new Builder(), fascia = new Builder(), GR = glassRoof(scene, shape);
   const top = (x, z, lvl) => WALL_H + ROOF.thick + lvl * LV;
   const V = (vx, vy, lvl) => { const [ox, oy] = lvl === 0 ? off(vx, vy) : [0, 0], drop = lvl === 0 && (ox || oy) ? ROOF.over * LV : 0; return [vx + ox, top(0, 0, lvl) - drop, vy + oy]; };
   const chimneys = [];
   for (const [x, y] of tiles) {
-    const raw = scene.at('roof', x, y), id = M.roofs[raw] ? raw : 'tejado_rojo', B = byMat.get(id) || byMat.set(id, new Builder()).get(id);
+    const raw = scene.at('roof', x, y);
+    GR.infill(x, y, false);
+    if (GlassRoof.is(raw)) { hipGlass(GR, x, y, V, H, top, has); continue; }
+    const id = M.roofs[raw] ? raw : 'tejado_rojo', B = byMat.get(id) || byMat.set(id, new Builder()).get(id);
     wornTile(scene, x, y, B, soffit, fascia);
     const nw = V(x, y, H(x, y)), ne = V(x + 1, y, H(x + 1, y)), se = V(x + 1, y + 1, H(x + 1, y + 1)), sw = V(x, y + 1, H(x, y + 1)), c = [x + 0.5, top(0, 0, H(x + 0.5, y + 0.5)), y + 0.5];
     for (const tri of [[nw, ne, c], [ne, se, c], [se, sw, c], [sw, nw, c]]) {
@@ -568,8 +587,29 @@ export function roofRegion(scene, tiles, regionKey) {
   }
   const g = new THREE.Group();
   for (const [id, B] of byMat) g.add(B.mesh(M.roofs[id]));
-  g.add(soffit.mesh(slab ? placeMat('ashlarG') : M.soffit), fascia.mesh(slab ? placeMat('ashlarG') : M.roofEdge));
+  if (!soffit.empty) g.add(soffit.mesh(slab ? placeMat('ashlarG') : M.soffit));
+  if (!fascia.empty) g.add(fascia.mesh(slab ? placeMat('ashlarG') : M.roofEdge));
+  GR.addTo(g, M.pane, M.paneIron);
   return addChimneys(g, chimneys, regionKey);
+}
+// The roof of a room of glass: its panes lie a little lower than tiles do
+const GLASS_DROP = 0.1;
+const glassRoof = (scene, shape, sink = 0) => new GlassRoof(scene, shape, ROOF.level, { wall: WALL_H, drop: ROOF.thick - GLASS_DROP + sink });
+// A tile of it in a hipped roof: its four panes, a bar along each side and, where two slopes meet, along the hip
+function hipGlass(GR, x, y, V, H, top, has) {
+  const lo = p => [p[0], p[1] - GLASS_DROP, p[2]], c = lo([x + 0.5, top(0, 0, H(x + 0.5, y + 0.5)), y + 0.5]);
+  const [nw, ne, se, sw] = [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]].map(([i, j]) => lo(V(i, j, H(i, j))));
+  const flat = Math.abs((nw[1] + se[1]) / 2 - c[1]) < 0.01 && Math.abs((ne[1] + sw[1]) / 2 - c[1]) < 0.01;
+  if (flat) GR.face([nw, ne, se, sw]);
+  else {
+    for (const t of [[nw, ne, c], [ne, se, c], [se, sw, c], [sw, nw, c]]) GR.face(t);
+    for (const [a, b] of [[nw, se], [ne, sw]]) if (Math.abs((a[1] + b[1]) / 2 - c[1]) < Math.abs((a === nw ? ne[1] + sw[1] : nw[1] + se[1]) / 2 - c[1]) || Math.abs(a[1] - b[1]) > 0.05) { GR.bar(a, c); GR.bar(c, b); }
+  }
+  GR.bar(nw, ne); GR.bar(nw, sw);
+  if (!has(x + 1, y)) GR.bar(ne, se, 0.05, 0.06);
+  if (!has(x, y + 1)) GR.bar(sw, se, 0.05, 0.06);
+  if (!has(x - 1, y)) GR.bar(nw, sw, 0.05, 0.06);
+  if (!has(x, y - 1)) GR.bar(nw, ne, 0.05, 0.06);
 }
 // How worn a tile of a roof is, in what is added of it from now on: its cover, its boards below and those of its edge
 function wornTile(scene, x, y, B, soffit, fascia) {
@@ -597,7 +637,7 @@ const G_EXT = { ashlarW: 'ashlarG' };   // (the gable is not tinted by vertex: t
 // con la pendiente y su tabla; en los cortos, vuelo con su tabla; caballete en la cumbrera; y los hastiales (el muro
 // triangular encima de cada muro corto), del material de ese muro y, en los de entramado, con su viga y su pendolón
 export function gableRoof(scene, tiles, regionKey, S) {
-  const M = baseMaterials(), byMat = new Map(), soffit = new Builder(), fascia = new Builder(), walls = new Map(), o = ROOF.over;
+  const M = baseMaterials(), byMat = new Map(), soffit = new Builder(), fascia = new Builder(), walls = new Map(), o = ROOF.over, pure = tiles.every(([x, y]) => GlassRoof.is(scene.at('roof', x, y))), GR = glassRoof(scene, S, pure ? -0.5 * ROOF.level * S.k : 0);
   const X = S.alongX, u0 = X ? S.x0 : S.y0, u1 = X ? S.x1 : S.y1, v0 = X ? S.y0 : S.x0, v1 = X ? S.y1 : S.x1;
   // (of stone slabs: low, thicker, and of stone under the eaves too, with its cornice)
   const slab = S.k < 1, LV = ROOF.level * S.k, TH = slab ? 0.2 : ROOF.thick, OV = slab ? 0.4 : o;
@@ -605,14 +645,19 @@ export function gableRoof(scene, tiles, regionKey, S) {
   const P = (u, y, v) => (X ? [u, y, v] : [v, y, u]), N = (nu, nv) => (X ? [nu, 0, nv] : [nv, 0, nu]);
   const V = (u, v) => { const eu = u === u0 ? -OV : u === u1 ? OV : 0, ev = v === v0 ? -OV : v === v1 ? OV : 0; return P(u + eu, top(v) - (ev ? OV * LV : 0), v + ev); };
   const down = p => [p[0], p[1] - TH, p[2]];
+  // (the glass: all of glass, from wall to wall, its eaves on them; else as the tiles, with their eaves)
+  const GB = pure ? [u0 + 0.5, u1 - 0.5, v0 + 0.5, v1 - 0.5] : [u0, u1, v0, v1], sink = pure ? 0.5 * LV : 0;
+  const GA = (u, v) => { if (!pure) { const p = V(u, v); p[1] -= GLASS_DROP; return p; } return P(u, top(v) - sink - GLASS_DROP, v); };
   const chimneys = [], count = new Map();
   const gables = [];   // (the wall each stands on, and how worn it is drawn)
   let all = 0;   // (how worn its tiles are, all together: the ridge, like most of them)
   for (const [x, y] of tiles) {
-    const raw = scene.at('roof', x, y), id = M.roofs[raw] ? raw : 'tejado_rojo', B = byMat.get(id) || byMat.set(id, new Builder()).get(id);
+    const raw = scene.at('roof', x, y), tu = X ? x : y, tv = X ? y : x;
+    if (GlassRoof.is(raw)) { count.set(raw, (count.get(raw) || 0) + 1); gableGlass(GR, GA, tu, tv, ...GB, (v0 + v1) / 2); GR.infill(x, y, false); continue; }
+    const id = M.roofs[raw] ? raw : 'tejado_rojo', B = byMat.get(id) || byMat.set(id, new Builder()).get(id);
+    GR.infill(x, y, false);
     all += wornTile(scene, x, y, B, soffit, fascia);
     count.set(id, (count.get(id) || 0) + 1);
-    const tu = X ? x : y, tv = X ? y : x;
     for (const va of [tv, tv + 0.5]) {
       const vb = va + 0.5, a = V(tu, va), b = V(tu + 1, va), c = V(tu + 1, vb), d = V(tu, vb);
       for (const tri of [[a, b, c], [a, c, d]]) { addRoofTri(B, tri); addRoofTri(soffit, tri.map(down), true); }
@@ -626,7 +671,8 @@ export function gableRoof(scene, tiles, regionKey, S) {
   }
   // Caballete: una hilera de tejas a lo largo de la cumbrera (si no la corta lo plano de las casas muy anchas)
   const mid = (v0 + v1) / 2, main = [...count].sort((p, q) => q[1] - p[1])[0][0];
-  if (lvl(mid) < ROOF_CAP) { const ridge = byMat.get(main).wear(all / tiles.length), y = top(mid), [a, b] = [P(u0 - OV, y - 0.03, mid - 0.13), P(u1 + OV, y + (slab ? 0.06 : 0.09), mid + 0.13)]; ridge.box(Math.min(a[0], b[0]), a[1], Math.min(a[2], b[2]), Math.max(a[0], b[0]), b[1], Math.max(a[2], b[2]), { skip: 'ny' }); }
+  if (lvl(mid) < ROOF_CAP && GlassRoof.is(main)) GR.bar(GA(GB[0] - (pure ? 0 : OV), mid).map((q, i) => q + (i === 1 ? 0.05 : 0)), GA(GB[1] + (pure ? 0 : OV), mid).map((q, i) => q + (i === 1 ? 0.05 : 0)), 0.1, 0.06);
+  else if (lvl(mid) < ROOF_CAP) { const ridge = byMat.get(main).wear(all / tiles.length), y = top(mid), [a, b] = [P(u0 - OV, y - 0.03, mid - 0.13), P(u1 + OV, y + (slab ? 0.06 : 0.09), mid + 0.13)]; ridge.box(Math.min(a[0], b[0]), a[1], Math.min(a[2], b[2]), Math.max(a[0], b[0]), b[1], Math.max(a[2], b[2]), { skip: 'ny' }); }
   // Hastiales, encima de los muros cortos (a media casilla del borde, por su centro), de alero a alero
   const wall = key => walls.get(key) || walls.set(key, new Builder()).get(key);
   for (const [uc, s] of [[u0 + 0.5, -1], [u1 - 0.5, 1]]) {
@@ -634,6 +680,9 @@ export function gableRoof(scene, tiles, regionKey, S) {
     if (!at) for (let k = 1; k < 4 && !at; k++) { const v = Math.floor(mid) - k, q = X ? scene.at('placed', Math.floor(uc), v) : scene.at('placed', v, Math.floor(uc)); if (q === 'stone_column') { at = q; if (X) wy = v; else wx = v; } }   // (a portico: over its columns)
     let id = at === 'stone_column' ? 'ashlar_wall' : at && parsePlaced(at)[0];
     if (at && !EXTERIOR[id]) for (const d of [1, -1, 2, -2]) { const v = Math.floor(mid) + d, q = X ? scene.at('placed', Math.floor(uc), v) : scene.at('placed', v, Math.floor(uc)); if (q === 'ashlar_wall' || q === 'limewash_wall') { id = q; break; } }   // (a door or a window in the middle of one of those walls)
+    // (over a glass wall, panes: every piece of that end, its doors too; a glass roof that goes out past its walls has no gable)
+    if (!at && GlassRoof.is(X ? scene.at('roof', Math.floor(uc), Math.floor(mid)) : scene.at('roof', Math.floor(mid), Math.floor(uc)))) continue;
+    if (isGlass(id)) { for (let v = v0; v < v1; v++) { const gx = X ? Math.floor(uc) : v, gy = X ? v : Math.floor(uc); if (scene.at('placed', gx, gy) !== 'glass_wall') GR.infill(gx, gy, true); } continue; }
     const ext = G_EXT[EXTERIOR[id]] || EXTERIOR[id] || 'plaster', inner = G_EXT[INNER[id]] || 'plaster', a = v0 + 0.5, b = v1 - 0.5, stage = scene.wearAt ? scene.wearAt('placed', wx, wy) : 0, W = LOOK[stage];
     gables.push([wx, wy, stage]);
     const under = v => top(v) - TH, face = (key, uf, n) => { const B = wall(key); for (let v = a; v < b - 1e-6; v += 0.5) { const w = Math.min(b, v + 0.5); B.quadN(P(uf, WALL_H, v), P(uf, WALL_H, w), P(uf, under(w), w), P(uf, under(v), v), N(n, 0), [[v, WALL_H], [w, WALL_H], [w, under(w)], [v, under(v)]]); } };
@@ -654,10 +703,30 @@ export function gableRoof(scene, tiles, regionKey, S) {
     // The cornice: a moulding under the eaves, all along the long sides, over the wall or the columns' entablature
     for (const [v, s] of [[v0, 1], [v1, -1]]) { const a = P(u0 - 0.06, WALL_H - 0.02, v - s * OV * 0.45), b = P(u1 + 0.06, WALL_H + 0.16, v + s * 0.62); fascia.box(Math.min(a[0], b[0]), a[1], Math.min(a[2], b[2]), Math.max(a[0], b[0]), b[1], Math.max(a[2], b[2])); }
   }
-  g.add(soffit.mesh(slab ? placeMat('ashlarG') : M.soffit), fascia.mesh(slab ? placeMat('ashlarG') : M.roofEdge));
+  if (!soffit.empty) g.add(soffit.mesh(slab ? placeMat('ashlarG') : M.soffit));
+  if (!fascia.empty) g.add(fascia.mesh(slab ? placeMat('ashlarG') : M.roofEdge));
+  GR.addTo(g, M.pane, M.paneIron);
   for (const [key, B] of walls) if (!B.empty) g.add(B.mesh(M[key] || placeMat(key)));
   addChimneys(g, chimneys, regionKey).userData.gables = gables;
   return g;
+}
+
+// A tile of a glass roof of two slopes: its panes (half a tile wide), the bars between them up the slope, a purlin across and,
+// at its edges, the gutter and the last bar. Where the ridge runs through the middle of the tile, half and half. at(u, v): the
+// point of the glass; [U0, U1] × [V0, V1]: how far it goes (a roof all of glass ends on its walls, half a tile in: no eaves)
+function gableGlass(GR, at, tu, tv, U0, U1, V0, V1, ridge) {
+  const ua = Math.max(tu, U0), ub = Math.min(tu + 1, U1), va = Math.max(tv, V0), vb = Math.min(tv + 1, V1);
+  if (ua >= ub - 1e-6 || va >= vb - 1e-6) return;
+  const vs = ridge > va + 1e-6 && ridge < vb - 1e-6 ? [va, ridge, vb] : [va, vb], um = (ua + ub) / 2;
+  for (let i = 0; i + 1 < vs.length; i++) {
+    const a = at(ua, vs[i]), b = at(ub, vs[i]), c = at(ub, vs[i + 1]), d = at(ua, vs[i + 1]), m0 = at(um, vs[i]), m1 = at(um, vs[i + 1]);
+    GR.face([a, m0, m1, d]); GR.face([m0, b, c, m1]);
+    GR.bar(a, d); GR.bar(m0, m1, 0.016, 0.03);
+    if (ub === U1) GR.bar(b, c, 0.04, 0.05);
+    if (ua === U0) GR.bar(a, d, 0.04, 0.05);
+    if (vs[i] === V0) GR.bar(a, b, 0.07, 0.07); else if (vs[i] === tv) GR.bar(a, b, 0.016, 0.03);
+    if (vs[i + 1] === V1) GR.bar(d, c, 0.07, 0.07);
+  }
 }
 
 // Un triángulo del tejado, con las tejas en filas paralelas al alero (u a lo largo, v cuesta arriba). Por

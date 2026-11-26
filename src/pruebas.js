@@ -67,8 +67,10 @@ import { Wear, ruleOf, stageAt, placeK, DAY_K, LEAKS } from './wear.js';   // (R
 import { houseBlueprint, familyBlueprint, tavernBlueprint } from './world/blueprints.js';
 import { BUILDABLE, PLANS, PLANS_V, PLAN_BORN } from './buildables.js';
 import { PIECES, parsePlaced } from './pieces.js';
+import { BELL, bellSize } from './greenhouse.js';   // (R2-G: glass)
 import { diffChunk, applyOps, ItemSync, COLLECTIONS } from './livesync.js';
-import { wallTile } from './three/build3d.js';
+import { wallTile, roofRegion, doorTile } from './three/build3d.js';
+import { Builder } from './three/geo.js';
 import { itemIcon, itemIconUrl } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
 import { priceOf, buyPrice, mendPrice, MEND_SHARE } from './economy.js';
@@ -167,7 +169,7 @@ import * as TRAPS_MOD from './traps.js';
 import { RodRest, cleanRr, LEASH, BITE_S, IDLE_S } from './rodrest.js';
 import { seasonOf, madridMs } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
-import { GROW, seedOf, rateAt } from './cropdata.js';
+import { GROW, seedOf, rateAt, dryingAt } from './cropdata.js';
 import { NORTH, HALF as PHALF, H as PH, nearX, W as PW, distOf, dxOf } from './world/planet.js';
 import { Tracks, K, CAP, TTL, S, DEAD, F_LEFT, F_FLEE, F_SECOND, STRIDE, RAIN_K } from './tracks.js';
 import { Wildlife, WOUND, trailKey, KINDS } from './wildlife.js';
@@ -712,7 +714,7 @@ async function soloTests(game) {
       inv().add('semilla_tomate', 1); inv().add('semilla_trigo', 3); const wheat0 = inv().count('semilla_trigo'); inv().add('regadera', 1); inv().add('straw', 2); F.can = 10;
       check(game.farm.status(tx, ty) === t('farm.state.bare', { soil: t('farm.soil.dry') }) || game.farm.status(tx, ty).length > 8, `bare: ${game.farm.status(tx, ty)}`);
       // (a tender seed on a night of snow is refused; on a mild one, sown or sown to wait)
-      game.weatherLock = { w: 'nieve', until: null }; let T = aim('semilla_tomate'); check(T && !T.ok && T.label === t('farm.sow.cold_tonight', { crop: itemNoun('tomate') }), `snow: ${T?.label}`);
+      game.weatherLock = { w: 'nieve', until: null }; let T = aim('semilla_tomate'); check(T && !T.ok && T.label === t('farm.sow.cold_glass', { crop: itemNoun('tomate') }), `snow: ${T?.label}`);
       T.use(); check(!F.cropAt(tx, ty), 'sown on a night that kills it');
       game.weatherLock = { w: 'sol', until: null }; T = aim('semilla_trigo'); check(T?.ok && T.label.includes('trigo'), `wheat: ${T?.label}`); T.use(); check(F.cropAt(tx, ty)?.hn === 0 && inv().count('semilla_trigo') === wheat0 - 1, 'not sown');
       T = aim('regadera'); check(T.label.includes('10/') && T.label.includes(t(d().moist?.[k] >= 35 ? 'farm.soil.wet' : 'farm.soil.dry')) || /·/.test(T.label), `can: ${T.label}`); T.use(); check(d().moist[k] === 100 && d().wet[k] === F.today && F.soilLook(d(), k) === 1, 'not watered');
@@ -1055,6 +1057,125 @@ async function soloTests(game) {
   });
   // ---------- R2-D: the winter crops (docs/planes/realismo/PLAN-R2-huerto.md §3.2) ----------
   const WINTER = ['potato', 'broad_bean', 'cabbage', 'garlic'], DISHES = ['baked_potato', 'potato_omelette', 'garlic_soup', 'bean_stew'];
+  // ---------- glass (phase R2-G, greenhouse.js) ----------
+  // A room W × H inside, its corner at (X, Y), on the farm lab's world: walls on the border, a door in the middle of the south
+  const glassLab = (o = {}, { W = 5, H = 4, X = -1, Y = 28, wall = 'glass_wall', roof = 'glass_roof', door = true, shut = true } = {}) => {
+    const L = farmLab(o), w = L.g.world, D = (x, y) => w.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true), x1 = X + W + 1, y1 = Y + H + 1, dx = X + 1 + (W >> 1);
+    w.touches = 0; w.baseAt = () => undefined; w.doorClosed = (x, y) => !!w.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.closed?.[`${x},${y}`];
+    L.D = D; L.set = (layer, x, y, id) => { const d = D(x, y); if (id) (d[layer] ||= {})[`${x},${y}`] = id; else delete d[layer]?.[`${x},${y}`]; w.touches++; };
+    L.door = v => { const d = D(dx, y1); d.closed ||= {}; if (v) d.closed[`${dx},${y1}`] = true; else delete d.closed[`${dx},${y1}`]; w.touches++; };
+    for (let y = Y; y <= y1; y++) for (let x = X; x <= x1; x++) { if (x === X || x === x1 || y === Y || y === y1) L.set('placed', x, y, door && x === dx && y === y1 ? 'puerta' : wall); if (roof) L.set('roof', x, y, roof); }
+    if (door && shut) L.door(true);
+    L.room = { X, Y, x1, y1, dx };
+    return L;
+  };
+  await test('farm glass (english): what is under glass: shut, aired, open at a side, too big', async () => {
+    const L = glassLab(), F = L.F, at = () => F.glassAt(1, 30), w = L.g.world;
+    check(at() === 3 && F.glassAt(0, 29) === 3 && F.glassAt(20, 30) === 0, `shut: ${at()}`);
+    L.door(false); check(at() === 2, `its door open: ${at()}`); L.door(true);
+    const { X, Y, x1 } = L.room;
+    L.set('placed', X, 30, null); check(at() === 1, `a wall out: ${at()}`); L.set('placed', X, 30, 'muro_piedra'); check(at() === 3, `stone in its place: ${at()}`);
+    L.set('placed', X, 30, 'valla'); check(at() === 1, 'a fence closes it'); L.set('placed', X, 30, 'ventana'); check(at() === 3, 'a window does not');
+    L.set('roof', 1, 30, 'tejado_rojo'); check(at() === 0 && F.glassAt(2, 30) === 3, 'the roof of the tile itself counts'); L.set('roof', 1, 30, null); check(at() === 0 && F.glassAt(2, 30) === 1, `a hole in the roof: ${F.glassAt(2, 30)}`); L.set('roof', 1, 30, 'glass_roof');
+    // (an inner door open to another shut room: still shut; that one's door open: aired. And to a porch, aired)
+    const { dx, y1 } = L.room;
+    for (let y = y1 + 1; y <= y1 + 4; y++) for (let x = X; x <= x1; x++) { if (x === X || x === x1 || y === y1 + 4) L.set('placed', x, y, x === dx && y === y1 + 4 ? 'puerta' : 'muro_madera'); L.set('roof', x, y, 'tejado_rojo'); }
+    L.D(dx, y1 + 4).closed = { ...L.D(dx, y1 + 4).closed, [`${dx},${y1 + 4}`]: true }; L.door(false); check(at() === 3, `on to another room: ${at()}`); delete L.D(dx, y1 + 4).closed[`${dx},${y1 + 4}`]; w.touches++; check(at() === 2, `whose door is open: ${at()}`);
+    const B = glassLab({}, { W: 24, H: 24 }); check(B.F.glassAt(5, 35) === 1, `576 tiles: ${B.F.glassAt(5, 35)}`); const C = glassLab({}, { W: 19, H: 20 }); check(C.F.glassAt(5, 35) === 3, `380 tiles: ${C.F.glassAt(5, 35)}`);
+    const t0 = performance.now(); for (let i = 0; i < 20; i++) { B.g.world.touches++; B.F.glassAt(5, 35); } check((performance.now() - t0) / 20 < 12, 'slow');
+  });
+  await test('farm glass (english): the warmth, the water, the snow; the days nobody plays', async () => {
+    const day = (L, x = 1, y = 30) => ({ ...L.F.climateAt(100, x, y) }), out = farmMean(3);
+    let L = glassLab({ season: 3 }), c = day(L); check(Math.abs(c.mean - out.mean - 8) < 1e-9 && Math.abs(c.min - out.min - 6) < 1e-9 && Math.abs(c.max - out.max - 8) < 1e-9, `shut: ${JSON.stringify(c)}`);
+    L.door(false); c = day(L); check(Math.abs(c.mean - out.mean - 4) < 1e-9 && Math.abs(c.min - out.min - 3) < 1e-9, `aired: ${JSON.stringify(c)}`); L.set('placed', L.room.X, 30, null); c = day(L); check(Math.abs(c.mean - out.mean) < 1e-9, 'open at a side it is warmer');
+    // a snow night: the tomato lives in it, and is not even bitten; outside it dies; with the side open it dies too
+    L = glassLab({ season: 3, weather: () => 'nieve' }); L.crop('tomate', 3, 1); L.crop('tomate', 3, 12); L.dawn(); check(!L.c(1).dead && L.c(1).fb === undefined && L.c(12).dead === 'frost', `snow: in ${L.c(1).dead}, out ${L.c(12).dead}`);
+    L = glassLab({ season: 3, weather: () => 'nieve' }); L.set('placed', L.room.X, 30, null); L.crop('tomate', 3, 1); L.dawn(); check(L.c(1).dead === 'frost', 'under a glass porch');
+    // rain, snow: not in it, whether shut or not; a sprinkler does wet it; it dries less than outside for its heat
+    for (const shut of [true, false]) { L = glassLab({ season: 0, weather: () => 'lluvia' }, { shut }); L.bed(1, 60); L.bed(12, 60); L.dawn(); check(L.d.moist[L.k(1)] <= 60 && L.d.wet[L.k(1)] === undefined && L.d.moist[L.k(12)] === 100, `rain: ${L.d.moist[L.k(1)]}, ${L.d.moist[L.k(12)]}`); }
+    L = glassLab({ season: 3, weather: () => 'nieve' }); L.bed(1, 40); L.bed(12, 40); L.dawn(); check(L.d.moist[L.k(1)] <= 40 && L.d.moist[L.k(12)] === 70, `snow: ${L.d.moist[L.k(1)]}, ${L.d.moist[L.k(12)]}`);
+    L = glassLab({ season: 1 }); L.bed(1, 60); L.set('placed', 2, 30, 'aspersor'); L.dawn(); check(L.d.moist[L.k(1)] === 100, 'a sprinkler');
+    L = glassLab({ season: 1 }); L.bed(1, 100); L.bed(12, 100); L.dawn(); const want = Math.round(100 - dryingAt(farmMean(1).max + 8, 'sol') * 0.7); check(L.d.moist[L.k(1)] === want, `dries to ${L.d.moist[L.k(1)]}, not ${want}`);
+    delete L.d.moist[L.k(1)]; L.F.weatherOn = () => 'lluvia'; check(L.F.moistOf(L.d, L.k(1)) === 30 && L.F.moistOf({ tilled: {}, roof: {} }, L.k(1)) === 100, 'a new bed in it counts as rained on');
+    // nobody plays: frost and drought kill nothing in it either; and what was planted with no glass over it is as before
+    L = glassLab({ season: 3, Tl: 0.36, weather: () => 'nieve', seen: 5 }); L.crop('tomate', 3, 1); L.dawn(9); check(!L.c(1).dead, `a week with nobody: ${JSON.stringify(L.c(1))}`);
+    const A = farmLab({ season: 0, weather: d => (d % 3 ? 'sol' : 'lluvia') }), Z = glassLab({ season: 0, weather: d => (d % 3 ? 'sol' : 'lluvia') }, { X: 60 }); for (const q of [A, Z]) { Object.keys(CROPS).forEach((id, x) => q.crop(id, 1, x)); q.dawn(6); } check(JSON.stringify(A.d.crops) === JSON.stringify(Z.d.crops) && JSON.stringify(A.d.moist) === JSON.stringify(Z.d.moist), 'a greenhouse far away changes a field');
+  });
+  await test('farm glass (english): the cloche: a frost, the rain, the pests, and what it does not fit', async () => {
+    let L = farmLab({ season: 3 }); const night = (min, bell) => { const c = L.crop('tomate', 3); L.d.cover = bell ? { [L.k()]: 'cloche' } : undefined; L.F.fieldAt = (d, x, y, o = {}) => Object.assign(o, { mean: 8, max: 12, min, season: 3, weather: 'sol' }); L.dawn(); return c; };
+    check(night(-2, false).dead === 'frost' && !night(-2, true).dead && night(-2, true).fb === L.day && night(-1, true).fb === undefined ? true : !night(-2, true).dead, 'a night of −2 °C');
+    check(night(-2, true).fb === L.day, 'at −2 it is bitten (2 °C)'); check(night(-1, true).fb === undefined, 'at −1 it is'); check(night(-4, true).dead === 'frost', 'at −4 it lives');
+    L = farmLab({ season: 0, weather: () => 'lluvia' }); L.bed(0, 30); L.bed(1, 30); L.bed(2, 90); L.d.cover = { [L.k(0)]: 'cloche', [L.k(2)]: 'cloche' }; L.dawn(); check(L.d.moist[L.k(0)] === 60 && L.d.moist[L.k(1)] === 100 && L.d.moist[L.k(2)] >= 85 && L.d.wet[L.k(0)] === undefined, `rain: ${[0, 1, 2].map(x => L.d.moist[L.k(x)])}`);
+    L = farmLab({ season: 1 }); L.bed(0, 100); L.bed(1, 100); L.d.cover = { [L.k(0)]: 'cloche' }; L.dawn(); check(100 - L.d.moist[L.k(0)] === Math.round((100 - L.d.moist[L.k(1)]) / 2), `drying: ${L.d.moist[L.k(0)]}, ${L.d.moist[L.k(1)]}`);
+    // pests leave it alone, and weeds do not turn its bed back to grass
+    const hits = cover => { const P = pestLab({ season: 0, weather: () => 'lluvia' }); for (let i = 0; i < 16; i++) { const k = `${i},20`, d = P.D(i, 20); d.tilled[k] = 1; (d.moist ||= {})[k] = 100; (d.crops ||= {})[k] = { id: i % 2 ? 'cabbage' : 'trigo', grow: i % 2 ? 2 : 4, day: 90, hs: 1, hn: 1 }; if (cover) (d.cover ||= {})[k] = 'cloche'; } P.dawn(25); let n = 0; for (let i = 0; i < 16; i++) { const c = P.D(i, 20).crops?.[`${i},20`]; if (c && (c.pd !== undefined || c.pk)) n++; } return n; };
+    const bare = hits(false), under = hits(true); check(bare > 0 && under === 0, `pests: ${bare} without, ${under} under cloches`);
+    L = farmLab({ season: 0 }); L.bed(0); L.d.weeds = { [L.k(0)]: 60 }; L.d.cover = { [L.k(0)]: 'cloche' }; L.g.ranch.farm.pests = 0; L.F.pests.on = () => true; L.dawn(); check(L.d.tilled[L.k(0)] !== undefined, 'its bed went back to grass');
+    // every crop and age has a bell, and its plant is inside it (its leaves may touch the glass)
+    const { BELL_SIZE } = await import('./three/glass3d.js'), bad = [];
+    for (const id of Object.keys(CROPS)) { if (BELL.big.has(id)) continue; for (const a of [1, 2, 3]) { const m = modelNamed(`crop:${id}:${a}`), [r, h] = BELL_SIZE[bellSize(id, a)]; let H = 0, R = 0; for (const B of m.parts.values()) for (let i = 0; i < B.pos.length; i += 3) { H = Math.max(H, B.pos[i + 1]); R = Math.max(R, Math.hypot(B.pos[i], B.pos[i + 2])); } if (H > h + 0.02 || R > r + 0.06) bad.push(`${id}:${a} ${H.toFixed(2)} × ${R.toFixed(2)} in ${h} × ${r}`); } }
+    check(!bad.length, `they do not fit: ${bad.join('; ')}`);
+  });
+  await test('farm glass (english): items, recipes, pieces, plans, salvage, wear, Rosa and the words in both languages', async () => {
+    const rec = id => RECIPES.find(r => r.out === id); check(rec('glass')?.station === 'horno' && rec('glass').n === 2 && rec('cloche')?.station === 'horno' && rec('cloche').ins.join() === 'glass,2', 'recipes');
+    for (const id of ['glass', 'cloche']) check(itemIcon(id) && weightOf(id) > 0 && priceOf(id) > 0, `${id}: no icon, weight or price`);
+    check(2 * priceOf('glass') <= 2 * priceOf('piedra') + priceOf('carbon') && priceOf('cloche') <= 2 * priceOf('glass') + 1, 'made to be sold');
+    for (const id of ['glass_wall', 'glass_roof']) { const q = PIECES[id]; check(q.needs === 'cantero' && q.cost.join('|') === 'glass,2|tablas,1' && PIECE_IDS.includes(id) && planned(id) && ruleOf(id) === null && hitsOf(id) > 0 && salvage(q.cost).join('|') === 'glass,1|tablas,1', `${id}: ${JSON.stringify(q)} ${salvage(q.cost)}`); }
+    check(ST.isSupport('glass_wall') && ST.swappable('glass_wall') && ST.swaps('muro_madera', 'glass_wall') && !ST.frameKind('glass_wall'), 'a wall like the others');
+    const was = getLang();
+    for (const l of ['en', 'es']) { await setLang(l); for (const s of [ITEMS.glass.name, ITEMS.glass.desc, ITEMS.cloche.name, ITEMS.cloche.desc, PIECES.glass_wall.name, PIECES.glass_roof.name, ITEMS.semilla_fresa.desc, matText(PIECES.glass_roof.cost)]) check(s && !/item\.|piece\.|build\.mat/.test(s), `${l}: ${s}`); } await setLang(was);
+    check(SHOPS.rosa.stock.find(e => e.id === 'semilla_fresa').seasons.includes(3) && SHOPS.rosa.stock.find(e => e.id === 'semilla_trigo').seasons.includes(3) && !CROPS.fresa.seasons.includes(3) && ITEMS.semilla_fresa.desc.includes(t('item.seed.glass', { seasons: fmt.list([t('nature.season.3')]) })), 'the seeds for under glass in winter');
+    for (const L of ['ventana', 'glass_wall']) { const S = { at: (l, x, y) => (l === 'placed' && x === 0 && y === 0 ? L : undefined) }; check(!w().wallBehind.call(S, 0, 1, 0) && !w().wallBehind.call(S, 0, -1, 0) && !w().wallBehind.call(S, 1, 0, 0) && !w().wallBehind.call(S, 1, 0, 1) && !w().wallBehind.call(S, 1, 0, 3), `something hangs on ${L}`); }
+  });
+  await test('farm glass (english): the almanac, what the labels say and what is sown', async () => {
+    const L = glassLab({ season: 3 }), F = L.F; L.bed(1); L.bed(12); L.bed(2); L.d.cover = { [L.k(12)]: 'cloche' }; F.beesAt = () => false;
+    const A = F.almanac(12, 30), one = (a, id) => a.crops.find(c => c.id === id); check(one(A, 'tomate').now === 'glass_only' && one(A, 'tomate').days > 5 && one(A, 'tomate').days < 60 && one(A, 'maiz').now === 'glass_only' && one(A, 'trigo').now === 'now' && one(A, 'calabaza').now === 'glass_only', `outside: ${A.crops.map(c => c.id + ':' + c.now + c.days)}`);
+    const I = F.almanac(1, 30); check(I.level === 3 && Math.abs(I.mean - A.mean - 8) < 1e-9 && one(I, 'tomate').now === 'now' && one(I, 'tomate').days === one(A, 'tomate').days, `inside: ${I.crops.map(c => c.id + ':' + c.now)}`);
+    F.sowText('tomate', 1, 30); check(F.said.sow.ok && F.said.sow.text.startsWith(t('farm.sow.glass', { crop: itemNoun('tomate'), days: one(I, 'tomate').days })), `sow in: ${F.said.sow.text}`);
+    F.fieldAt = (d, x, y, o = {}) => Object.assign(o, { mean: 3, max: 6, min: -2, season: 3, weather: 'nieve' }); F.forget(); F.sowText('tomate', 13, 30); check(!F.said.sow.ok && F.said.sow.text === t('farm.sow.cold_glass', { crop: itemNoun('tomate') }), `out: ${F.said.sow.text}`);
+    F.forget(); F.sowText('tomate', 12, 30); check(F.said.sow.ok, `under a cloche, at −2: ${F.said.sow.text}`); F.forget(); F.sowText('maiz', 12, 30); check(!F.said.sow.ok && F.said.sow.text === t('farm.cloche.tall', { crop: itemNoun('maiz') }), `maize under it: ${F.said.sow.text}`);
+    delete F.fieldAt; F.forget(); check(F.status(1, 30).endsWith(t('farm.state.under_glass', { text: '', n: 8 })), F.status(1, 30)); L.door(false); F.forget(); check(F.status(1, 30).endsWith(t('farm.state.glass_aired', { text: '', n: 4 })), F.status(1, 30)); L.set('placed', L.room.X, 30, null); F.forget(); check(F.status(1, 30).endsWith(t('farm.state.glass_open', { text: '', n: 0 })), F.status(1, 30)); check(F.status(12, 30).endsWith(t('farm.state.cloche', { text: '' })), F.status(12, 30));
+    const was = getLang(); for (const l of ['en', 'es']) { await setLang(l); F.forget(); check(!/farm\./.test(F.status(1, 30) + F.status(12, 30) + F.journal()) && F.journal().includes(t('farm.almanac.glass_help').slice(0, 30)), `${l}: ${F.status(1, 30)}`); } await setLang(was);
+    // tonight's frost: not what is under glass or a cloche that is enough
+    const T = glassLab({ season: 3, weather: () => 'nieve' }); T.crop('tomate', 3, 1); T.g.player.x = 1; check(!T.F.frostTonight().length, `in the greenhouse: ${T.F.frostTonight()}`); T.crop('trigo', 2, 10); T.crop('tomate', 3, 11); check(T.F.frostTonight().join() === 'tomate', `outside: ${T.F.frostTonight()}`); T.d.cover = { [T.k(11)]: 'cloche' }; check(T.F.frostTonight().join() === 'tomate', 'at −3 + 4 it would still be bitten');
+  });
+  await test('farm glass (english): together: what travels, two that differ, a game that does not know it, seven days again', async () => {
+    const L = glassLab({ season: 2, dos: 80, weather: d => ['sol', 'nieve', 'lluvia', 'nubes'][d % 4] }); Object.keys(CROPS).forEach((id, x) => L.crop(id, 1, x)); L.d.cover = { [L.k(0)]: 'cloche' };
+    const before = structuredClone(L.d), guest = structuredClone(L.d); L.dawn(3); applyOps(guest, diffChunk(before, L.d)); check(JSON.stringify(guest.crops) === JSON.stringify(L.d.crops) && JSON.stringify(guest.moist) === JSON.stringify(L.d.moist) && JSON.stringify(guest.cover) === JSON.stringify(L.d.cover), 'a morning does not travel');
+    // the host puts a cloche while the guest takes another, at once: both hold
+    const h = structuredClone(L.d), g2 = structuredClone(L.d); h.cover = { ...h.cover, [L.k(1)]: 'cloche' }; const ops = diffChunk(L.d, h); delete g2.cover[L.k(0)]; const ops2 = diffChunk(L.d, g2); const both = structuredClone(L.d); applyOps(both, ops); applyOps(both, ops2); check(both.cover[L.k(1)] === 'cloche' && both.cover[L.k(0)] === undefined, JSON.stringify(both.cover));
+    const run = () => { const Q = glassLab({ season: 2, dos: 70, weather: d => ['sol', 'nieve', 'lluvia', 'nubes', 'niebla'][d % 5], seen: 103 }); Object.keys(CROPS).forEach((id, x) => Q.crop(id, 1, x)); Q.dawn(7); return JSON.stringify(Q.d); }; check(run() === run(), 'seven days again differ');
+    // (an older game sees a piece of wood it cannot name, and keeps it: scenes.js known; the cover is a map it does not read)
+    const old = { ...L.d, placed: { '3,3': 'piece_of_2030' } }; check(JSON.parse(JSON.stringify(old)).cover[L.k(0)] === 'cloche', 'kept');
+    // a guest grows nothing: the host does
+    const G = glassLab({ season: 1 }); G.crop('tomate', 2, 1); G.g.live.guest = true; G.dawn(); check(G.c(1).grow === 2, 'a guest grows it');
+  });
+  await test('farm glass (english): a morning of 2000 beds under glass', async () => {
+    const L = glassLab({ season: 1 }, { door: false }), ids = Object.keys(CROPS), w = L.g.world; delete L.F.land;
+    for (let i = 0; i < 20; i++) { const cx = 40 + i, X = cx * 16, Y = 48; for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) { const k = `${X + x},${Y + y}`, d = w.delta(cx, 3, true), edge = !x || !y || x === 11 || y === 11; d.roof[k] = 'glass_roof'; if (edge) d.placed[k] = 'glass_wall'; else { d.tilled[k] = 1; (d.crops ||= {})[k] = { id: ids[(x + y) % ids.length], grow: 1, day: 90, hs: 1, hn: 1 }; (d.moist ||= {})[k] = 80; } } }
+    const run = () => { w.touches++; const t0 = performance.now(); L.dawn(); return performance.now() - t0; }, first = run(), next = [run(), run(), run()].sort((a, b) => a - b)[1];
+    console.log(`· una mañana de 2000 casillas bajo cristal (20 invernaderos): la primera ${first.toFixed(1)} ms, las demás ${next.toFixed(1)} ms`); check(next < 60, `${next.toFixed(1)} ms (soft: 10 ms in the plan, more under load)`);
+  });
+  await test('farm glass (english): a village winter: tomatoes in and out, watered and not; the cloche; what they give', async () => {
+    const wx = d => (ihash(d, 3, 5) < 0.14 ? 'nieve' : ihash(d, 3, 5) < 0.34 ? 'lluvia' : ihash(d, 3, 5) < 0.6 ? 'nubes' : 'sol');
+    const run = (id, { season = 3, dos = 5, water = 0, days = 80, shut = true, open = null, bell = false, inside = true, n = 6 }) => {
+      const random = Math.random; let s = 11; Math.random = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      try {
+        const L = glassLab({ season, dos, weather: wx }, { W: 7, H: 3, X: -1, Y: 28, shut }); let out = 0, dead = 0, first = 0, cans = 0; const why = {}; const x0 = inside ? 0 : 9;
+        for (let d = 0; d < days; d++) {
+          if (open) L.door(!open(L.F.climateAt(L.day, 1, 30, 0).mean));
+          for (let i = 0; i < n; i++) { const x = x0 + i, k = L.k(x); if (L.d.tilled[k] === undefined) L.bed(x, 100); (L.d.soil ||= {})[k] = [60, 'x', 1]; if (bell) (L.d.cover ||= {})[k] = 'cloche'; const c = L.c(x); if (c?.dead) { dead++; (why[c.dead] = (why[c.dead] || 0) + 1); L.F.clear(...L.at(x)); } else if (c && L.F.ready(c)) { first ||= d; out += L.F.harvest(...L.at(x)); } if (!L.c(x) && (d < days - 10)) { (L.d.crops ||= {})[k] = { id, grow: 0, day: L.day, hs: 0, hn: 0 }; } if (water && L.F.moistOf(L.d, k) < water) { L.wet(x); cans++; } }
+          L.dawn();
+        }
+        return { out, dead, first, cans, why };
+      } finally { Math.random = random; }
+    };
+    const show = (name, r) => console.log(`· ${name}: ${r.out} (${r.dead} muertas ${JSON.stringify(r.why)}, la primera cosecha el día ${r.first || '—'}, ${r.cans} riegos)`);
+    const tom = { in: run('tomate', { water: 50 }), dry: run('tomate', {}), out: run('tomate', { inside: false, water: 50 }), bell: run('tomate', { inside: false, bell: true, water: 50 }), aired: run('tomate', { water: 50, shut: false }), summer: run('tomate', { season: 1, inside: false, water: 50 }), hot: run('tomate', { season: 1, water: 50 }), cool: run('tomate', { season: 1, water: 50, open: m => m > 18 }) };
+    console.log('· 6 tomateras, 80 días (invierno del pueblo, con nieve 1 de cada 7 días)'); show('invernadero, regado', tom.in); show('invernadero, sin regar', tom.dry); show('invernadero con la puerta abierta, regado', tom.aired); show('fuera, regado', tom.out); show('fuera con campana, regado', tom.bell); show('verano, fuera', tom.summer); show('verano, invernadero cerrado', tom.hot); show('verano, invernadero ventilado', tom.cool);
+    for (const id of ['fresa', 'trigo', 'calabaza', 'potato']) { show(`${id}, invierno, invernadero`, run(id, { water: 50 })); show(`${id}, invierno, fuera`, run(id, { inside: false, water: 50 })); }
+    check(tom.in.out > 20 && tom.in.dead === 0, `in the greenhouse: ${JSON.stringify(tom.in)}`); check(tom.dry.out === 0 || tom.dry.out < tom.in.out / 4, `never watered: ${JSON.stringify(tom.dry)}`); check(tom.out.out === 0 && tom.out.dead > 0, `outside: ${JSON.stringify(tom.out)}`); check(tom.in.out > tom.summer.out / 2 && tom.aired.dead > 0, 'a winter under glass gives less than half a summer outside, or an open door does not let the frost in'); check(tom.cool.out >= tom.hot.out, 'airing it in summer is worse');
+  });
   await test('winter crops (english): items, names in both languages, seeds, recipes and Rosa\'s calendar', async () => {
     const was = getLang(), { knownItem } = await import('./items.js'), { FEED, organic } = await import('./soil.js'), { foodModel } = await import('./three/food3d.js');
     try {
@@ -1073,7 +1194,7 @@ async function soloTests(game) {
     check(RECIPES.some(r => r.out === 'sopa_verduras' && r.ins.some(([i]) => i === 'cabbage')) && new Set(RECIPES.map(r => r.id)).size === RECIPES.length, 'the winter soup, or two recipes with the same id');
     // (what a seed costs at Rosa's: less than what its poorest harvest sells for; and what is made by hand sells for no more than what it is made of)
     const at = s => SHOPS.rosa.stock.filter(e => e.seasons?.includes(s) && ITEMS[e.id]?.seed).map(e => ITEMS[e.id].seed).sort().join();
-    check(at(3) === 'broad_bean,cabbage,garlic', `she sells in winter: ${at(3)}`);
+    check(at(3) === 'broad_bean,cabbage,fresa,garlic,trigo', `she sells in winter: ${at(3)}`);
     check([0, 1, 2].every((s, i) => WINTER.filter(id => at(s).split(',').includes(id)).sort().join() === ['broad_bean,cabbage,potato', 'potato', 'broad_bean,cabbage,garlic'][i]), `${at(0)} / ${at(1)} / ${at(2)}`);
     for (const id of WINTER) check(SHOPS.rosa.stock.find(e => e.id === seedOf(id)).price < CROPS[id].price * GROW[id].poor, `${id}: the seed costs more than its poorest harvest`);
     // (the first steps: in winter there is something to sow)
@@ -8857,6 +8978,15 @@ async function soloTests(game) {
     const hole = { ...S.placed }; delete hole['0,3']; check(ST.roomAt(fakeScene({ ...S, placed: hole }), 2.5, 3.5).kind === 'porch', 'with a wall out');
     const P = fakeScene(); for (const k of ['0,0', '4,0', '0,4', '4,4']) P.placed[k] = 'post'; fillTiles(P.roof, 0, 0, 4, 4, 'tejado_paja');
     check(ST.roomAt(P, 2.5, 2.5).kind === 'porch' && ST.roomAt(P, 9, 9).kind === null, 'a roof on posts');
+    { const S = fakeScene({ closed: { '3,6': true } }); ringOf(S, 0, 0, 6, 6, 'glass_wall'); S.placed['3,6'] = 'puerta'; fillTiles(S.roof, 0, 0, 6, 6, 'glass_roof'); check(ST.roomAt(S, 3.5, 3.5).kind === 'room', `of glass: ${ST.roomAt(S, 3.5, 3.5).kind}`); }
+    // (the glass drawn: a 12 × 8 greenhouse, its walls and its roof in few meshes, the panes in one material, without shadow)
+    { const S = fakeScene({ closed: { '6,9': true } }); ringOf(S, 0, 0, 13, 9, 'glass_wall'); S.placed['6,9'] = 'puerta'; fillTiles(S.roof, 0, 0, 13, 9, 'glass_roof'); S.ownAt = S.at; S.glassRoofAt = (x, y) => S.roof[`${x},${y}`] === 'glass_roof';
+      const sinks = new Map(), emit = key => sinks.get(key) || sinks.set(key, new Builder()).get(key); let tris = 0;
+      for (const k of Object.keys(S.placed)) { const [x, y] = k.split(',').map(Number); if (S.placed[k] === 'puerta') doorTile(S, x, y, emit, { blooms: [], leaves: [], windows: [] }); else wallTile(S, x, y, S.placed[k], emit, { blooms: [], leaves: [], windows: [] }); }
+      for (const B of sinks.values()) tris += B.idx.length / 3;
+      const tiles = Object.keys(S.roof).map(k => k.split(',').map(Number)), g = roofRegion(S, tiles, 'g'), meshes = []; g.traverse(o => { if (o.isMesh) { meshes.push(o); tris += o.geometry.index.count / 3; } });
+      check([...sinks.keys()].sort().join() === 'pane,paneIron,stone,timber' && meshes.length === 2 && meshes.every(m => m.userData.glass) && meshes.some(m => m.material.name === 'pane' && !m.castShadow), `walls in ${[...sinks.keys()]}, roof in ${meshes.length}`);
+      console.log(`· un invernadero de 12 × 8: ${Math.round(tris)} triángulos (muros, puerta y tejado), en 4 materiales`); check(tris < 12000, `${tris} triangles`); }
     const H = fakeScene(); ringOf(H, 0, 0, 22, 22); fillTiles(H.roof, 0, 0, 22, 22, 'tejado_rojo'); check(ST.roomAt(H, 11.5, 11.5).kind === 'hall', `441 tiles: ${ST.roomAt(H, 11.5, 11.5).kind}`);
     // Kept while one walks inside; worked out again when something around changes
     const K = new ST.RoomWatch(); let n = 0; const at = S.at; S.at = function (l, a, b) { n++; return at.call(this, l, a, b); };
@@ -9186,7 +9316,7 @@ async function soloTests(game) {
     const T = { tejado_paja: [40, 100], tejado_rojo: [120, 400], tejado_azul: [120, 400], tejado_verde: [120, 400], tejado_gris: [200], muro_madera: [60, 180], ventana: [60, 180], puerta: [60, 180], valla: [60, 180], puerta_valla: [60, 180], post: [60, 180], suelo_madera: [60, 180],
       muro_entramado: [90, 270], ventana_contraventanas: [90, 270], muro_cuadro: [90, 270], muro_piedra: [150], valla_piedra: [150], suelo_piedra: [150], camino: [150], stone_pillar: [150], bell_gable: [150], limewash_wall: [90, 270], ashlar_wall: [150], stone_column: [150], slab_roof: [150], iron_bars: [150], cell_door: [150] };
     for (const [id, [a, b]] of Object.entries(T)) check(stageAt(id, a - 0.01) === 0 && stageAt(id, a) === 1 && (b ? stageAt(id, b - 0.01) === 1 && stageAt(id, b) === 2 : stageAt(id, 1e6) === 1), id);
-    for (const id of PIECE_IDS) if (PIECES[id].layer) check(id in T || id === 'chimenea', `${id} has no rule`);
+    for (const id of PIECE_IDS) if (PIECES[id].layer) check(id in T || id === 'chimenea' || id.startsWith('glass_'), `${id} has no rule`);
     for (const id of ['cofre', 'chimenea', 'silla', 'glass_wall', 'constructor', 'x']) check(!ruleOf(id) && stageAt(id, 1e6) === 0, id);
     await atWorn(async ({ W, R, K, x, y, d, key }) => {
       const [cx, cy] = inChunk([x, y]), at = (l, i = 0, j = 0) => R.at(l, cx + i, cy + j), kk = (l, i = 0, j = 0) => `${l}:${cx + i},${cy + j}`, D = () => W.delta(cx / CHUNK, cy / CHUNK, true), had = JSON.stringify([D().floor, D().placed, D().roof]);

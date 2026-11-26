@@ -10,6 +10,7 @@
 //   d.moist[k]              how much water the soil holds, 0..100 (missing: as if just watered, if it was; see moistOf)
 //   d.mulch[k]              the day straw was spread on it
 //   d.soil[k]               its fertility and what grew on it (soil.js: harvests take from it, manure and compost give back)
+//   d.cover[k]              'cloche': the glass bell on it; and what has a glass roof over it: greenhouse.js
 //   d.weeds[k], d.shoo, d.garb[k], d.pkt[key]   weeds and pests (pests.js); on a crop, pk, pd and pb
 //   d.crops[k]              { id, grow, day, fert?, dead?: true | 'frost' | 'drought' | 'rot' | 'eaten', hs, hn (its health: the sum
 //                           and how many days), dry (mornings in a row without water), wt (days a seed has waited), ripe
@@ -37,6 +38,7 @@ import { seasonOf, WEATHER } from './time.js';
 import { fieldDay, seasonAt } from './fieldclimate.js';
 import { FRUIT, ORCHARD, TREE_DAYS, FIRST_FRUIT, FRUIT_EVERY, BLOSSOM_FROST, FRUIT_GRACE, phaseAt, nextFruit, youngK } from './orchard.js';
 import { GROW, WATER, DRY, SNOW_WATER, MULCH_DAYS, MULCH_FROST, SEED_WAIT, GRACE, OLD_RIPE, OLD_RATE, FROST_LOOK, BOLT_SEEDS, seedOf, rateAt, waterAt, dryingAt, yieldAt, qualityOf } from './cropdata.js';
+import { GreenRooms, GLASS, BELL, CLOCHE, bellSize, GLASS_ROOF, NONE, OPEN, AIRED, SHUT, glassDay } from './greenhouse.js';
 import { SOIL, FOOD, OLD_FERT, OLD_FERT_RATE, FAMILY_TIRED, TIRED_HEALTH, RICH_MORE, BEES, SOIL_MAX, soilStart, fertAt, takesFrom, clampSoil, soilWord, soilTone } from './soil.js';
 import { dxOf, latOf } from './world/planet.js';
 import { Profile } from './accounts.js';
@@ -50,6 +52,7 @@ const NEWS_FROM = 6, NEWS_EVERY = 60, PULL = [0.6, 0.35];   // the garden's morn
 const MULCH = new Set(['straw', 'heno']);
 // (the family a soil can be tired of, as it is said)
 const FAMILIES = new Map([['brassica', 'farm.family.brassica'], ['root', 'farm.family.root'], ['nightshade', 'farm.family.nightshade'], ['grass', 'farm.family.grass'], ['cucurbit', 'farm.family.cucurbit'], ['allium', 'farm.family.allium'], ['legume', 'farm.family.legume'], ['berry', 'farm.family.berry']]);
+const ALMANAC = { now: 0, glass_only: 1, wait: 2, no: 2, tonight: 2 };   // (the order of the crops in the diary)
 const HARVEST_COLOR = { excellent: '#ffe08a', good: '#a8f0a0', poor: '#d8c3a0' };
 const WATERS = { aspersor: 1, noria: 4 };   // lo que riega solo cada mañana: hasta cuántas casillas a cada lado
 
@@ -58,7 +61,8 @@ export class Farm {
     this.game = game;
     this.can = 0;   // agua que queda en la regadera
     this.lands = new Map();   // chunk → { Tl, swamp } (they never change)
-    this.day_ = {}; this.next_ = {};   // (reused by fieldAt)
+    this.day_ = {}; this.next_ = {}; this.under_ = {};   // (reused by fieldAt and climateAt)
+    this.rooms = null;   // (the greenhouses of the world: greenhouse.js)
     this.cals = []; this.frosts = new Map();   // (the calendar of each hemisphere; the frosts on the wild blossom, by chunk)
     this.pests = new Pests(this); this.told = -1; this.tellT = 0;
     this.tickT = 0; this.warned = -1; this.said = {}; this.days = {}; this.line = { text: '', key: '' };
@@ -127,10 +131,19 @@ export class Farm {
     const cal = seasonOf(day + this.game.days.base);
     return fieldDay(cal.season, day + this.game.days.base - cal.start + 1, ty, this.land(tx, ty).Tl, this.weatherOn(day), out);
   }
+  // How well a tile is under glass (greenhouse.js: NONE, OPEN, AIRED, SHUT)
+  glassAt(tx, ty) { if (this.rooms?.w !== this.world) this.rooms = new GreenRooms(this.world); return this.rooms.at(tx, ty); }
+  // °C that cover a tile at night, and only then: its straw, its cloche
+  coverAt(d, k) { return (d?.mulch?.[k] !== undefined ? MULCH_FROST : 0) + (d?.cover?.[k] ? BELL.min : 0); }
+  // The day of a tile: its field's, under its glass (reused, like fieldAt's: read it before the next call)
+  climateAt(day, tx, ty, level = this.glassAt(tx, ty)) {
+    const F = this.fieldAt(day, tx, ty);
+    return level > OPEN ? glassDay(F, level, this.under_) : F;
+  }
   moistOf(d, k, day = this.today) {
     const m = d?.moist?.[k];
     if (m !== undefined) return m;
-    return d?.wet?.[k] >= day - 1 || WEATHER[this.weatherOn(day)].rain ? 100 : WATER.unknown;
+    return d?.wet?.[k] >= day - 1 || (WEATHER[this.weatherOn(day)].rain && d?.roof?.[k] !== GLASS_ROOF) ? 100 : WATER.unknown;
   }
   // The three looks of the soil: 0 damp, 1 wet, 2 dry (three/models.js tilled)
   soilLook(d, k) { const m = this.moistOf(d, k); return m >= WATER.wet ? 1 : m >= WATER.damp ? 0 : 2; }
@@ -157,22 +170,24 @@ export class Farm {
     return false;
   }
   // Days a crop would take at a place sown today, with ordinary weather (Infinity: it would not make it)
-  daysHere(id, tx, ty) {
-    const m = this.days[id], l = this.land(tx, ty), today = this.today;
+  // level: under glass (greenhouse.js); warm: °C more at night
+  daysHere(id, tx, ty, level = this.glassAt(tx, ty), warm = 0) {
+    const key = id + (level > OPEN ? level : '') + (warm ? `+${warm}` : ''), m = this.days[key], l = this.land(tx, ty), today = this.today;
     if (m && m.l === l && m.day === today) return m.n;
-    const n = this.daysTo(id, ty, l.Tl);
-    this.days[id] = { l, day: today, n };
+    const n = this.daysTo(id, ty, l.Tl, level, warm);
+    this.days[key] = { l, day: today, n };
     return n;
   }
-  daysTo(id, ty, Tl) {
+  daysTo(id, ty, Tl, level = NONE, warm = 0) {
     const crop = CROPS[id], g = GROW[id], base = this.game.days.base, out = this.next_;
     let grow = 0, idle = 0;
     for (let i = 0; i < 100; i++) {
       const cal = seasonOf(this.today + base + i);
       fieldDay(cal.season, this.today + base + i - cal.start + 1, ty, Tl, i % 2 ? 'nubes' : 'sol', out);
+      if (level > OPEN) glassDay(out, level, out);
       const r = rateAt(id, out.mean);
       idle = r > 0 ? 0 : idle + 1;
-      if (out.min <= g.kill || (grow < 1 && idle > SEED_WAIT)) return Infinity;
+      if (out.min + warm <= g.kill || (grow < 1 && idle > SEED_WAIT)) return Infinity;
       grow += r;
       if (grow >= crop.days) return i + 1;
     }
@@ -207,9 +222,15 @@ export class Farm {
       const [cx, cy] = ck.split(',').map(Number), x = (cx + 0.5) * CHUNK, y = (cy + 0.5) * CHUNK;
       if (Math.abs(dxOf(x, p.x)) > WARN_R || Math.abs(y - p.y) > WARN_R) continue;
       this.fieldAt(day, x, y, F);
-      for (const [k, c] of Object.entries(d.crops)) if (GROW[c?.id] && !c.dead && c.bolt === undefined && F.min + (d.mulch?.[k] !== undefined ? MULCH_FROST : 0) <= GROW[c.id].bite) out.add(c.id);
+      for (const [k, c] of Object.entries(d.crops)) if (GROW[c?.id] && !c.dead && c.bolt === undefined && F.min + this.coverAt(d, k) + this.glassNight(d, k) <= GROW[c.id].bite) out.add(c.id);
     }
     return [...out];
+  }
+  // °C the greenhouse over a tile adds to its night
+  glassNight(d, k) {
+    if (d.roof?.[k] !== GLASS_ROOF) return 0;
+    const i = k.indexOf(','), level = this.glassAt(+k.slice(0, i), +k.slice(i + 1));
+    return level === SHUT ? GLASS.min : level === AIRED ? GLASS.min * GLASS.aired : 0;
   }
   // The garden's news: what came last night to the beds near you, or near where you live; once a day
   tellNews() {
@@ -295,7 +316,7 @@ export class Farm {
   // water wheels wet it. Only numbers from the place, the day and the world's seed: living a day again gives the same
   onDay(day) {
     if (this.game.live.guest) return;   // (en el mundo de otro, los cultivos los hace crecer su juego)
-    const w = this.world, played = this.playedOn(day - 1), F = this.day_, N = this.next_, waters = [], weeds = played && this.pests.on(day);
+    const w = this.world, played = this.playedOn(day - 1), F = this.day_, N = this.next_, waters = [], weeds = played && this.pests.on(day), glass = new Array(SHUT + 1).fill(null);
     for (const [ck, d] of w.deltas) {
       if (ck.startsWith('u:') || (!d.crops && !d.placed && !d.trees && !d.soil)) continue;
       const [cx, cy] = ck.split(',').map(Number);
@@ -308,21 +329,29 @@ export class Farm {
         const rain = !!WEATHER[N.weather].rain, snow = N.weather === 'nieve', dry = dryingAt(F.max, F.weather), rained = !!WEATHER[F.weather].rain;
         let back = null;
         d.wet ||= {}; d.moist ||= {};
+        glass.fill(null);   // (this field's day under each kind of glass, made when a bed asks)
         for (const k in d.tilled) {
-          let m = d.moist[k] ?? (d.wet[k] >= day - 1 || rained ? 100 : WATER.unknown);
+          const roofed = d.roof?.[k] === GLASS_ROOF, bell = !!d.cover?.[k];
+          let m = d.moist[k] ?? (d.wet[k] >= day - 1 || (rained && !roofed) ? 100 : WATER.unknown), G = F;
+          if (roofed) {
+            const i = k.indexOf(','), level = this.glassAt(+k.slice(0, i), +k.slice(i + 1));
+            G = glass[level] ||= glassDay(F, level, {});
+          }
           if (d.mulch?.[k] !== undefined && day - d.mulch[k] >= MULCH_DAYS) delete d.mulch[k];
           const mulch = d.mulch?.[k] !== undefined, c = d.crops?.[k], alive = !!c && !c.dead, wd = d.weeds?.[k], weedy = wd !== undefined;
           if (c && !c.dead && CROPS[c.id] && GROW[c.id]) {
             const s = ((d.soil ||= {})[k] ||= [start, GROW[c.id].fam, 1]);   // (sown before the soil counted: what its land has)
             if (c.fert === true) { c.fert = 2; s[0] = clampSoil(s[0] + OLD_FERT); }
-            this.growCrop(c, day, F, m, mulch ? MULCH_FROST : 0, played, s[0], weedy);
+            this.growCrop(c, day, G, m, (mulch ? MULCH_FROST : 0) + (bell ? BELL.min : 0), played, s[0], weedy);
           } else if (!c || c.dead) this.restSoil(d, k, start);
-          m = Math.max(swamp ? WATER.damp + 5 : 0, m - dry * (mulch ? DRY.mulch : 1) * (weedy ? WEEDS.thirst : 1));
-          if (rain) { m = 100; d.wet[k] = day; } else if (snow) m = Math.min(100, m + SNOW_WATER);
+          m = Math.max(swamp ? WATER.damp + 5 : 0, m - (roofed ? dryingAt(G.max, F.weather) * GLASS.dry : dry) * (mulch ? DRY.mulch : 1) * (bell ? BELL.dry : 1) * (weedy ? WEEDS.thirst : 1));
+          if (roofed) { /* neither rain nor snow: by hand, or a sprinkler */ }
+          else if (bell) { if (rain) m = Math.max(m, BELL.rain); else if (snow) m = Math.max(m, Math.min(BELL.rain, m + SNOW_WATER)); }
+          else if (rain) { m = 100; d.wet[k] = day; } else if (snow) m = Math.min(100, m + SNOW_WATER);
           if (c?.dry && !c.dead) { if (m >= WATER.full) delete c.dry; else if (c.dry >= WATER.dryDays && played && !this.graced(c, day)) c.dead = 'drought'; }
           d.moist[k] = Math.round(m);
           if (!weeds) continue;
-          if (weedy) { if (!c && day - wd >= WEEDS.grass) (back ||= []).push(k); }
+          if (weedy) { if (!c && !bell && day - wd >= WEEDS.grass) (back ||= []).push(k); }
           else if (!mulch) { const i = k.indexOf(','); if (this.pests.weedUp(day, +k.slice(0, i), +k.slice(i + 1), F.season, alive)) (d.weeds ||= {})[k] = day; }
         }
         if (back) for (const k of back) this.untill(d, k);
@@ -357,7 +386,7 @@ export class Farm {
   untill(d, k) {
     const i = k.indexOf(','), tx = +k.slice(0, i), ty = +k.slice(i + 1);
     delete d.tilled[k];
-    for (const f of [d.wet, d.moist, d.mulch, d.weeds]) if (f) delete f[k];
+    for (const f of [d.wet, d.moist, d.mulch, d.weeds, d.cover]) if (f) delete f[k];
     this.world.dropLevel?.(tx, ty);
     this.world.touchAround(tx, ty);
   }
@@ -409,6 +438,10 @@ export class Farm {
     const [tx, ty] = g.aimTile(), d = this.d(tx, ty), k = key(tx, ty);
     const crop = d?.crops?.[k], tilled = d?.tilled[k] !== undefined, tile = [tx, ty];
     if (def?.tool === 'guadana' && this.reapable(crop)) return { tile, ok: true, auto: true, label: t('farm.reap'), use: () => this.reap(tx, ty) };
+    if (held?.id === CLOCHE && tilled && !d.cover?.[k] && !crop?.dead) {
+      const tall = !!crop && BELL.big.has(crop.id);
+      return { tile, ok: !tall, label: tall ? t('farm.cloche.tall', { crop: itemNoun(crop.id) }) : t('farm.cloche.put'), use: () => (tall ? this.no(t('farm.cloche.tall', { crop: itemNoun(crop.id) })) : this.putBell(tx, ty)) };
+    }
     if (this.takes(crop) && !def?.place) return { tile, ok: true, label: this.cropText(crop), use: () => this.take(tx, ty) };
     // The scythe cuts down a crop that is not ready yet (to fix a mistake or clear the field); the seed comes back.
     // (Not one from a newer version this game doesn't know: it stays as it is.)
@@ -460,8 +493,9 @@ export class Farm {
       const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK);
       if (cx !== lx || cy !== ly) { d = this.world.delta(cx, cy); lx = cx; ly = cy; }
       const k = d?.weeds && key(tx, ty);
+      const at = [tx, ty], c = d?.cover && key(tx, ty);
+      if (c && d.cover[c]) { out.push({ kind: 'sys', bell: at, exact: true, box: box(tx + 0.5, ty + 0.5, 0.42, 0.42, 0, 0.6), model: { name: this.bellModel(d, c), x: tx + 0.5, y: ty + 0.5, lift: this.world.levelAt?.(tx + 0.5, ty + 0.5, true) || 0 }, act: () => this.bellAction(tx, ty) }); continue; }
       if (!k || !this.weedy(d, k) || this.takes(d.crops?.[k])) continue;
-      const at = [tx, ty];
       out.push({ kind: 'sys', weeds: at, box: box(tx + 0.5, ty + 0.5, 0.4, 0.4, 0, 0.35), model: { name: this.weedModel(d, k), x: tx + 0.5, y: ty + 0.5, yaw: weedYaw(tx, ty), lift: this.world.levelAt?.(tx + 0.5, ty + 0.5, true) || 0 }, act: () => ({ text: this.weedText(tx, ty), run: () => this.pull(tx, ty) }) });
     }
     for (const o of this.world.harvestablesNear(p.x, p.y)) {
@@ -516,7 +550,7 @@ export class Farm {
   // con algo plantado, aunque esté seco, tampoco). El espectador no pisa nada
   trample(p) {
     const g = this.game, tx = Math.floor(p.x), ty = Math.floor(p.y), k = key(tx, ty), d = this.d(tx, ty);
-    if (g.scene !== this.world || g.gamemode === 'spectator' || d?.tilled?.[k] === undefined || this.cropAt(tx, ty)) return false;
+    if (g.scene !== this.world || g.gamemode === 'spectator' || d?.tilled?.[k] === undefined || this.cropAt(tx, ty) || d.cover?.[k]) return false;
     this.untill(d, k);
     g.gather.chips(tx + 0.5, ty + 0.5, 'dirt', 8);
     Audio.till();
@@ -558,7 +592,39 @@ export class Farm {
     const c = this.cropAt(tx, ty);
     if (!this.takes(c)) return null;
     const more = this.status(tx, ty, 'take');
-    return { text: more ? `${this.cropText(c)} · ${more}` : this.cropText(c), run: () => this.take(tx, ty) };
+    return { text: more ? `${this.cropText(c)} · ${more}` : this.cropText(c), run: () => this.take(tx, ty), ...this.bellAlt(tx, ty) };
+  }
+  // ---------- the cloche ----------
+  bellAlt(tx, ty) { return this.d(tx, ty)?.cover?.[key(tx, ty)] ? { alt: { text: t('farm.cloche.take'), run: () => this.takeBell(tx, ty) } } : null; }
+  // A covered tile aimed at: what one can do to its plant first (and X takes the cloche), else E takes it
+  bellAction(tx, ty) {
+    const d = this.d(tx, ty), k = key(tx, ty), crop = this.cropAction(tx, ty);
+    if (crop) return crop;
+    if (this.weedy(d, k)) return { text: this.weedText(tx, ty), run: () => this.pull(tx, ty), ...this.bellAlt(tx, ty) };
+    const more = this.status(tx, ty, 'under'), take = t('farm.cloche.take');
+    return { text: more ? `${take} · ${more}` : take, run: () => this.takeBell(tx, ty) };
+  }
+  // Its model: the bell its plant takes ('cloche:2', three/glass3d.js)
+  bellModel(d, k) { const c = d.crops?.[k]; return `cloche:${c && CROPS[c.id] ? bellSize(c.id, this.age(c)) : 1}`; }
+  putBell(tx, ty) {
+    const g = this.game, d = this.d(tx, ty, true), k = key(tx, ty);
+    if (d.cover?.[k] || g.inv.count(CLOCHE) < 1) return;
+    (d.cover ||= {})[k] = CLOCHE;
+    g.inv.remove(CLOCHE, 1);
+    g.gather.cooldown = 0.25;
+    this.forget();
+    this.world.touchAround(tx, ty);
+    Audio.glass();
+  }
+  takeBell(tx, ty) {
+    const g = this.game, d = this.d(tx, ty), k = key(tx, ty);
+    if (!d?.cover?.[k]) return;   // (somebody else has just taken it)
+    delete d.cover[k];
+    g.gather.spawnDrops({ x: tx + 0.5, y: ty + 0.5 }, { drops: [[CLOCHE, 1, 1]] });
+    g.gather.cooldown = 0.25;
+    this.forget();
+    this.world.touchAround(tx, ty);
+    Audio.glass();
   }
   take(tx, ty) { const c = this.cropAt(tx, ty); if (c?.dead) this.clear(tx, ty); else if (this.ready(c)) this.harvest(tx, ty); }
   // straw: with the scythe, the wheat's straw too; quiet: without its word (the rest of a sweep)
@@ -666,12 +732,13 @@ export class Farm {
   // Sowing this here today: fine (about how many days), too cold yet (the seed waits), or it would not live through tonight
   sowText(id, tx, ty) {
     if (this.fresh('sow', id, tx, ty)) return this.said.sow.text;
-    const g = GROW[id], crop = itemNoun(id), F = this.fieldAt(this.today, tx, ty), c = Math.round(F.mean), warm = this.d(tx, ty)?.mulch?.[key(tx, ty)] !== undefined ? MULCH_FROST : 0;
-    if (F.min + warm <= g.kill) return this.say('sow', id, tx, ty, t('farm.sow.cold_tonight', { crop }), false);
+    const g = GROW[id], crop = itemNoun(id), level = this.glassAt(tx, ty), F = this.climateAt(this.today, tx, ty, level), c = Math.round(F.mean), warm = this.coverAt(this.d(tx, ty), key(tx, ty));
+    if (BELL.big.has(id) && this.d(tx, ty)?.cover?.[key(tx, ty)]) return this.say('sow', id, tx, ty, t('farm.cloche.tall', { crop }), false);
+    if (F.min + warm <= g.kill) return this.say('sow', id, tx, ty, t(level < AIRED && F.min + warm + GLASS.min > g.kill ? 'farm.sow.cold_glass' : 'farm.sow.cold_tonight', { crop }), false);
     if (F.mean <= g.base) return this.say('sow', id, tx, ty, t('farm.sow.cold_yet', { crop, c, need: g.base + 1 }));
     if (F.mean >= g.stop) return this.say('sow', id, tx, ty, t('farm.sow.hot', { crop, c }));
-    const n = this.daysHere(id, tx, ty), s = this.soilOf(this.d(tx, ty), key(tx, ty), tx, ty), tired = s[1] === g.fam ? this.tiredText(s, 1) : '';
-    const text = n < Infinity ? t('farm.sow', { crop, days: n }) : t('farm.sow.wont', { crop });
+    const n = this.daysHere(id, tx, ty, level, warm), s = this.soilOf(this.d(tx, ty), key(tx, ty), tx, ty), tired = s[1] === g.fam ? this.tiredText(s, 1) : '';
+    const text = n < Infinity ? t(level > OPEN ? 'farm.sow.glass' : 'farm.sow', { crop, days: n }) : t('farm.sow.wont', { crop });
     return this.say('sow', id, tx, ty, tired ? t('farm.sow.tired', { text, tired }) : text);
   }
   // The tile looked at: what grows there and how, and its soil ('' if it is not tilled)
@@ -680,13 +747,19 @@ export class Farm {
     const d = this.d(tx, ty), k = key(tx, ty);
     if (d?.tilled?.[k] === undefined) return '';
     const c = d.crops?.[k], known = c && CROPS[c.id], s = this.soilOf(d, k, tx, ty), water = d.mulch?.[k] !== undefined ? t('farm.soil.mulched', { soil: this.soilText(d, k) }) : this.soilText(d, k);
-    const soil = t('farm.soil.both', { soil: water, food: this.tiredText(s) || this.soilFertText(s, tx, ty) });
+    const soil = this.glassText(t('farm.soil.both', { soil: water, food: this.tiredText(s) || this.soilFertText(s, tx, ty) }), d, k, tx, ty);
     if (c && !known) return this.say(slot, '', tx, ty, '');   // (from a newer version)
     if (!c) return this.say(slot, '', tx, ty, slot === 'under' ? '' : t('farm.state.bare', { soil: this.weedy(d, k) ? t('farm.state.weedy', { text: soil }) : soil }));
     const crop = itemNoun(c.id), state = this.stateText(c, tx, ty, this.moistOf(d, k));
     if (c.dead || c.bolt !== undefined || slot === 'take' || slot === 'under') return this.say(slot, '', tx, ty, t('farm.state.alone', { crop, state }));
     const text = t('farm.state.crop', { crop, state, soil: this.weedy(d, k) ? t('farm.state.weedy', { text: soil }) : soil });
     return this.say(slot, '', tx, ty, GROW[c.id].bees && this.beesAt(tx, ty) ? t('farm.state.bees', { text }) : text);
+  }
+  // (what covers it: the greenhouse, and how it is, or the cloche)
+  glassText(text, d, k, tx, ty) {
+    const level = this.glassAt(tx, ty);
+    if (level) text = t(level === SHUT ? 'farm.state.under_glass' : level === AIRED ? 'farm.state.glass_aired' : 'farm.state.glass_open', { text, n: level === SHUT ? GLASS.mean : GLASS.mean * GLASS.aired });
+    return d.cover?.[k] ? t('farm.state.cloche', { text }) : text;
   }
   stateText(c, tx, ty, m) {
     const by = c.dead || c.bolt !== undefined ? '' : c.pk > 0 ? 'b' : this.hitBy(c), text = this.growthText(c, tx, ty, m);
@@ -700,7 +773,7 @@ export class Farm {
     if (c.dry >= WATER.thirsty) return t('farm.state.wilted');
     if (waterAt(m, c.grow < days / 2) < 0.5) return t('farm.state.thirsty');
     if (c.fb !== undefined && this.today - c.fb < FROST_LOOK) return t('farm.state.frostbit');
-    const F = this.fieldAt(this.today, tx, ty);
+    const F = this.climateAt(this.today, tx, ty);
     const free = c.leg !== undefined && this.today - c.leg < OLD_RATE;
     if (!free && F.mean <= g.base) return t('farm.state.waiting_cold', { c: Math.round(F.mean), need: g.base + 1 });
     if (!free && F.mean >= g.stop) return t('farm.state.waiting_heat', { c: Math.round(F.mean) });
@@ -725,15 +798,16 @@ export class Farm {
   // ---------- the almanac (the diary's Farm tab) ----------
   // Here and now: the day, the nights to come, and how each crop would do sown today
   almanac(x, y) {
-    const tx = Math.floor(x), ty = Math.floor(y), T = {};
-    this.fieldAt(this.today, tx, ty, T);
+    const tx = Math.floor(x), ty = Math.floor(y), level = this.glassAt(tx, ty), l = this.land(tx, ty), out = this.fieldAt(this.today, tx, ty, {}), T = level > OPEN ? glassDay(out, level, {}) : out, U = glassDay(out, SHUT, {});
     const nights = [];
     for (let i = 0; i < 7; i++) { const F = this.fieldAt(this.today + i, tx, ty, {}); nights.push({ min: F.min, icon: WEATHER[F.weather].icon }); }
     const crops = Object.keys(GROW).map(id => {
-      const g = GROW[id], n = this.daysHere(id, tx, ty);
-      return { id, days: n, kill: g.kill, now: T.min <= g.kill ? 'tonight' : n === Infinity ? 'no' : T.mean <= g.base || T.mean >= g.stop ? 'wait' : 'now' };
+      const g = GROW[id], n = this.daysHere(id, tx, ty, level), now = T.min <= g.kill ? 'tonight' : n === Infinity ? 'no' : T.mean <= g.base || T.mean >= g.stop ? 'wait' : 'now';
+      // (what does not grow in the open but would in a greenhouse)
+      const m = now === 'now' || level === SHUT || T.mean >= g.stop || U.min <= g.kill || U.mean <= g.base || U.mean >= g.stop ? Infinity : this.daysTo(id, ty, l.Tl, SHUT);
+      return m < Infinity ? { id, days: m, kill: g.kill, now: 'glass_only' } : { id, days: n, kill: g.kill, now };
     });
-    return { mean: T.mean, min: T.min, max: T.max, nights, crops, soil: this.soilCount(x, y), pests: this.pests.count(x, y, WARN_R, this.today) };
+    return { mean: T.mean, min: T.min, max: T.max, level, nights, crops, soil: this.soilCount(x, y), pests: this.pests.count(x, y, WARN_R, this.today) };
   }
   // The beds around a place by how their soil is: { rich, fertile, tired, poor } (thin land counts as tired)
   soilCount(x, y, R = WARN_R) {
@@ -749,9 +823,9 @@ export class Farm {
   }
   journal() {
     const g = this.game, p = g.scene === this.world && g.player ? g.player : { x: 0, y: 30 }, a = this.almanac(p.x, p.y), r = Math.round;
-    const rows = a.crops.slice().sort((x, y) => (x.now === 'now' ? 0 : 1) - (y.now === 'now' ? 0 : 1) || x.days - y.days).map(c => `<div class="j-row"><b>${t('farm.name', { crop: thingNoun(c.id) })}</b><span class="lvl">${t('farm.almanac.' + c.now, { n: c.days })}</span><small>${t('farm.almanac.frost', { c: c.kill })}</small></div>`).join('');
+    const rows = a.crops.slice().sort((x, y) => ALMANAC[x.now] - ALMANAC[y.now] || x.days - y.days).map(c => `<div class="j-row"><b>${t('farm.name', { crop: thingNoun(c.id) })}</b><span class="lvl">${t('farm.almanac.' + c.now, { n: c.days })}</span><small>${t('farm.almanac.frost', { c: c.kill })}</small></div>`).join('');
     const nights = a.nights.map(n => `${n.icon} ${r(n.min)}°`).join(' · '), beds = a.soil.rich + a.soil.fertile + a.soil.tired + a.soil.poor;
-    return `<p class="j-note"><b>${t('farm.almanac.title')}</b><br>${t('farm.almanac.here', { mean: r(a.mean), min: r(a.min), max: r(a.max) })}${a.min <= 2 ? ' ' + t('farm.almanac.tonight_frost') : ''}<br>${t('farm.almanac.nights', { list: nights })}${beds ? '<br>' + t('farm.almanac.soil', a.soil) + '<br>' + t('farm.almanac.pests', a.pests) : ''}<br>${t('farm.almanac.help')}<br>${t('farm.almanac.soil_help')}<br>${t('farm.almanac.trees_help')}${this.pests.hard ? '<br>' + t('farm.almanac.pests_help') : ''}</p>${rows}`;
+    return `<p class="j-note"><b>${t('farm.almanac.title')}</b><br>${t('farm.almanac.here', { mean: r(a.mean), min: r(a.min), max: r(a.max) })}${a.min <= 2 ? ' ' + t('farm.almanac.tonight_frost') : ''}${a.level > OPEN ? ' ' + t('farm.almanac.under') : ''}<br>${t('farm.almanac.nights', { list: nights })}${beds ? '<br>' + t('farm.almanac.soil', a.soil) + '<br>' + t('farm.almanac.pests', a.pests) : ''}<br>${t('farm.almanac.help')}<br>${t('farm.almanac.glass_help')}<br>${t('farm.almanac.soil_help')}<br>${t('farm.almanac.trees_help')}${this.pests.hard ? '<br>' + t('farm.almanac.pests_help') : ''}</p>${rows}`;
   }
 
   // Cut down a crop that is still growing: the tile stays tilled and its seed drops, to sow it again

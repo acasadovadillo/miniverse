@@ -302,7 +302,7 @@ export const COMMANDS = {
     run(game, say) {
       const p = game.player, m = game.mobs;
       if (game.scene !== game.world) { say('Aquí no hay cielo: en las cuevas, las criaturas están siempre.', 'sys'); return; }
-      const tx = Math.floor(p.x), ty = Math.floor(p.y), sky = game.world.roofAt(tx, ty) ? 0 : m.sky(), block = m.block(tx, ty);
+      const tx = Math.floor(p.x), ty = Math.floor(p.y), sky = game.world.roofAt(tx, ty) && !game.world.glassRoofAt(tx, ty) ? 0 : m.sky(), block = m.block(tx, ty);
       say(`Luz aquí: ${Math.max(sky, block)} (cielo ${sky}, luces ${block}). ${Math.max(sky, block) <= DARK ? 'Aquí pueden aparecer criaturas.' : 'Aquí no aparecen criaturas.'}`, 'sys');
     },
   },

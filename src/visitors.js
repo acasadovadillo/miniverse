@@ -60,7 +60,7 @@ export class Visitors {
       if (!d?.crops) continue;
       for (const k in d.crops) {
         const c = d.crops[k];
-        if (!c || !CROPS[c.id]) continue;
+        if (!c || !CROPS[c.id] || d.cover?.[k]) continue;
         const b = birdsLike(c) && d.shoo?.b !== today, r = rabbitsLike(c) && d.shoo?.r !== today;
         if (!b && !r) continue;
         const i = k.indexOf(','), tx = +k.slice(0, i), ty = +k.slice(i + 1);

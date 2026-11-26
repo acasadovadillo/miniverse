@@ -135,7 +135,7 @@ export class Glow {
     const kNight = Math.max(ss(0.25, 0.85, night), cave ? 1 : 0);
     // Dentro de casa, de día, sus fuegos y sus lámparas se ven encendidos (la casa está en penumbra), pero solo los de esa
     // casa: los de la calle, que se ven alrededor al quitar el tejado, siguen de día
-    const home = !cave && game.indoors ? v.world?.insideRegion : null, regionOf = v.world?.regionOf;
+    const home = !cave && game.indoors && !game.underGlass ? v.world?.insideRegion : null, regionOf = v.world?.regionOf;
     const kAt = (x, z) => home && regionOf.get(`${Math.floor(x)},${Math.floor(z)}`) === home ? Math.max(kNight, 0.5) : kNight;
     // (con lluvia o niebla, la luz se esparce en el aire húmedo: halos más grandes y algo más fuertes)
     const wet = !cave && (v.weather?.rain || v.fogNow) ? 1 : 0, rK = 1 + 0.35 * wet, iK = 1 + 0.2 * wet;

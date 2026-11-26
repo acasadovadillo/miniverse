@@ -12,7 +12,7 @@ function tone(seq) {
     o.connect(g).connect(sfx); o.start(t); o.stop(t + d + 0.02); t += d;
   }
 }
-let rainSrc = null, rainGain = null, lowpass = null, musicLow = null, duckLow = null, duckGain = null, ducked = false;
+let rainSrc = null, rainGain = null, rainTone = null, lowpass = null, musicLow = null, duckLow = null, duckGain = null, ducked = false;
 const MUFFLE_HZ = { sfx: 600, music: 1600 };   // (the lowpass of each bus under the water: see muffle)
 const DUCK = { hz: 700, gain: 0.55 };          // (the music behind the pause: see duck)
 const lowPass = () => { const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 20000; f.Q.value = 0.7; return f; };
@@ -256,21 +256,24 @@ export const Audio = {
   },
   lineSnap() { Audio.noiseHit(3600, 0.05, 0.4, 'highpass'); tone([[900, 0.03, 'square', 0.04], [300, 0.05, 'triangle', 0.05]]); },
   // A horse drinking (a deep, round gulp) and grazing (a tear and a chew)
+  glass(k = 1) { tone([[2350, 0.05, 'sine', 0.05 * k], [3120, 0.09, 'sine', 0.035 * k]]); Audio.noiseHit(5200, 0.02, 0.06 * k, 'highpass'); },   // (a pane or a bell of glass, set down or struck)
   gulp() { Audio.noiseHit(320, 0.09, 0.12, 'lowpass'); tone([[150, 0.05, 'sine', 0.045], [105, 0.08, 'sine', 0.035]]); },
   munch() { Audio.noiseHit(2600, 0.05, 0.05, 'bandpass'); setTimeout(() => Audio.noiseHit(900, 0.07, 0.04, 'bandpass'), 130); },
   wade() { Audio.noiseHit(500 + Math.random() * 300, 0.18, 0.06, 'lowpass'); },   // (un paso con el agua por las rodillas)
   swim() { Audio.noiseHit(700 + Math.random() * 300, 0.32, 0.1, 'lowpass'); setTimeout(() => Audio.noiseHit(2600, 0.12, 0.03, 'highpass'), 60); },   // (una brazada: el agua que se aparta)
   splash() { Audio.noiseHit(1400, 0.3, 0.35, 'lowpass'); Audio.noiseHit(4000, 0.15, 0.1, 'highpass'); },
   // Lluvia de fondo: 0 = nada, 1 = lluvia, 2 = tormenta
-  rain(level) {
+  // (glass: on the roof of a greenhouse, over one's head: brighter, a patter)
+  rain(level, glass = false) {
     if (!ac) return;
     if (!rainSrc) {
       rainSrc = ac.createBufferSource(); rainSrc.buffer = noise; rainSrc.loop = true;
-      const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 0.4;
+      const f = rainTone = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 0.4;
       rainGain = ac.createGain(); rainGain.gain.value = 0;
       rainSrc.connect(f).connect(rainGain).connect(sfx); rainSrc.start();
     }
-    const v = Audio.indoors ? level * 0.02 : level * 0.06;
+    const v = glass ? level * 0.075 : Audio.indoors ? level * 0.02 : level * 0.06;
+    rainTone.frequency.setTargetAtTime(glass ? 3600 : 1800, ac.currentTime, 0.4);
     rainGain.gain.setTargetAtTime(v, ac.currentTime, 0.8);
   },
   thunder() {

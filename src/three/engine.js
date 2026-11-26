@@ -15,6 +15,7 @@ import { setViewAngle } from '../iso.js';
 import { CENTER } from '../world/village.js';
 import { latOf } from '../world/planet.js';
 import { Settings } from '../settings.js';
+import { paneFrame } from './glass3d.js';
 import { Terrain, WATER_Y, WET, RAIN, CAUST, groundDetail } from './terrain.js';
 import { B, climate } from '../world/biomes.js';
 import { apagada } from '../opciones.js';
@@ -246,7 +247,7 @@ export class View3D {
   updateSky(game, dt) {
     const days = game.player ? game.days : null, hour = days ? days.localHour : 16.5, info = days?.info || {};   // (la hora de donde estás en el planeta)
     const dark = days ? days.darkness() : 0, rain = info.rain || 0, snow = !!info.snow, fog = !!info.fog || game.days?.weatherHere === 'niebla';
-    const indoors = !!game.indoors;
+    const glass = !!game.underGlass, indoors = !!game.indoors && !glass;   // (in a greenhouse one sees the sky, the weather and, outside, the rain: fx.js keeps it out)
     // El sol sale por el este (+x) y se pone por el oeste, pasando por el sur
     const a = ((hour - 6) / 14) * Math.PI, day = hour > 5.5 && hour < 20.5;
     const sunDir = new THREE.Vector3(Math.cos(a), Math.max(0.12, Math.sin(a)) * 1.1, 0.45).normalize();
@@ -540,6 +541,7 @@ export class View3D {
     this.guts.update(game, scene);
     this.tracks3d.update(game, scene);
     this.updateWater(t);
+    paneFrame(this, game, dt, t);   // (the glass: glass3d.js)
     // El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas
     { const r = game.days?.info?.rain || 0, k = r ? 1 : 0; this.wetNow = (this.wetNow || 0) + (k - (this.wetNow || 0)) * Math.min(1, dt * (k > (this.wetNow || 0) ? 0.05 : 0.01)); WET.value = this.wetNow; RAIN.value = r ? (r === 2 ? 1 : 0.6) : 0; }
     this.skyU.time.value = t;
@@ -677,7 +679,7 @@ export class View3D {
       l.color.set(s.color || '#ffb870');
       l.distance = s.range || 8;
       const flick = s.flicker ? 0.86 + Math.sin(t * 13 + i) * 0.07 + Math.sin(t * 29 + i * 2) * 0.06 : 1;
-      l.intensity = (s.intensity ?? 3) * flick * (s.always ? 1 : 0.35 + 0.65 * Math.max(this.night, this.cave ? 1 : 0, game.indoors ? 0.8 : 0));
+      l.intensity = (s.intensity ?? 3) * flick * (s.always ? 1 : 0.35 + 0.65 * Math.max(this.night, this.cave ? 1 : 0, game.indoors && !game.underGlass ? 0.8 : 0));
     });
     return { src, lit };
   }

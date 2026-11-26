@@ -133,7 +133,7 @@ export class Site3D {
     let lift = 0, cut = Infinity, cutX = 0;
     const open = new Map();   // (what each material had before this piece: only what it adds is cut and lifted)
     const emit = key => {
-      if (key === 'glass') return new Builder();   // (its panes come last)
+      if (key === 'glass' || key === 'pane') return new Builder();   // (its panes come last)
       const tint = tintOf(key), bucket = tint ? tint[0] : key;
       let B = sinks.get(bucket);
       if (!B) sinks.set(bucket, (B = new Builder()));
@@ -189,7 +189,7 @@ export class Site3D {
       close();
       // (over the cut, not cut)
       cut = Infinity;
-      if (kind === 'wall' || kind === 'door') { this.studs(e, top, emit); close(); }
+      if ((kind === 'wall' || kind === 'door') && e.id !== 'glass_wall') { this.studs(e, top, emit); close(); }
     }
     for (const [key, B] of sinks) {
       if (B.empty) continue;
@@ -212,7 +212,7 @@ export class Site3D {
   }
   // A roof half built: two rafters with the slope and, across them, the battens laid so far (bare: the tiles come last)
   battens(e, k, emit) {
-    const B = emit('timber');
+    const B = emit(e.id === 'glass_roof' ? 'paneIron' : 'timber');
     for (const b of e.boxes) {
       const sx = b[6] || 0, sz = b[7] || 0, x0 = b[0] - e.x + e.tx, x1 = b[3] - e.x + e.tx, cx = (x0 + x1) / 2, cz = (b[2] + b[5]) / 2, cy = (b[1] + b[4]) / 2;
       const Y = (x, z) => cy + (x - cx) * sx + (z - cz) * sz;

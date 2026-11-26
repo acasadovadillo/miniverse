@@ -75,6 +75,7 @@ const WALLS = {
   ashlar_wall: { col: '#c8bca4', kind: 'stone' },
   limewash_wall: { col: '#ece8de', kind: 'plaster' },
   iron_bars: { col: '#4a4644', kind: 'plaster' },
+  glass_wall: { col: '#b6d0cc', kind: 'glass' },
 };
 // Los muros son tabiques finos (T es medio grueso: el muro mide 0.24 casillas) que se unen con los muros,
 // puertas y ventanas de al lado, como las vallas. mask: 1 sigue hacia +x, 2 hacia -x, 4 hacia +y, 8 hacia -y.
@@ -109,6 +110,13 @@ function faceTexture(I, f, at, n, u0, u1, w, brace, z0 = 0) {
       F(u0, u1, lo, lo + 1, dk);
       for (let u = -0.5 + off; u < u1; u += 0.34) if (u >= u0) F(u, Math.min(u + 0.03, u1), lo, z + 8, dk);
     }
+  } else if (w.kind === 'glass') {
+    // Panes between thin iron bars, over a wooden kerb, each with a glint
+    const bar = L ? '#59615f' : '#454d4b';
+    F(u0, u1, z0, z0 + 6, L ? '#7a6148' : '#5f4a36');
+    for (let u = Math.ceil(u0 * 2) / 2; u <= u1; u += 0.5) F(Math.max(u0, u - 0.025), Math.min(u + 0.025, u1), z0, WALL_H, bar);
+    for (const z of [z0 + 6, MID, WALL_H - 3]) F(u0, u1, z, z + 2, bar);
+    for (let u = Math.ceil(u0 * 2) / 2; u + 0.3 <= u1; u += 0.5) for (const z of [z0 + 14, MID + 8]) F(u + 0.1, u + 0.16, z, z + 14, L ? '#e6f4f2' : '#c4dcd8');
   } else if (w.kind === 'timber') {
     // Yeso claro con entramado de madera oscura: zócalo de piedra, postes en los extremos, viga abajo,
     // en medio y arriba, y una riostra en diagonal en cada mitad
@@ -266,7 +274,7 @@ export function hearthSprite(q = 0) {
 export const ROOF_W = 40, ROOF_H = 210, ROOF_AX = 20, ROOF_AY = 198;   // lienzo más alto: el tejado va sobre los muros y sube
 export const ROOF_RISE = 16;          // píxeles por nivel de altura
 export const ROOF_Z0 = WALL_H + 2;    // z del alero (borde del tejado)
-const ROOFS = { tejado_rojo: '#c95a3c', tejado_azul: '#4a6aa8', tejado_paja: '#d8b060', tejado_gris: '#6a6e78', tejado_verde: '#4a8a5a', slab_roof: '#a8a294' };
+const ROOFS = { tejado_rojo: '#c95a3c', tejado_azul: '#4a6aa8', tejado_paja: '#d8b060', tejado_gris: '#6a6e78', tejado_verde: '#4a8a5a', slab_roof: '#a8a294', glass_roof: '#b6d0cc' };
 const EAVE = 4;     // canto del alero, en píxeles
 const ROW = 4;      // separación entre filas de tejas, en z
 const RING = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];                      // el borde, en orden

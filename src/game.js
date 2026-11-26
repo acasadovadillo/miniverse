@@ -170,6 +170,7 @@ export class Game {
     this.world = null;
     this.menuWorld = new Overworld(WORLD_SEED, defaultHouseDeltas());
     this.underRoof = false;      // el jugador está bajo un tejado del mundo (en una casa)
+    this.underGlass = false;     // … and it is of glass (greenhouse.js)
     this.scene = null;
     this.onSave = null;
     this.time = 0;
@@ -347,7 +348,7 @@ export class Game {
     this.player.onSplash = (x, y, n) => { this.gather.splash(x, y, n); Audio.splash(); };   // (al caer al agua o saltar de ella)
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
     this.scene = this.world;
-    this.underRoof = false;
+    this.underRoof = this.underGlass = false;
     if (owed.length && !Profile.server) { for (const [id, n] of owed) this.giveBack(id, n); hud.toast('La mesa de encantar ya no está en el juego: te devuelvo sus materiales', 'good'); }
     if (owed.iron && !Profile.server) hud.toast('Ahora todas las herramientas son de hierro: también las tuyas, con el desgaste que llevaban', 'good');
     if (owed.spell && !Profile.server) hud.toast('Los encantamientos ya no están en el juego: tus cosas siguen, pero sin ellos');
@@ -990,6 +991,7 @@ export class Game {
     const r = this.room, p = this.player;
     if (!r?.kind || !(own || this.world.ownAt('roof', Math.floor(p.x), Math.floor(p.y)))) return null;
     if (r.kind === 'porch') return t('room.porch');
+    if (this.underGlass && !r.bed && !r.kitchen && !r.bath) return t('room.greenhouse');
     return r.bed ? t('room.bedroom') : r.kitchen ? t('room.kitchen') : r.bath ? t('room.bathroom') : r.living || own ? t('room.living') : null;
   }
   // (why there is a draught in a room that is shut: the roof leaks, or its walls have worn. wear.js)
@@ -1393,6 +1395,8 @@ export class Game {
     const under = this.scene === this.world && (underRoof(this.world, p.x, p.y) || !!house);
     // (the room, while under a roof of the world: what warms it and what it is called. In a big animal house, none)
     this.room = under && !house && shelterOn() ? (this.roomWatch ||= new RoomWatch()).get(this.world, p.x, p.y, performance.now(), this.wear.raining) : null;
+    const glass = under && !house && this.world.glassRoofAt(Math.floor(p.x), Math.floor(p.y));
+    if (glass !== this.underGlass) { this.underGlass = glass; this.updatePlace(); }
     if (under !== this.underRoof) { this.underRoof = under; p.underRoof = under; Audio.indoors = this.indoors; this.updatePlace(); this.onSave?.(); }
     // (por pasos, no por dibujos: sin el foco o con la pestaña oculta se dibuja menos o nada, y frameNo se queda quieto)
     if ((this.stepNo = (this.stepNo || 0) + 1) % 10 === 0) this.updatePlace();

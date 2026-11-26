@@ -17,6 +17,7 @@ import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb,
 import { BARROW, BULKY, barrowKey, randomId } from '../carry-items.js';
 import { Gore } from '../quality.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
+import { GLASS_ROOF } from '../greenhouse.js';
 import { PIECES, layerOf, parsePlaced, fenceReach, fenceJoins } from '../pieces.js';
 import { supportOn, roofWhy, frameOk } from '../structure.js';
 import { Person } from '../entities.js';
@@ -468,7 +469,7 @@ export class Overworld {
     if (this.wellAt(x, y)) return 'Ahí está el pozo';
     if (this.towerOf(tx, ty)) return tr('why.watchtower.here');
     // (la tierra labrada sin nada plantado, sí: la pala la deshace, como al saltar encima; ver digTile)
-    const bare = d?.tilled?.[k] !== undefined && !d.crops?.[k] && !d.floor?.[k] && !d.placed?.[k] && !d.roof?.[k];
+    const bare = d?.tilled?.[k] !== undefined && !d.crops?.[k] && !d.cover?.[k] && !d.floor?.[k] && !d.placed?.[k] && !d.roof?.[k];
     if ((!bare && (this.builtAt(d, k) || d?.lvl?.[k] !== undefined)) || d?.crops?.[k] || d?.trees?.[k]) return 'Hay algo encima';
     for (const layer of ['floor', 'placed', 'roof']) if (this.at(layer, tx, ty)) return 'Hay algo encima';
     if (this.layers.some(l => l.blocks?.(tx, ty))) return 'Ahí no se puede';
@@ -492,7 +493,7 @@ export class Overworld {
   // nueva (null: como era)
   digTile(tx, ty, dn, today) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), h = this.digNext(tx, ty, dn), d = this.delta(cx, cy, true), k = `${tx},${ty}`;
-    if (d.tilled?.[k] !== undefined) { delete d.tilled[k]; for (const f of [d.wet, d.moist, d.mulch, d.weeds, d.soil]) if (f) delete f[k]; this.dropLevel(tx, ty); }   // (lo labrado: se deshace)
+    if (d.tilled?.[k] !== undefined) { delete d.tilled[k]; for (const f of [d.wet, d.moist, d.mulch, d.weeds, d.soil, d.cover]) if (f) delete f[k]; this.dropLevel(tx, ty); }   // (lo labrado: se deshace)
     if (h !== null) (d.dig ||= {})[k] = h; else if (d.dig) { delete d.dig[k]; if (!Object.keys(d.dig).length) delete d.dig; }
     const m = (d.mown ||= {});
     for (const [q, v] of Object.entries(m)) if (today - v >= GRASS_REGROW) delete m[q];
@@ -581,6 +582,8 @@ export class Overworld {
     if (p) return p.kind === 'post' || (p.layer === 'roof' && (!v || post));
     return v ? post : !!d.roof?.[k] && !d.hang?.[k] && !d.rug?.[k];
   }
+  // A bed under a glass roof: its soil stays at the height of its ground, whatever the house round it does
+  bedTile(d, k) { return d?.tilled?.[k] !== undefined && d.roof?.[k] === GLASS_ROOF; }
   groundRaw(x, y) { if (inBounds(x, y)) return 0; const h = Math.max(0, this.gen.groundAt(x, y)); return h > 0 ? this.padH(x, y, h) : 0; }   // (el suelo como se ve: allanado junto a lo de antes)
   // La altura que tendría id puesto en la casilla (para colocarlo y para la vista previa)
   levelFor(tx, ty, id) {
@@ -597,11 +600,11 @@ export class Overworld {
     const D = this.digH(tx, ty);   // (en lo cavado o en la tierra apilada, a su altura: es llano)
     if (!struct) return (this.openTile(d, k) ? undefined : have) ?? D ?? this.groundRaw(tx + 0.5, ty + 0.5);
     let L = D ?? Math.ceil(Math.max(this.groundRaw(tx, ty), this.groundRaw(tx + 1, ty), this.groundRaw(tx, ty + 1), this.groundRaw(tx + 1, ty + 1)) / LV_STEP - 0.05) * LV_STEP;
-    if (this.openTile(d, k, id)) {   // (a post, on its own ground; a roof alone, like the roof beside it)
+    if (this.openTile(d, k, id) || (layer === 'roof' && d?.tilled?.[k] !== undefined)) {   // (a post, on its own ground; a roof alone, like the roof beside it)
       if (layer !== 'roof') return have ?? L;
       let top = null;
       for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) { const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), nk = `${nx},${ny}`, Ln = nd?.roof?.[nk] ? nd.lvl?.[nk] : undefined; if (Ln !== undefined) top = Math.max(top ?? Ln, Ln); }
-      return have ?? top ?? L;
+      return (d?.tilled?.[k] !== undefined ? top : have ?? top) ?? L;
     }
     if (have !== undefined) L = Math.max(L, this.openTile(d, k) ? L : have);
     // (en lo cavado no se junta con lo de al lado, ni lo de al lado con lo cavado: el suelo de un hoyo se queda en su fondo)
@@ -610,7 +613,7 @@ export class Overworld {
     for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) {
       if (this.digH(nx, ny) !== null) continue;
       const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), nk = `${nx},${ny}`, Ln = nd?.lvl?.[nk];
-      if (Ln !== undefined && this.structAt(nd, nk) && !this.openTile(nd, nk) && Ln >= L && Ln - L <= LV_JOIN) join = Math.max(join, Ln);
+      if (Ln !== undefined && this.structAt(nd, nk) && !this.openTile(nd, nk) && !this.bedTile(nd, nk) && Ln >= L && Ln - L <= LV_JOIN) join = Math.max(join, Ln);
     }
     return join;
   }
@@ -620,6 +623,7 @@ export class Overworld {
     if (inBounds(tx + 0.5, ty + 0.5) && this.digH(tx, ty) === null) return;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`;
     if (d.lvl?.[k] === undefined && this.builtAt(d, k)) return;   // (lo de antes sigue a 0)
+    if (layerOf(id) === 'roof' && d.tilled?.[k] !== undefined) return;   // (a glass roof over a bed: its soil stays where it is)
     const L = this.levelFor(tx, ty, id);
     (d.lvl ||= {})[k] = L;
     // (the big well: its other tiles at the same height, all of them its slab, like the small one's tile)
@@ -635,7 +639,7 @@ export class Overworld {
         seen.add(nk);
         if (this.digH(nx, ny) !== null) continue;   // (lo de dentro de un hoyo o encima de un montón se queda a su altura)
         const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), Ln = nd?.lvl?.[nk];
-        if (Ln === undefined || !this.structAt(nd, nk) || this.openTile(nd, nk) || Ln >= L || L - Ln > LV_JOIN) continue;
+        if (Ln === undefined || !this.structAt(nd, nk) || this.openTile(nd, nk) || this.bedTile(nd, nk) || Ln >= L || L - Ln > LV_JOIN) continue;
         nd.lvl[nk] = L; this.touchAround(nx, ny); todo.push([nx, ny]);
       }
     }
@@ -812,10 +816,10 @@ export class Overworld {
     return null;
   }
   // ¿Hay detrás (del lado contrario a su frente) un muro liso donde arrimar el hogar o colgar un cuadro? (en las
-  // ventanas y en el muro que ya tiene cuadro, no)
+  // ventanas, en el muro de cristal y en el que ya tiene cuadro, no)
   wallBehind(tx, ty, rot) {
     const [fx, fy] = front(rot), v = this.at('placed', tx - fx, ty - fy);
-    return !!v && PIECES[parsePlaced(v)[0]]?.kind === 'wall' && !/^(ventana|muro_cuadro)/.test(v);
+    return !!v && PIECES[parsePlaced(v)[0]]?.kind === 'wall' && !/^(ventana|muro_cuadro|glass_wall)/.test(v);
   }
   // La silla que mira a una mesa (o a una casilla de una mesa grande) se mete debajo
   tuckShift(id, tx, ty, rot) {
@@ -850,7 +854,7 @@ export class Overworld {
       alongX = joins(tx - 1, ty) || joins(tx + 1, ty); alongY = joins(tx, ty - 1) || joins(tx, ty + 1);
       if (!alongX && !alongY) alongX = true;
     }
-    const fl = (x, y) => !!this.at('floor', x, y);
+    const fl = (x, y) => !!this.at('floor', x, y) || (this.glassRoofAt(x, y) && !['wall', 'door'].includes(this.pieceAt(x, y)?.kind));   // (a greenhouse has the bare soil for a floor)
     const span = (lo, hi) => lo === hi ? [-0.5, 0.5] : lo ? [-0.5, 0] : [0, 0.5];
     const [y0, y1] = alongX ? span(fl(tx, ty - 1), fl(tx, ty + 1)) : [-0.5, 0.5];
     const [x0, x1] = alongY ? span(fl(tx - 1, ty), fl(tx + 1, ty)) : [-0.5, 0.5];
@@ -1116,7 +1120,7 @@ export class Overworld {
     // cava, ver digWhy, y la entrada quedaría tapada)
     if (['door', 'gate'].includes(PIECES[id]?.kind) && this.holeBeside(tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
-    if (this.at(layer, tx, ty) || d?.tilled[k] !== undefined) return false;
+    if (this.at(layer, tx, ty) || (d?.tilled[k] !== undefined && id !== GLASS_ROOF)) return false;   // (a glass roof goes over a bed)
     if (layer === 'placed' && this.reserved?.has(k) && id !== 'silla' && id !== 'taburete') return false;   // (el sitio de alguien de la taberna, aunque ahora no esté)
     if (layer === 'floor') return true;
     // (a roof goes where something holds it, floors do not: structure.js. Creative, anywhere)
@@ -1197,7 +1201,7 @@ export class Overworld {
       const w = this.wellOf(tx, ty) || this.towerOf(tx, ty);   // (a tile of a big well or a watchtower that is not its anchor: it goes whole, from its anchor)
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; this.wear?.gone(d, layer, k); }
-      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough', 'garb', 'fire', 'weeds', 'signs']) if (d[l]) delete d[l][k];
+      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough', 'garb', 'fire', 'weeds', 'signs', 'cover']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof']) this.planGone(d, layer, tx, ty);
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
       this.dropLevel(tx, ty);
@@ -1311,6 +1315,8 @@ export class Overworld {
   note(cx, cy) { cx = wrapIndex(cx, CHUNK); const k = `${cx},${cy}`; this.dirty.add(k); this.onTouch?.(k); }
   // ¿Está esta casilla bajo un tejado? (para ocultar el tejado cuando el jugador entra en casa)
   roofAt(tx, ty) { return !!this.at('roof', tx, ty); }
+  // … of glass? (only what players build is: greenhouse.js)
+  glassRoofAt(tx, ty) { return this.ownAt('roof', tx, ty) === GLASS_ROOF; }
   // Lo colocado cerca de un punto (para usar estaciones y recoger muebles), lo más cercano primero
   placedNear(x, y, r) {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), out = [];

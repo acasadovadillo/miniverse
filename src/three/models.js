@@ -23,6 +23,7 @@ import { cupModel, diceModel, tileBox, gameTable } from './tgmodels.js';
 import { tintOf } from './tints.js';
 import { trough, hitchingPost } from './stable3d.js';
 import { rodRest } from './rest3d.js';
+import { cloche } from './glass3d.js';
 import { compostBin, manureHeap, troughFill, soilBits } from './soil3d.js';
 import { weeds, eaten, slugs, holed, scarecrow } from './pests3d.js';
 import { KIT, PLACE_MATS, placeMat } from './places3d.js';
@@ -669,6 +670,7 @@ const BUILD = {
     troughFill(m, level, kind);   // (soil3d.js)
   },
   compost_bin(m, level) { compostBin(m, level); },
+  cloche(m, size) { cloche(m, size); },
   scarecrow(m, kind, color, torn) { scarecrow(m, kind, color, torn); },
   trough(m, level) { trough(m, level); },
   hitching_post(m) { hitchingPost(m); },

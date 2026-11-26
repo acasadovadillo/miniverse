@@ -23,7 +23,7 @@ import { rgbOf, ihash } from '../util.js';
 
 const LAYERS = ['floor', 'placed', 'roof', 'tilled', 'crops', 'trees', 'dig', 'gone'];
 const KEEP = 400, REGION_MAX = 1200, FLOOR_H = 3;
-const ROOFS = { tejado_rojo: '#a0664c', tejado_azul: '#54677a', tejado_gris: '#6b6f74', tejado_verde: '#5f7a64', tejado_paja: '#a89a7c', slab_roof: '#a8a294' };
+const ROOFS = { tejado_rojo: '#a0664c', tejado_azul: '#54677a', tejado_gris: '#6b6f74', tejado_verde: '#5f7a64', tejado_paja: '#a89a7c', slab_roof: '#a8a294', glass_roof: '#9db4b4' };
 const FLOORS = { suelo_madera: '#8d6f4e', suelo_piedra: '#8f8c84', camino: '#a39a88' };
 const THINGS = { stall: rgbOf('#b05a45'), stall2: rgbOf('#5f7aa0'), stall3: rgbOf('#b59a4c'), fountain: rgbOf('#98a3a6'), dock: rgbOf('#8d6f4e') };
 const SOIL = rgbOf('#6b4e36'), FURROW = rgbOf('#573e2a'), LEAF = rgbOf('#6f9440'), RIPE = rgbOf('#c9a53e'), DEAD = rgbOf('#8f8058'), DIRT = rgbOf('#7d5f45'), HEAP = rgbOf('#947353'), WALL = rgbOf('#4f4438'), FENCE = rgbOf('#6f5a44'), STONE = rgbOf('#77736a'), THING = rgbOf('#5f5346');

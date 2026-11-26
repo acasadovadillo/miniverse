@@ -70,6 +70,8 @@ export const RECIPES = [
   // (fundir minerales y hacer carbón lleva su tiempo y combustible: ver machines.js)
   R('horno', 'yunque', 1, [['lingote_cobre', 3], ['piedra', 6]]),
   R('horno', 'frasco', 3, [['piedra', 2], ['carbon', 1]]),
+  R('horno', 'glass', 2, [['piedra', 2], ['carbon', 1]]),
+  R('horno', 'cloche', 1, [['glass', 2]]),
   R('yunque', 'alambique', 1, [['lingote_hierro', 2], ['piedra', 4], ['frasco', 1]]),
   R('yunque', 'brujula', 1, [['lingote_hierro', 4], ['amatista', 1]]),
   R('banco', 'mapa_vacio', 1, [['tela', 2], ['carbon', 1]]),

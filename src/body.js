@@ -78,6 +78,7 @@ import { aabb } from './world/fit.js';
 import { inBounds, distToPath } from './world/village.js';
 import { CHUNK } from './world/gen.js';
 import { BULKY } from './carry-items.js';
+import { GLASS, SHUT, AIRED, OPEN, glassK } from './greenhouse.js';
 import { dressed } from './looks.js';
 import { clothesOf, feelOf, roomFire, TEMP, TEAR, TEAR_RATE, TEAR_TOUGH, tearStage, canTear } from './clothing.js';
 
@@ -376,6 +377,7 @@ export class Body {
     this.blizzard = e.weather === 'ventisca';
     const room = sc === w ? g.room : null;   // (structure.js roomAt: a shut room keeps the warmth, a porch hardly)
     e.pull = room?.kind ? TEMP.pull[room.kind] : undefined;
+    e.glass = room?.kind && g.underGlass ? glassK(room.kind === 'room' ? SHUT : room.kind === 'draughty' ? AIRED : OPEN) * GLASS.mean : undefined;   // (in a greenhouse, as its plants: greenhouse.js)
     this.fireD = roomFire(room, this.fireNear(p, sc));
     e.fireD = this.fireD;
     e.swim = p.swim && sc === w ? (g.needs?.waterKind?.(p.x, p.y) === 'salt' ? 'sea' : 'fresh') : null;

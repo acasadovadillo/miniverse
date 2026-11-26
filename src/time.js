@@ -161,9 +161,9 @@ export class TimeSystem {
     if (minute !== this.shown || sky !== this.shownSky || langV !== this.shownLang) { this.shown = minute; this.shownSky = sky; this.shownLang = langV; hud.clock(this.label(), sky); }
     // Lluvia, nieve y rayos
     const w = this.info, outside = !g.indoors;
-    Audio.rain(w.rain && outside ? w.rain : 0);
+    Audio.rain(w.rain && (outside || g.underGlass) ? w.rain : 0, !outside && g.underGlass);
     Audio.quietBirds = this.isNight() || !!w.rain || !!w.snow;
-    if (w.rain === 2 && outside) {
+    if (w.rain === 2 && (outside || g.underGlass)) {
       this.nextBolt -= dt;
       if (this.nextBolt <= 0) { this.nextBolt = 7 + Math.random() * 10; this.flash = Settings.v.noFlash ? 0.15 : 1; this.bolts++; Audio.thunder(); }
     }
