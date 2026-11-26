@@ -892,18 +892,18 @@
   #s-login .lang-pick button.on { color: #0c0e12; background: #fff; }
   /* Main menu: the list on the left, the character's card on the right */
   .mm-left { position: absolute; left: calc(var(--edge) - 18px); top: max(140px, 27vh); width: min(440px, 46vw); }
-  #s-menu.show .mm-left { animation: mm-in .25s cubic-bezier(.2, .8, .2, 1); }
+  #s-menu.show .mm-left, #s-single.show .mm-left { animation: mm-in .25s cubic-bezier(.2, .8, .2, 1); }
   #s-menu.show #mm-card { animation: fe-in .35s; }
   @keyframes mm-in { from { opacity: 0; transform: translateX(-40px); } }
   .mm-hello { display: flex; align-items: center; gap: 10px; margin: 0 18px 10px !important; font: 500 17px/1.2 var(--font-ui); color: var(--ink-2); text-shadow: var(--shadow-text); }
   #menu-role { padding: 2px 7px; border-radius: var(--r-s); font: 600 12px/1.3 var(--font-title); letter-spacing: .08em; text-transform: uppercase; color: #0c0e12; background: var(--accent-2); }
   #menu-role[hidden] { display: none; }
-  #mm-list .row { min-height: clamp(44px, 6.2vh, 56px); padding: 4px 18px; font-size: clamp(24px, 3.4vh, 30px); text-shadow: var(--shadow-text); }
-  #mm-list .row.sel { text-shadow: none; }
-  #mm-list .row.off:not(.sel) { color: var(--ink-3); }
+  #mm-list .row, #sg-list .row, #sv-list .sv-new { min-height: clamp(44px, 6.2vh, 56px); padding: 4px 18px; font-size: clamp(24px, 3.4vh, 30px); text-shadow: var(--shadow-text); }
+  #mm-list .row.sel, #sg-list .row.sel, #sv-list .row.sel { text-shadow: none; }
+  #mm-list .row.off:not(.sel), #sg-list .row.off:not(.sel) { color: var(--ink-3); }
   #mm-list .row.sel.off { background: rgba(255, 255, 255, .72); }
-  #mm-desc { min-height: 46px; max-width: 46ch; margin: 14px 18px 0; font: 500 17px/1.35 var(--font-ui); color: var(--ink-2); text-shadow: var(--shadow-text); }
-  #menu-msg { max-width: 46ch; margin: 8px 18px 0; font: 500 17px/1.35 var(--font-ui); color: var(--accent-2); text-shadow: var(--shadow-text); }
+  #mm-desc, #sg-desc { min-height: 46px; max-width: 46ch; margin: 14px 18px 0; font: 500 17px/1.35 var(--font-ui); color: var(--ink-2); text-shadow: var(--shadow-text); }
+  #menu-msg, #sg-msg { max-width: 46ch; margin: 8px 18px 0; font: 500 17px/1.35 var(--font-ui); color: var(--accent-2); text-shadow: var(--shadow-text); }
   #mm-card { position: absolute; right: var(--edge); top: 50%; width: 276px; padding: 0 0 18px; overflow: hidden; background: var(--fe-glass); border-radius: var(--r-s); transform: translateY(-54%); box-shadow: inset 0 3px 0 var(--fe-accent); text-align: center; font: 500 16px/1.35 var(--font-ui); color: var(--ink-2); }
   .mm-face { display: grid; place-items: end center; height: 236px; margin-bottom: 12px; background: radial-gradient(circle at 50% 42%, #515963, #1a1d22 70%, #0d0f12); box-shadow: inset 0 3px 0 var(--fe-accent), inset 0 -40px 50px -30px rgba(0, 0, 0, .6); }
   #mm-face { width: 220px; height: 220px; }
@@ -924,6 +924,32 @@
   #m-live.err p::before { background: var(--fe-bad); }
   #m-live[hidden] { display: none; }
   /* Credits */
+  /* SINGLE PLAYER (singlemenu.js): its two items as the main menu's; LOAD GAME, the games as cards in a column */
+  #s-single > .fe-mark { position: absolute; left: var(--edge); top: max(44px, 9vh); }
+  .sg-title { margin: 0 18px 12px; font: 600 34px/1.1 var(--font-title); letter-spacing: .06em; text-transform: uppercase; color: var(--ink); text-shadow: var(--shadow-text); box-shadow: inset 0 -3px 0 var(--fe-accent); display: inline-block; padding-bottom: 6px; }
+  #sg-close, #sv-close { width: 36px; height: 32px; font-size: 17px; }
+  #sg-close { position: absolute; right: 40px; top: 32px; }
+  #sv-close { margin-left: auto; }
+  #s-saves { background: rgba(8, 9, 12, .8); }
+  #s-saves.show { animation: fe-in var(--t-open); }
+  #s-saves h2 { margin: 0; font: 600 30px/1.1 var(--font-title); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
+  #sv-body { flex: 1; min-height: 0; width: min(760px, calc(100vw - 48px)); margin: 0 auto; padding: 28px 0 110px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; }
+  #sv-list .sv-row { gap: 18px; min-height: 0; margin-bottom: 10px; padding: 10px 12px 10px 10px; background: var(--fe-glass); text-transform: none; letter-spacing: 0; }
+  #sv-list .sv-row.sel { background: var(--fe-sel-bg); }
+  .sv-face { flex: none; width: 88px; height: 88px; border-radius: var(--r-s); background: radial-gradient(circle at 50% 42%, #515963, #1a1d22 70%, #0d0f12); }
+  .sv-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .sv-name { font: 600 26px/1.1 var(--font-title); letter-spacing: .05em; text-transform: uppercase; overflow-wrap: anywhere; }
+  .sv-row:not(.sel) .sv-name { color: var(--fe-accent); }
+  .sv-who, .sv-sub, .sv-when { font: 500 17px/1.3 var(--font-ui); }
+  .sv-day { text-transform: capitalize; }
+  .sv-row:not(.sel) .sv-when, .sv-row:not(.sel) .sv-who { color: var(--ink-2); }
+  .sv-row .sq { flex: none; width: 40px; height: 38px; display: grid; place-items: center; }
+  .sv-row .sq svg { width: 20px; height: 20px; }
+  .sv-row.sel .sq { color: #0c0e12; background: rgba(12, 14, 18, .1); }
+  .sv-row.sel .sq:hover { color: #fff; background: #0c0e12; }
+  .sv-input { width: 100%; margin: 0; padding: 2px 0; font: 600 26px/1.1 var(--font-title); letter-spacing: .05em; text-transform: uppercase; color: inherit; background: none; border: 0; border-radius: 0; box-shadow: inset 0 -2px 0 var(--fe-accent); outline: none; user-select: text; -webkit-user-select: text; }
+  #sv-empty { margin: 10vh 18px 18px; font: 500 20px/1.4 var(--font-ui); color: var(--ink); }
+  #sv-msg { margin: 10px 18px 0; font: 500 17px/1.35 var(--font-ui); color: var(--accent-2); }
   #s-credits { background: rgba(8, 9, 12, .8); }
   #s-credits.over { z-index: 11; background: #0b0c0f; }   /* (over the pause) */
   #s-credits.show, #s-creator.show { animation: fe-in var(--t-open); }
@@ -1248,9 +1274,8 @@
     <div class="mm-left">
       <p class="mm-hello"><span id="menu-hello">Hello!</span><b id="menu-role" hidden data-i18n="gui.menu.admin">Admin</b></p>
       <div id="mm-list">
-        <div id="m-continue"><span data-i18n="gui.menu.continue">Continue</span></div>
-        <div id="m-local"><span data-i18n="gui.menu.play_local">Play locally</span></div>
-        <div id="m-new"><span data-i18n="gui.menu.create">Create your character</span></div>
+        <div id="m-single"><span data-i18n="gui.menu.single">Single player</span></div>
+        <div id="m-multi"><span data-i18n="gui.menu.multi">Multiplayer</span></div>
         <div id="m-settings"><span data-i18n="gui.settings.title">Settings</span></div>
         <div id="m-credits"><span data-i18n="gui.menu.credits">Credits</span></div>
         <div id="m-session"><span data-i18n="gui.menu.log_out">Log out</span></div>
@@ -1267,6 +1292,37 @@
       <p id="mm-playing"></p>
     </aside>
     <footer class="fe-foot"><div id="m-live" hidden><p id="m-live-msg"></p></div><div class="fe-foot-r"><div id="mm-legend"></div><small class="fe-ver"></small></div></footer>
+  </section>
+
+  <!-- SINGLE PLAYER (src/ui/singlemenu.js): a new game, or one of yours -->
+  <section id="s-single" class="screen front">
+    <div class="fe-mark"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg><span>Miniverse</span></div>
+    <button class="sq" id="sg-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button>
+    <div class="mm-left">
+      <h2 class="sg-title" data-i18n="gui.single.title">Single player</h2>
+      <div id="sg-list">
+        <div id="sg-new"><span data-i18n="gui.single.new">New game</span></div>
+        <div id="sg-load"><span data-i18n="gui.single.load">Load game</span></div>
+      </div>
+      <p id="sg-desc"></p>
+      <p id="sg-msg" role="status"></p>
+    </div>
+    <footer class="fe-foot"><span></span><div class="fe-foot-r"><div id="sg-legend"></div><small class="fe-ver"></small></div></footer>
+  </section>
+
+  <!-- LOAD GAME: the single-player games as cards (src/ui/singlemenu.js) -->
+  <section id="s-saves" class="screen front">
+    <div class="ps-top"><header class="ps-head">
+      <span class="ps-mark" aria-hidden="true"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg>MINIVERSE</span>
+      <h2 data-i18n="gui.saves.title">Load game</h2>
+      <button class="sq" id="sv-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button>
+    </header></div>
+    <div id="sv-body">
+      <p id="sv-empty" hidden data-i18n="gui.saves.empty">You don't have any single-player games yet. Start one:</p>
+      <div id="sv-list"></div>
+      <p id="sv-msg" role="status"></p>
+    </div>
+    <footer class="fe-foot"><span></span><div class="fe-foot-r"><div id="sv-legend"></div><small class="fe-ver"></small></div></footer>
   </section>
 
   <!-- Credits (src/ui/mainmenu.js): what is in assets/LICENCIAS.md -->

@@ -86,7 +86,10 @@ import { FE, alertBox, tabStrip, list, optionRow, legend } from './ui/frontend.j
 import { GLYPHS } from './ui/glyphs.js';
 import { ACCENTS, accent, accentOf, useAccent, skinNow, applySkin } from './ui/skin.js';
 import { LOOK_OPTIONS } from './looks.js';
-import { MENU_ITEMS, whenText, dayAndSeason, lookOf } from './ui/mainmenu.js';
+import { MENU_ITEMS, whenText, dayAndSeason, lookOf, dayLine } from './ui/mainmenu.js';
+import { makeSlots, mergeIndex, cardOf, slotFile, indexFile } from './slots.js';
+import { db as gameDb } from './db.js';
+import { seal, unseal, deriveKey, newSalt, isVault, dataFile } from './vault.js';
 import { KeyArt, KEY_ART, artNow, artOf, loadSet } from './ui/keyart.js';
 import { TIPS, tipText, recapText } from './ui/loading.js';
 import { RECAP_STATS, recapOf, Recap } from './recap.js';
@@ -347,7 +350,7 @@ async function soloTests(game) {
     const $ = id => document.getElementById(id), eq = (got, want, what) => check(got === want, `${what}: "${got}" instead of "${want}"`);
     eq(getLang(), 'es', 'language of the tests');
     // The Spanish of index.html, letter by letter as it was before the language system
-    const OLD = { 'p-resume': 'Continuar', 'p-menu': 'Guardar y salir al menú', 'm-continue': 'Continuar partida', 'm-session': 'Cerrar sesión', 'cf-make': 'Fabricar', 'inv-drop1': 'Tirar uno',
+    const OLD = { 'p-resume': 'Continuar', 'p-menu': 'Guardar y salir al menú', 'm-multi': 'MULTIJUGADOR', 'm-single': 'INDIVIDUAL', 'sg-load': 'CARGAR PARTIDA', 'm-session': 'Cerrar sesión', 'cf-make': 'Fabricar', 'inv-drop1': 'Tirar uno',
       'inv-lock': 'Sin mochila solo llevas lo que cabe en las manos y los bolsillos. Fabrica una (C, a mano: fibra y cuerda) y póntela.', 'aim-free': 'Haz clic para mover la cámara con el ratón' };
     for (const [id, text] of Object.entries(OLD)) eq($(id).textContent, text, `#${id}`);
     for (const [id, attr, text] of [['chat-input', 'placeholder', 'Escribe un mensaje o un comando (/help)'], ['love-heart', 'title', 'Tener un bebé'], ['map-home', 'aria-label', 'Volver a tu posición'], ['inv-del', 'title', 'Modo admin: lo quita para siempre, sin tirarlo']]) eq($(id).getAttribute(attr), text, `#${id} ${attr}`);
@@ -2026,8 +2029,8 @@ async function soloTests(game) {
     check(at > 0.15 && at < 0.8, `the ring at half the time: ${at}`);
     press('Enter', 'keyup'); await sleep(500); check(FE.active() === 'fe-alert' && +getComputedStyle(fg).strokeDashoffset.replace('px', '') > 0.95, 'letting go does not empty the ring');
     press('Enter'); check(await p === true, 'held to the end does not answer'); press('Enter', 'keyup');
-    const src = await (await fetch('./src/ui/menus.js')).text();
-    check(!/[^\w.]confirm\(/.test(src) && src.includes("t('gui.alert.new_title')") && src.includes("t('gui.alert.empty_title')") && !document.getElementById('m-confirm'), 'the old confirmations are still there');
+    const src = await (await fetch('./src/ui/menus.js')).text(), src2 = await (await fetch('./src/ui/singlemenu.js')).text();
+    check(!/[^\w.]confirm\(/.test(src + src2) && src2.includes("t('gui.saves.delete_title')") && src.includes("t('gui.alert.empty_title')") && !document.getElementById('m-confirm'), 'the old confirmations are still there');
   });
   await test('menu (english): keys do not leak: with a menu screen open nothing pressed acts in the game', async () => {
     const press = (code, o = {}) => { const e = new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true, ...o }); document.body.dispatchEvent(e); dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true })); return e; };
@@ -2045,7 +2048,7 @@ async function soloTests(game) {
   await test('menu (english): pause: P opens and closes it as Esc does, and the texts and ids are kept', async () => {
     for (let i = 0; i < 300 && document.getElementById('fade').classList.contains('on'); i++) await sleep(50);   // (the dark of a jump of the test before: there is no pausing in it)
     const press = code => document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true })), shown = () => document.getElementById('s-pause').classList.contains('show');
-    for (const id of ['p-resume', 'p-save', 'p-menu', 'p-controls', 'm-continue', 'm-new', 'm-local', 'm-session', 'm-settings', 'st-close']) check(document.getElementById(id), `#${id} is gone`);
+    for (const id of ['p-resume', 'p-save', 'p-menu', 'p-controls', 'm-single', 'm-multi', 'sg-new', 'sg-load', 'sv-list', 'm-session', 'm-settings', 'st-close']) check(document.getElementById(id), `#${id} is gone`);
     press('KeyP'); check((game.mode === 'pause' || game.mode === 'map') && shown(), 'P does not pause');
     press('KeyP'); check(game.mode === 'play' && !shown(), 'P does not go back');
     game.windows.open('s-inv'); press('KeyP'); check(game.mode === 'play' && !game.windows.isOpen('s-inv'), 'P does not close the window first'); await sleep(40);
@@ -2422,21 +2425,31 @@ async function soloTests(game) {
   };
   const menuSave = (o = {}) => ({ player: { name: 'Vera', look: { ...LOOK } }, inventory: { equip: { torso: { id: 'camisa', color: '#c83a3a' }, espalda: { id: 'nope_9' } } }, money: 312, dayBase: Math.floor(Date.now() / 86400000) - 40, savedAt: Date.now() - 1000, ...o });
   const menuSel = () => document.querySelector('#mm-list .sel')?.id;
-  await test('menu (english): main menu: its six items and their ids, moved with the keys, what is not there skipped, Continue closed says why', () => keepMenus(async $ => {
-    const M = game.mainMenu; check(MENU_ITEMS.every(id => $(id)?.classList.contains('row') && $('mm-list').contains($(id))), 'an item is missing');
+  const menuGame = (o = {}, id = 'g1') => ({ id, title: '', card: cardOf(menuSave({ player: { name: 'Lia', look: { ...LOOK } }, money: 77, dayBase: Math.floor(Date.now() / 86400000) - 4, ...o })), savedAt: o.savedAt ?? Date.now() - 500 });
+  await test('menu (english): main menu: its five items and their ids, moved with the keys, the card follows SINGLE PLAYER or MULTIPLAYER, MULTIPLAYER closed says why', () => keepMenus(async $ => {
+    const M = game.mainMenu; check(MENU_ITEMS.join() === 'm-single,m-multi,m-settings,m-credits,m-session' && MENU_ITEMS.every(id => $(id)?.classList.contains('row') && $('mm-list').contains($(id))), 'an item is missing');
+    check(!$('m-new') && !$('m-local') && !$('m-continue'), 'an old item is still there');
     check($('login-form').contains($('lg-user')) && $('lg-user').autocomplete === 'username' && $('lg-pass').autocomplete === 'current-password' && ['lg-code', 'lg-pass2', 'lg-token', 'lg-submit', 'lg-err', 'menu-hello', 'menu-save', 'm-live', 'm-live-msg', 'menu-msg', 'cr-start', 'cr-random', 'cr-back', 'cr-err', 'rot-l', 'rot-r'].every($), 'an id is gone');
     check(document.querySelectorAll('.lang-pick').length === 1 && $('s-login').querySelector('.lang-pick button[data-lang=en]'), 'the language picker, only on the login');
     $('s-menu').classList.add('show'); M.open(); M.use(menuSave(), null); M.live([], '');
-    check(FE.active() === 's-menu' && menuSel() === 'm-continue' && $('mm-desc').textContent === t('gui.menu.desc.continue'), `it does not start on Continue: ${menuSel()}`);
-    const seen = []; for (let i = 0; i < 6; i++) { seen.push(menuSel()); pauseKey('ArrowDown'); } check(seen.join() === MENU_ITEMS.join() && menuSel() === 'm-continue', `↓: ${seen}`); pauseKey('KeyW'); check(menuSel() === 'm-session', 'W does not go round');
+    check(FE.active() === 's-menu' && menuSel() === 'm-multi' && $('mm-desc').textContent === t('gui.menu.desc.continue') && M.card === 'shared', `it does not start on MULTIPLAYER: ${menuSel()}`);
+    check($('m-single').textContent === t('gui.menu.single') && $('m-multi').textContent === t('gui.menu.multi'), 'the names');
+    M.focus('m-single'); check(M.card === 'single' && $('mm-card').classList.contains('none') && $('menu-save').textContent === t('gui.menu.card.no_single') && $('mm-desc').textContent === t('gui.menu.desc.single'), 'SINGLE PLAYER without games');
+    const seen = []; for (let i = 0; i < 5; i++) { seen.push(menuSel()); pauseKey('ArrowDown'); } check(seen.join() === MENU_ITEMS.join() && menuSel() === 'm-single', `↓: ${seen}`); pauseKey('KeyW'); check(menuSel() === 'm-session', 'W does not go round');
     for (const c of ['Escape', 'Backspace', 'KeyP', 'KeyM', 'KeyI', 'KeyB', 'KeyE']) pauseKey(c); check(FE.active() === 's-menu' && $('s-menu').classList.contains('show') && !game.windows.isOpen('s-inv') && !game.build.on, 'a key leaves the menu, or acts in the game');
     $('m-settings').dispatchEvent(new PointerEvent('pointerenter')); check(menuSel() === 'm-session', 'a menu that shows up under the mouse changes the selection'); $('m-settings').dispatchEvent(new PointerEvent('pointermove')); check(menuSel() === 'm-settings' && $('mm-desc').textContent === t('gui.menu.desc.settings'), 'the mouse does not select');
-    M.use(null, null); check($('m-continue').hidden && $('m-local').hidden && menuSel() === 'm-new' && $('m-new').textContent === t('gui.menu.create') && $('mm-desc').textContent === t('gui.menu.desc.create'), 'without a game'); pauseKey('ArrowUp'); pauseKey('ArrowDown'); pauseKey('ArrowDown'); check(menuSel() === 'm-settings', `the hidden ones are not skipped: ${menuSel()}`);
-    M.use(null, menuSave()); check(!$('m-local').hidden && $('m-continue').hidden, 'only a local game');
-    M.use(menuSave(), menuSave({ savedAt: Date.now() })); check($('m-new').textContent === t('gui.menu.new'), 'New game'); pauseKey('ArrowDown'); check($('mm-desc').textContent === t('gui.menu.desc.local_saved', { when: whenText(Date.now()) }), $('mm-desc').textContent);
+    // Without anything: SINGLE PLAYER first; MULTIPLAYER goes to the creator even with the server closed
+    M.use(null, null); M.live([], 'closed because'); check(menuSel() === 'm-single' && !$('m-multi').hidden && !$('m-multi').classList.contains('off') && (M.focus('m-multi'), $('mm-desc').textContent === t('gui.menu.desc.multi_create')), `without a game: ${menuSel()} ${$('mm-desc').textContent}`); M.live([], '');
+    // A single-player game played last: it is selected, with its card (its own world's day)
+    const g = menuGame(); M.use(menuSave({ savedAt: Date.now() - 9000 }), g);
+    check(menuSel() === 'm-single' && M.card === 'single' && $('mm-name').textContent === 'Lia' && $('mm-money').textContent === t('gui.pause.money', { n: 77 }) && $('mm-when').textContent === dayLine(g.card, true) && $('mm-when').textContent.includes(t('gui.pause.day', { n: dayAndSeason(g.card, true).day })), `the single card: ${$('mm-name').textContent} ${$('mm-when').textContent}`);
+    check($('mm-desc').textContent === t('gui.menu.desc.single_saved', { name: 'Lia', when: whenText(g.savedAt) }), $('mm-desc').textContent);
+    pauseKey('ArrowDown'); check(M.card === 'shared' && $('mm-name').textContent === 'Vera', 'the shared card on MULTIPLAYER'); pauseKey('ArrowDown'); check(M.card === 'shared', 'the card changes on Settings');
+    M.use(menuSave(), { ...g, title: 'Granja' }, 'm-single'); check($('mm-name').textContent === 'Granja', 'its name');
     let entered = 0; const store = game.start; game.start = () => { entered++; };
-    try { M.live([], 'closed because'); M.focus('m-continue'); check($('m-continue').classList.contains('off') && $('mm-desc').textContent === 'closed because', 'why'); pauseKey('Enter'); $('m-continue').click(); await sleep(60); check(!entered && $('s-menu').classList.contains('show'), 'it enters'); } finally { game.start = store; }
-    M.live(['Hafsa', 'Ana'], ''); check(!$('m-continue').classList.contains('off') && $('mm-desc').textContent.includes('Hafsa') && $('mm-playing').textContent.includes('Ana'), 'who is playing'); M.busy(true); check($('m-continue').classList.contains('off'), 'busy'); M.busy(false); check(!$('m-continue').classList.contains('off'), 'not busy');
+    try { M.use(menuSave(), null); M.live([], 'closed because'); M.focus('m-multi'); check($('m-multi').classList.contains('off') && $('mm-desc').textContent === 'closed because', 'why'); pauseKey('Enter'); $('m-multi').click(); await sleep(60); check(!entered && $('s-menu').classList.contains('show') && !$('s-creator').classList.contains('show'), 'it enters'); } finally { game.start = store; }
+    M.live(['Hafsa', 'Ana'], ''); check(!$('m-multi').classList.contains('off') && $('mm-desc').textContent.includes('Hafsa') && $('mm-playing').textContent.includes('Ana'), 'who is playing'); M.busy(true); check($('m-multi').classList.contains('off'), 'busy'); M.busy(false); check(!$('m-multi').classList.contains('off'), 'not busy');
+    M.focus('m-single'); check(!$('mm-playing').textContent, 'who is playing, on a single-player card');
     // Always dark glass, with the wooden look too, and the white bar
     for (const w of ['wood', 'glass']) { applySkin(w); await sleep(60); await Promise.all(document.querySelector('#mm-list .sel').getAnimations().map(x => x.finished.catch(() => {}))); const s = getComputedStyle(document.querySelector('#mm-list .sel')), b = getComputedStyle($('s-menu')); check(s.backgroundColor === 'rgb(255, 255, 255)' && s.color === 'rgb(12, 14, 18)' && /linear-gradient/.test(b.backgroundImage), `${w}: ${s.backgroundColor} ${s.color}`); } applySkin(Settings.v.skin);
     $('s-menu').classList.remove('show'); check(FE.active() === null, 'out of sight, it keeps the keys');
@@ -2454,8 +2467,8 @@ async function soloTests(game) {
           check(put('on', [srv, h]) === 'on ' + T('world_playing', { names: 'Hafsa', n: 1 }) && put('on', [srv]) === 'on ' + T('world'), line());
           check(put('on', [{ ...h, host: true }]) === 'on ' + T('playing', { names: 'Hafsa', n: 1 }) && put('on') === 'on ' + T(a ? 'open_admin' : 'open'), line());
           check(put('connecting') === 'wait ' + T(a ? 'connecting_admin' : 'connecting'), line()); check(put('kicked', [], 'fuera') === 'err fuera', line());
-          put('off'); check(a ? $('m-live').hidden : line() === 'wait ' + T('closed', { admin: 'Alberto' }), line()); check($('m-continue').classList.contains('off') === !a, 'Continue with the server closed'); if (!a) check(put('nokey') === 'wait ' + T('nokey', { admin: 'Alberto' }), line());
-          put('kicked', [], 'fuera'); check(!$('m-continue').classList.contains('off'), 'kicked: it can be tried again');
+          put('off'); check(a ? $('m-live').hidden : line() === 'wait ' + T('closed', { admin: 'Alberto' }), line()); check($('m-multi').classList.contains('off') === !a, 'MULTIPLAYER with the server closed'); if (!a) check(put('nokey') === 'wait ' + T('nokey', { admin: 'Alberto' }), line());
+          put('kicked', [], 'fuera'); check(!$('m-multi').classList.contains('off'), 'kicked: it can be tried again');
         }
       }
     } finally { if (admin) Object.defineProperty(Profile, 'admin', admin); else delete Profile.admin; await setLang(was); }
@@ -2467,7 +2480,7 @@ async function soloTests(game) {
     check(dayAndSeason({ ...s, livePos: { x: 1, y: 1 } }, false).day === null && dayAndSeason({ ...s, livePos: { x: 1, y: 1 } }, true).day === day && dayAndSeason({ ...s, dayBase: undefined }, true).day === null, 'the day of a world that is not the one played');
     const look = lookOf(s); check(look.wear.torso.color === '#c83a3a' && !look.wear.espalda && lookOf({ player: { look: LOOK }, inventory: { equip: { torso: 5 } } }), 'its clothes');
     const g = $('mm-face').getContext('2d'); let n = 0; for (let i = 0; i < 80 && !n; i++) { await sleep(100); n = g.getImageData(60, 60, 70, 70).data.filter((v, k) => k % 4 === 3 && v > 200).length; } check(n > 300, 'no face');
-    M.use(null, null); check($('mm-card').classList.contains('none') && $('menu-save').textContent === t('gui.menu.card.none') && !$('mm-name').textContent && !$('mm-money').textContent, 'without a character'); check(!g.getImageData(60, 60, 70, 70).data.some(Boolean), 'the face of the one before stays');
+    M.use(null, null); check($('mm-card').classList.contains('none') && $('menu-save').textContent === t('gui.menu.card.no_single') && (M.focus('m-multi'), $('menu-save').textContent === t('gui.menu.card.none')) && !$('mm-name').textContent && !$('mm-money').textContent, 'without a character'); check(!g.getImageData(60, 60, 70, 70).data.some(Boolean), 'the face of the one before stays');
     const noon = new Date(2026, 5, 10, 12, 0).getTime(), H = 3600000; check(whenText(noon - H, noon) === t('gui.menu.when.today', { time: fmt.date(noon - H, { hour: '2-digit', minute: '2-digit' }) }) && whenText(noon - 20 * H, noon).startsWith(t('gui.menu.when.yesterday', { time: '' }).slice(0, 4)) && whenText(noon - 80 * H, noon) === t('gui.menu.when.date', { date: fmt.date(noon - 80 * H, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }), 'when');
   }));
   await test('menu (english): the key art: by the season of the calendar and the hour of Madrid; one transform; still when hidden, idle, reduced or playing', async () => {
@@ -2551,22 +2564,23 @@ async function soloTests(game) {
   }));
   await test('menu (english): loading screen: what fails while loading goes back to the menu with its message; Esc leaves a wait; the one left is not gone on with', () => keepMenus(async $ => {
     const L = game.loading, live = game.live, T = { ...L.TIMES }, el = $('s-load'), err = console.error, own = { start: game.start, end: game.end, claim: live.claim, unclaim: live.unclaim, wait: live.waitHost, find: live.close }, s = menuSave(); let starts = 0, claims = [];
-    const pv = Object.getOwnPropertyDescriptor(Profile, 'data'); Object.defineProperty(Profile, 'data', { get: () => ({ save: s, deltas: [] }), configurable: true });
+    const pv = Object.getOwnPropertyDescriptor(Profile, 'data'), ownSingles = Profile.singles, ownOpen = Profile.openSingle; Object.defineProperty(Profile, 'data', { get: () => ({ save: s, deltas: [] }), configurable: true });
     try {
       Object.assign(L.TIMES, { min: 200, out: 80, leave: 60 }); L.enabled = true;
       game.start = () => { starts++; throw new Error('boom-carga'); }; console.error = () => {}; game.end = () => {}; live.claim = () => new Promise(r => claims.push(r)); live.unclaim = () => {}; live.waitHost = async () => false;
-      $('cr-back').click(); check($('s-menu').classList.contains('show') && FE.active() === 's-menu', 'the menu'); live.status = 'on'; live.changed();
+      game.toMainMenu(); check($('s-menu').classList.contains('show') && FE.active() === 's-menu', 'the menu'); live.status = 'on'; live.changed();
       // A wait, left with Esc
-      $('m-continue').click(); for (let i = 0; i < 60 && !(claims.length && el.classList.contains('leave')); i++) await sleep(50);
+      $('m-multi').click(); for (let i = 0; i < 60 && !(claims.length && el.classList.contains('leave')); i++) await sleep(50);
       check(L.on && el.classList.contains('show') && FE.active() === 's-load' && getComputedStyle($('ld-legend')).visibility === 'visible' && $('ld-status').textContent === t('gui.menu.enter.entering'), `waiting: ${$('ld-status').textContent} ${$('menu-msg').textContent}`);
-      pauseKey('Escape'); check(!L.on && !el.classList.contains('show') && FE.active() === 's-menu' && menuSel() === 'm-continue' && !$('m-continue').classList.contains('off') && !$('menu-msg').textContent, 'Esc does not leave'); claims.shift()(true); await sleep(120); check(!starts && !L.on && FE.active() === 's-menu', 'what was left went on');
+      pauseKey('Escape'); check(!L.on && !el.classList.contains('show') && FE.active() === 's-menu' && menuSel() === 'm-multi' && !$('m-multi').classList.contains('off') && !$('menu-msg').textContent, 'Esc does not leave'); claims.shift()(true); await sleep(120); check(!starts && !L.on && FE.active() === 's-menu', 'what was left went on');
       // An error on the way: the message, in the menu
-      live.claim = async () => { throw new Error('no-hay-mundo'); }; $('m-continue').click(); for (let i = 0; i < 60 && !$('menu-msg').textContent.includes('no-hay'); i++) await sleep(50); await sleep(20); check($('menu-msg').textContent === 'no-hay-mundo' && !L.on && !el.classList.contains('show') && FE.active() === 's-menu' && !$('m-continue').classList.contains('off'), `${$('menu-msg').textContent} ${L.on} ${el.className} ${FE.active()} ${$('m-continue').className}`);
+      live.claim = async () => { throw new Error('no-hay-mundo'); }; $('m-multi').click(); for (let i = 0; i < 60 && !$('menu-msg').textContent.includes('no-hay'); i++) await sleep(50); await sleep(20); check($('menu-msg').textContent === 'no-hay-mundo' && !L.on && !el.classList.contains('show') && FE.active() === 's-menu' && !$('m-multi').classList.contains('off'), `${$('menu-msg').textContent} ${L.on} ${el.className} ${FE.active()} ${$('m-multi').className}`);
       // The game cannot be opened
-      live.status = 'off'; live.changed(); $('m-local').click(); for (let i = 0; i < 60 && !starts; i++) await sleep(30); await sleep(60); check(starts === 1 && $('menu-msg').textContent.includes('boom-carga') && !L.on && !el.classList.contains('show') && !$('fade').classList.contains('on') && $('s-menu').classList.contains('show') && FE.active() === 's-menu', `boom: ${$('menu-msg').textContent}`);
+      live.status = 'off'; live.changed(); Profile.singles = () => [menuGame()]; Profile.openSingle = async () => ({ save: s, deltas: new Map() });
+      $('m-single').click(); check(FE.active() === 's-single', 'SINGLE PLAYER'); $('sg-load').click(); check(FE.active() === 's-saves', 'LOAD GAME'); document.querySelector('#sv-list .sv-row').click(); for (let i = 0; i < 60 && !starts; i++) await sleep(30); await sleep(60); check(starts === 1 && $('menu-msg').textContent.includes('boom-carga') && !L.on && !el.classList.contains('show') && !$('fade').classList.contains('on') && $('s-menu').classList.contains('show') && FE.active() === 's-menu', `boom: ${$('menu-msg').textContent}`);
       // The connection is lost while it is loading: the menu, whatever it was waiting for
-      await L.show(s); $('cr-back').click(); check(!L.on && !el.classList.contains('show') && FE.active() === 's-menu', 'lost while loading');
-    } finally { Object.assign(L.TIMES, T); L.abort(); L.enabled = false; game.start = own.start; game.end = own.end; live.claim = own.claim; live.unclaim = own.unclaim; live.waitHost = own.wait; if (pv) Object.defineProperty(Profile, 'data', pv); else delete Profile.data; console.error = err; $('fade').classList.remove('on'); $('cr-back').click(); }
+      await L.show(s); game.toMainMenu(); check(!L.on && !el.classList.contains('show') && FE.active() === 's-menu', 'lost while loading');
+    } finally { Object.assign(L.TIMES, T); L.abort(); L.enabled = false; game.start = own.start; game.end = own.end; live.claim = own.claim; live.unclaim = own.unclaim; live.waitHost = own.wait; Profile.singles = ownSingles; Profile.openSingle = ownOpen; if (pv) Object.defineProperty(Profile, 'data', pv); else delete Profile.data; console.error = err; $('fade').classList.remove('on'); game.toMainMenu(); }
   }));
   await test('menu (english): Pause › Game: the tips beside their row, read with the arrows; the credits over the pause, and back; every tip in both languages', async () => {
     const H = game.pauseHub, $ = id => document.getElementById(id), was = getLang();
@@ -2585,7 +2599,7 @@ async function soloTests(game) {
     const pages = { cuerpo: ['name', 'sex', 'skin', 'outfit', 'cloth', 'accent'], cara: ['eyeStyle', 'eyes', 'brows', 'nose'], pelo: ['hairStyle', 'hair', 'beard'] }, me = () => document.documentElement.style.getPropertyValue('--me');
     game.mode = 'menu';   // (no autosave meanwhile)
     let saved = null; Object.defineProperty(Profile, 'data', { get: () => (saved ? { save: saved, deltas: [] } : null), configurable: true }); Profile.store = async s => { saved = { ...s, savedAt: Date.now() }; return { local: true, remote: null }; };
-    $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-new').click();
+    $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-multi').click();
     check(FE.active() === 's-creator' && $('s-creator').classList.contains('show') && crTab() === 'cuerpo' && crRow('name').classList.contains('sel'), 'it does not open on the name');
     for (const [pg, ids] of Object.entries(pages)) {
       check(crTab() === pg && crRows() === ids.join(), `${pg}: ${crTab()} ${crRows()}`);
@@ -2605,10 +2619,11 @@ async function soloTests(game) {
     $('cr-name').focus(); $('cr-name').dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true, cancelable: true })); check(crTab() === 'cuerpo', 'writing an e changes page'); $('cr-name').dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true })); check(document.activeElement !== $('cr-name') && FE.active() === 's-creator', 'Esc in the name leaves the creator');
     $('cr-name').value = ' '; $('cr-start').click(); check($('cr-err').textContent === t('gui.creator.need_name') && !saved, 'without a name'); $('cr-name').value = 'Vera';
     pauseKey('Enter'); await sleep(20); check(FE.active() === 'fe-alert', 'Enter does not ask'); pauseKey('Escape'); await sleep(200); check(FE.active() === 's-creator' && !saved, 'Esc starts it');
-    pauseKey('Escape'); check($('s-menu').classList.contains('show') && FE.active() === 's-menu' && !saved, 'Esc'); $('m-new').click();
+    pauseKey('Escape'); check($('s-menu').classList.contains('show') && FE.active() === 's-menu' && !saved && menuSel() === 'm-multi', 'Esc'); $('m-multi').click();
     $('cr-name').value = 'Vera'; crRow('accent').querySelectorAll('.fe-sw button')[6].click(); Object.defineProperty(Profile, 'admin', { get: () => false, configurable: true }); game.live.status = 'off'; $('cr-start').click(); await sleep(60);
     check(saved?.player.name === 'Vera' && saved.ui?.accent === 6 && saved.player.look.sex && $('menu-msg').textContent === t('gui.menu.ready', { admin: 'Alberto' }), `saved: ${JSON.stringify(saved?.ui)} ${$('menu-msg').textContent}`);
-    saved = null; $('m-new').click(); await sleep(20); check(FE.active() === 'fe-alert', 'a new game does not ask'); pauseKey('Enter'); await sleep(200); check(FE.active() === 's-creator', 'and then the creator'); pauseKey('Escape'); check($('m-continue').hidden, 'the menu, without a game again');
+    // (with a character in the shared world, nothing in the menu leads to removing it or making another: MULTIPLAYER goes in)
+    check(!$('m-new') && FE.active() === 's-menu' && $('mm-name').textContent === 'Vera', 'the menu, with the character'); game.live.status = 'off'; game.mainMenu.live([], 'closed'); $('m-multi').click(); await sleep(40); check(!$('s-creator').classList.contains('show') && FE.active() === 's-menu', 'MULTIPLAYER makes another character');
     function id0(ids) { return ids[0] === 'name' ? 1 : 0; }
   }).finally(() => Object.defineProperty(Profile, 'admin', { get: () => WHO === 'a', configurable: true })));
   await test('menu (english): the mirror and the barber: their rows in the creator\'s screen; Esc changes nothing, Enter applies, and he charges the bill', () => keepMenus(async $ => {
@@ -2622,7 +2637,7 @@ async function soloTests(game) {
       while (!crRow('trim').classList.contains('sel')) pauseKey('ArrowDown'); pauseKey('Space'); const bill = barberBill(p().look, { ...p().look }, { trim: true }, game.rep?.buyFactor() ?? 1).total; check($('cr-bill').textContent.includes(t('barber.price', { n: bill })) && $('cr-start').textContent === t('barber.pay') && $('cr-legend').textContent.includes(t('barber.pay')), $('cr-bill').textContent);
       pauseKey('Escape'); check(game.money === 60 && game.mode === 'play', 'Esc charges'); game.onMirror('barber'); while (!crRow('hairStyle').classList.contains('sel')) pauseKey('ArrowDown'); pauseKey('ArrowRight'); check($('cr-bill').classList.contains('poor') && $('cr-err').textContent === t('barber.poor'), 'too dear'); pauseKey('Enter'); check(game.mode === 'mirror' && game.money === 60, 'paid without money');
       game.money = 500; pauseKey('Enter'); check(game.mode === 'play' && game.money < 500 && p().look.hairStyle !== 'corto', `not paid: ${game.money}`);
-      game.mode = 'play'; $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-new').click(); check(!$('cr-tabs').hidden && !$('cr-random').hidden && $('cr-bill').hidden && crRows().startsWith('name,sex') && $('cr-start').textContent === t('gui.creator.start') && document.querySelector('#cr-tabs [data-tab=pelo]').textContent === t('gui.creator.page.pelo'), 'the creator after the barber');
+      game.mode = 'play'; $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-multi').click(); check(!$('cr-tabs').hidden && !$('cr-random').hidden && $('cr-bill').hidden && crRows().startsWith('name,sex') && $('cr-start').textContent === t('gui.creator.start') && document.querySelector('#cr-tabs [data-tab=pelo]').textContent === t('gui.creator.page.pelo'), 'the creator after the barber');
     } finally { p().look = look; game.money = money; if (body) Object.assign(game.body.applied, body); game.inv.v++; }
   }));
   await test('menu (english): the front screens in English: no Spanish left, no raw keys; with ?lang=keys every text is a key', () => keepMenus(async $ => {
@@ -2634,11 +2649,150 @@ async function soloTests(game) {
         $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(menuSave(), null); game.live.changed(); said.menu = txt('s-menu'); game.mainMenu.live([], '');
         for (const id of MENU_ITEMS) { game.mainMenu.focus(id); said[id] = $('mm-desc').textContent; }
         game.mainMenu.use(null, null); said.none = txt('s-menu');
-        $('m-credits').click(); said.credits = txt('s-credits'); pauseKey('Escape'); $('m-new').click(); for (const k of ['a', 'b', 'c']) { said['creator ' + k] = txt('s-creator') + $('cr-legend').textContent; pauseKey('KeyE'); } pauseKey('Escape');
+        $('m-credits').click(); said.credits = txt('s-credits'); pauseKey('Escape'); $('m-multi').click(); for (const k of ['a', 'b', 'c']) { said['creator ' + k] = txt('s-creator') + $('cr-legend').textContent; pauseKey('KeyE'); } pauseKey('Escape');
         for (const [k, s] of Object.entries(said)) { const b = bad(s); check(!b, `${l} ${k}: ${b?.[0]} in ${s.slice(Math.max(0, (b?.index || 0) - 40), (b?.index || 0) + 40)}`); check(s.length > 3, `${k} is empty`); if (l === 'keys' && /^m-/.test(k)) check(/gui\./.test(s), `${k}: ${s}`); }
       }
       await setLang('es'); for (const k of Object.keys(LOOK_OPTIONS)) if (['sex', 'outfit', 'eyeStyle', 'brows', 'nose', 'hairStyle', 'beard'].includes(k)) for (const [v, text] of LOOK_OPTIONS[k]) check(t(`look.${k}.${v}`) === text, `look.${k}.${v}`);
     } finally { await setLang(was); }
+  }));
+  // ---------- SINGLE PLAYER and MULTIPLAYER: the single-player games (src/slots.js, src/ui/singlemenu.js) ----------
+  // (a GitHub of their own, in memory; this browser's IndexedDB under a test account, removed at the end; another computer's, a Map)
+  const fakeGit = () => { const files = new Map(); let n = 0; return { files, getFile: async (a, p) => files.get(p) || null, putFile: async (a, p, bytes) => { const f = { bytes: new Uint8Array(bytes), sha: 's' + ++n }; files.set(p, f); return f.sha; }, deleteFile: async (a, p) => { files.delete(p); } }; };
+  const memDb = () => { const m = new Map(); return { m, get: async (st, k) => m.get(k), put: async (st, v, k) => { m.set(k, v); }, del: async (st, k) => { m.delete(k); } }; };
+  const slotAcc = async (id = `prueba_partidas_${WHO}_${Date.now().toString(36)}`) => { const salt = newSalt(); return { id, name: 'Prueba', salt, key: await deriveKey('clave de prueba', salt), token: null }; };
+  const slotLook = name => ({ player: { name, look: { ...LOOK } } });
+  await test('partidas: each single-player game is its own sealed file; two kept apart; saved and loaded again; removed alone; another computer sees the same; the account file untouched', async () => {
+    const acc = await slotAcc(), git = fakeGit(), io = { db: gameDb, ...git, onUpload: () => {} }, S = makeSlots(io);
+    try {
+      await S.open(acc); check(!S.list().length, 'a new account has games');
+      const a = await S.create(slotLook('Ana')), b = await S.create(slotLook('Bea'));
+      check(a !== b && S.list().length === 2 && git.files.has(slotFile(acc.id, a)) && git.files.has(slotFile(acc.id, b)) && git.files.has(indexFile(acc.id)) && !git.files.has(dataFile(acc.id)), `files: ${[...git.files.keys()]}`);
+      const raw = git.files.get(slotFile(acc.id, a)).bytes; check(isVault(raw) && !new TextDecoder().decode(raw).includes('Ana') && !new TextDecoder().decode(git.files.get(indexFile(acc.id)).bytes).includes('Ana'), 'not sealed');
+      const A0 = await S.load(a); check(A0.save.player.name === 'Ana' && A0.deltas.size === 0 && !('seed' in A0.save) && !A0.save.clock && !A0.save.inventory, 'a new game is not from scratch');
+      const dA = new Map([['3,4', { v: 2, placed: { '50,70': 'mesa' }, tilled: { '51,70': 1 } }]]);
+      await S.store(a, { ...A0.save, money: 5, clock: 900 }, dA, { upload: true });
+      const B1 = await S.load(b); check(B1.deltas.size === 0 && B1.save.money === undefined && B1.save.player.name === 'Bea', 'B got something of A');
+      const A1 = await S.load(a); check(A1.deltas.get('3,4')?.placed['50,70'] === 'mesa' && A1.save.money === 5 && A1.save.clock === 900, 'A lost its world');
+      check(S.list()[0].id === a && S.list()[0].card.money === 5 && S.list()[0].card.player.name === 'Ana', 'the last played first, with its card');
+      await S.store(a, { ...A1.save, money: 9 }, A1.deltas); check((await S.load(a)).save.money === 9, 'saved only here: the newer copy is not the one opened');
+      await S.rename(a, 'Granja'); check(S.get(a).title === 'Granja', 'rename');
+      await S.remove(b);
+      check(S.list().map(x => x.id).join() === a && !git.files.has(slotFile(acc.id, b)) && git.files.has(slotFile(acc.id, a)) && !(await gameDb.get('vaults', `${acc.id}#slot:${b}`)) && (await S.load(a)).save.money === 9, 'removed more than that one');
+      let threw = false; try { await S.load(b); } catch { threw = true; } check(threw, 'the removed one opens');
+      await S.store(a, { ...A1.save, money: 9 }, A1.deltas, { upload: true });
+      // Another computer: only GitHub
+      const S2 = makeSlots({ ...io, db: memDb() }); await S2.open(acc);
+      check(S2.list().length === 1 && S2.get(a)?.title === 'Granja' && (await S2.load(a)).save.money === 9 && (await S2.load(a)).deltas.get('3,4')?.placed['50,70'] === 'mesa', 'another computer');
+      // Another password opens nothing (and writes nothing over)
+      const other = await slotAcc(acc.id), before = git.files.get(indexFile(acc.id)).sha, S3 = makeSlots({ ...io, db: memDb() }); await S3.open(other); check(!S3.list().length && git.files.get(indexFile(acc.id)).sha === before, 'another key');
+      check(!Object.keys(mergeIndex({ slots: { x: { id: 'x', at: 5 } } }, { removed: { x: 3 } }).slots).length && mergeIndex({ slots: { x: { id: 'x', at: 5, title: 'a' } } }, { slots: { x: { id: 'x', at: 6, title: 'b' } } }).slots.x.title === 'b', 'merge');
+      // (the sizes: a new game, the test world as a played one, the index)
+      const sz = async rec => (await seal(acc.key, acc.salt, rec)).length;
+      console.log(`SIZES new=${await sz({ format: 'miniverse-partida', version: 1, id: 'x', save: { ...slotLook('Ana'), savedAt: Date.now() }, deltas: [] })} played=${await sz({ format: 'miniverse-partida', version: 1, id: 'x', save: game.snapshot(), deltas: [...game.world.deltas] })} chunks=${game.world.deltas.size} index=${git.files.get(indexFile(acc.id)).bytes.length}`);
+    } finally { S.close(); await gameDb.delPrefix('vaults', `${acc.id}#`).catch(() => {}); }
+  });
+  await test('partidas: the local world of before becomes a game, once; an old version playing it again is brought in; nothing is lost; the account file keeps it', async () => {
+    const acc = await slotAcc(), git = fakeGit(), S = makeSlots({ db: gameDb, ...git, onUpload: () => {} });
+    try {
+      await S.open(acc);
+      const T0 = Date.now() - 100000, old = { save: { ...slotLook('Vieja'), money: 42, savedAt: T0 }, deltas: [['1,1', { v: 2, placed: { '20,20': 'cofre' } }]] };
+      const id = await S.migrate(old), g = await S.load(id);
+      check(id && S.list().length === 1 && g.save.money === 42 && g.deltas.get('1,1')?.placed['20,20'] === 'cofre' && S.get(id).savedAt === T0 && git.files.has(slotFile(acc.id, id)), 'migrated');
+      check(await S.migrate(old) === null && S.list().length === 1, 'twice');
+      const S2 = makeSlots({ db: memDb(), ...git }); await S2.open(acc); check(await S2.migrate(old) === null && S2.list().length === 1, 'another computer brings it again');
+      // an old version plays it again (data.local newer), this one had not: the same game goes on with it
+      const old2 = { save: { ...old.save, money: 50, savedAt: T0 + 1000 }, deltas: old.deltas };
+      check(await S.migrate(old2) === id && S.list().length === 1 && (await S.load(id)).save.money === 50, 'the old version\'s play');
+      // both played it: another game, nothing lost
+      await S.store(id, { ...(await S.load(id)).save, money: 60 }, new Map(old.deltas));
+      const old3 = { save: { ...old.save, money: 70, savedAt: Date.now() + 5 }, deltas: [] }, id3 = await S.migrate(old3);
+      check(id3 && id3 !== id && S.list().length === 2 && (await S.load(id)).save.money === 60 && (await S.load(id3)).save.money === 70, 'both played it');
+      await S.remove(id3); check(await S.migrate(old3) === null && S.list().length === 1, 'a removed one comes back');
+      check(await S.migrate(null) === null && await S.migrate({ save: null }) === null, 'without a local world');
+      // (the account file, the shared world's character: the same format as before, and it keeps the local world for an old version)
+      const src = await (await fetch('./src/accounts.js')).text(); check(src.includes('...(data?.local ? { local: data.local } : {})') && !src.includes('storeLocal(') && !git.files.has(dataFile(acc.id)), 'the account file');
+    } finally { S.close(); await gameDb.delPrefix('vaults', `${acc.id}#`).catch(() => {}); }
+  });
+  await test('menu (english): single player: NEW GAME and LOAD GAME with the keys and the mouse in both languages; the cards; delete asks (held) and removes only that one; rename; the empty list', () => keepMenus(async $ => {
+    const was = getLang(), own = { singles: Profile.singles, remove: Profile.removeSingle, rename: Profile.renameSingle, open: Profile.openSingle }, M = game.mainMenu;
+    let games = [], removed = [], renamed = [];
+    const sel = l => { const e = document.querySelector(`#${l} .sel`); return e?.dataset.id || e?.id; }, rows = () => [...document.querySelectorAll('#sv-list .sv-row')], ids = () => rows().map(r => r.dataset.id).join();
+    Profile.singles = () => games.slice().sort((a, b) => b.savedAt - a.savedAt);
+    Profile.removeSingle = async id => { removed.push(id); games = games.filter(g => g.id !== id); return true; };
+    Profile.renameSingle = async (id, title) => { renamed.push([id, title]); games = games.map(g => (g.id === id ? { ...g, title } : g)); return true; };
+    Profile.openSingle = () => new Promise(() => {});
+    try {
+      for (const lang of ['en', 'es']) {
+        await setLang(lang);
+        games = [menuGame({ savedAt: Date.now() - 3e5 }, 'g1'), menuGame({ player: { name: 'Bo', look: { ...LOOK } }, money: 5, savedAt: Date.now() - 1000 }, 'g2'), menuGame({ player: { name: 'Cy', look: { ...LOOK } }, savedAt: Date.now() - 864e5 * 2 }, 'g3')]; removed = []; renamed = [];
+        $('s-menu').classList.add('show'); M.open(); M.use(null, Profile.singles()[0]); check(menuSel() === 'm-single', 'SINGLE PLAYER first');
+        pauseKey('Enter'); check(FE.active() === 's-single' && $('s-single').classList.contains('show') && !$('s-menu').classList.contains('show'), `${lang}: SINGLE PLAYER does not open`);
+        check($('sg-new').textContent === t('gui.single.new') && $('sg-load').textContent === t('gui.single.load') && $('s-single').querySelector('.sg-title').textContent === t('gui.single.title') && sel('sg-list') === 'sg-load' && $('sg-desc').textContent === t('gui.single.desc.load', { n: 3, name: 'Bo', when: whenText(games[1].savedAt) }), `the screen: ${sel('sg-list')} ${$('sg-desc').textContent}`);
+        pauseKey('ArrowUp'); check(sel('sg-list') === 'sg-new' && $('sg-desc').textContent === t('gui.single.desc.new'), 'up');
+        pauseKey('Escape'); check(FE.active() === 's-menu' && menuSel() === 'm-single' && $('s-menu').classList.contains('show'), 'Esc');
+        $('m-single').click(); check(FE.active() === 's-single', 'a click'); $('sg-close').click(); check(FE.active() === 's-menu', '✕');
+        $('m-single').click(); $('sg-load').click(); check(FE.active() === 's-saves' && $('s-saves').classList.contains('show'), 'LOAD GAME with the mouse');
+        check(ids() === 'g2,g1,g3' && sel('sv-list') === 'g2' && $('sv-empty').hidden, `order: ${ids()}`);
+        const r0 = rows()[0], sub = r0.querySelector('.sv-sub').textContent;
+        check(r0.querySelector('.sv-name').textContent === 'Bo' && sub.includes(t('gui.pause.money', { n: 5 })) && sub.includes(dayLine(games[1].card, true)) && r0.querySelector('.sv-when').textContent === t('gui.menu.card.saved', { when: whenText(games[1].savedAt) }), r0.textContent);
+        check(!/(gui|look|nature)\.[a-z]/.test($('s-saves').textContent + $('sv-legend').textContent + $('s-single').textContent) && $('sv-legend').textContent.includes(t('gui.saves.delete')), 'a raw key');
+        let px = 0; for (let i = 0; i < 80 && !px; i++) { await sleep(100); px = r0.querySelector('canvas').getContext('2d').getImageData(30, 30, 36, 36).data.filter((v, k) => k % 4 === 3 && v > 200).length; } check(px > 50, 'no face');
+        pauseKey('ArrowDown'); check(sel('sv-list') === 'g1', 'down');
+        // Delete: it asks; Esc says no; a tap of Enter is not enough; held, only that one goes
+        pauseKey('KeyX'); await sleep(30); check(FE.active() === 'fe-alert' && $('fe-alert-text').textContent === t('gui.saves.delete_text', { name: 'Lia' }), 'it does not ask');
+        pauseKey('Escape'); await sleep(220); check(FE.active() === 's-saves' && !removed.length && rows().length === 3, 'Esc removes');
+        pauseKey('Delete'); await sleep(30); check(FE.active() === 'fe-alert', 'Delete does not ask'); pauseKey('Enter'); await sleep(200); check(FE.active() === 'fe-alert' && !removed.length, 'a tap removes');
+        pauseKey('Enter', { held: true }); await sleep(1100); dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+        check(removed.join() === 'g1' && ids() === 'g2,g3' && FE.active() === 's-saves' && sel('sv-list') === 'g3', `removed: ${removed} ${ids()} ${FE.active()}`);
+        rows()[1].querySelector('.sv-del').click(); await sleep(30); check(FE.active() === 'fe-alert', 'the bin does not ask'); pauseKey('Escape'); await sleep(220); check(rows().length === 2, 'the bin removed');
+        // Rename: R, written in its card; Enter keeps it, Esc does not
+        pauseKey('KeyR'); let inp = document.querySelector('#sv-list .sv-input'); check(inp && document.activeElement === inp && inp.value === 'Cy', 'rename');
+        inp.value = 'Granja'; inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })); await sleep(60);
+        const rg = rows().find(r => r.dataset.id === 'g3'); check(JSON.stringify(renamed) === '[["g3","Granja"]]' && rg.querySelector('.sv-name').textContent === 'Granja' && rg.querySelector('.sv-who')?.textContent === 'Cy' && FE.active() === 's-saves', `renamed ${JSON.stringify(renamed)}`);
+        pauseKey('KeyR'); inp = document.querySelector('#sv-list .sv-input'); inp.value = 'Otra'; pauseKey('Escape'); await sleep(60); check(renamed.length === 1 && FE.active() === 's-saves' && !document.querySelector('#sv-list .sv-input'), 'Esc renames, or leaves');
+        pauseKey('Escape'); check(FE.active() === 's-single' && sel('sg-list') === 'sg-load', 'back to SINGLE PLAYER');
+        // Empty: a line and NEW GAME, which opens the creator; and back
+        games = []; $('sg-load').click(); check(!$('sv-empty').hidden && $('sv-empty').textContent === t('gui.saves.empty') && document.querySelectorAll('#sv-list .row').length === 1 && $('sv-new').textContent === t('gui.single.new'), 'empty');
+        pauseKey('Enter'); check(FE.active() === 's-creator', 'NEW GAME from the empty list'); pauseKey('Escape'); check(FE.active() === 's-single' && sel('sg-list') === 'sg-new' && $('sg-desc').textContent === t('gui.single.desc.new'), `back from the creator: ${FE.active()}`);
+        pauseKey('ArrowDown'); check($('sg-desc').textContent === t('gui.single.desc.load_none'), 'no games');
+        pauseKey('ArrowUp'); pauseKey('Enter'); check(FE.active() === 's-creator' && $('cr-name').value === (Profile.name || ''), 'NEW GAME'); pauseKey('Escape');
+        pauseKey('Escape'); check(FE.active() === 's-menu' && menuSel() === 'm-single', 'back to the menu');
+      }
+    } finally { Object.assign(Profile, { singles: own.singles, removeSingle: own.remove, renameSingle: own.rename, openSingle: own.open }); await setLang(was); }
+  }));
+  await test('partidas: NEW GAME through the creator is a fresh world with the same seed, nothing of the game played before; playing saves into its game; two kept apart; quit and load again; the shared world is not written', () => keepMenus(async $ => {
+    const acc = await slotAcc(), git = fakeGit(), S = makeSlots({ db: gameDb, ...git, onUpload: () => {} }), M = game.mainMenu;
+    const own = { singles: Profile.singles, newSingle: Profile.newSingle, open: Profile.openSingle, store: Profile.storeSingle, admin: Object.getOwnPropertyDescriptor(Profile, 'admin') };
+    const snap0 = JSON.stringify(game.snapshot()), deltas0 = JSON.stringify([...w().deltas]); let shared = 0;
+    Object.assign(Profile, { singles: () => S.list(), newSingle: (s, o) => S.create(s, o), openSingle: id => S.load(id), storeSingle: (...a) => S.store(...a) });
+    Profile.store = async () => { shared++; return { local: true, remote: null }; };
+    const started = async () => { for (let i = 0; i < 100 && (FE.active() || !game.player || $('s-creator').classList.contains('show')); i++) await sleep(50); await S.whenIdle(); };
+    const near = () => { const out = [], x = p().x | 0, y = p().y | 0; for (let r = 2; r < 7; r++) for (const [dx, dy] of [[r, 0], [0, r], [-r, 0], [0, -r], [r, r], [-r, -r]]) out.push([x + dx, y + dy]); return out; };
+    const newGame = async name => { game.end(); game.toMainMenu(); M.focus('m-single'); pauseKey('Enter'); game.singleMenu.list.focusId('sg-new'); pauseKey('Enter'); check(FE.active() === 's-creator', `the creator: ${FE.active()}`); $('cr-name').value = name; $('cr-start').click(); await started(); };
+    try {
+      await S.open(acc);
+      const [tx, ty] = freeTile(game, near()); w().place(tx, ty, 'cofre'); game.money = 4321;
+      check(w().deltas.has(`${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`), 'the chest of before');
+      await newGame('Nueva');
+      const A = S.list()[0]?.id;
+      check(A && S.list().length === 1 && game.player.name === 'Nueva' && w().seed === WORLD_SEED && game.live.amOp, `not the new game: ${game.player?.name}`);
+      check(game.money === 100 && !w().chestAt(tx, ty) && ![...w().deltas.values()].some(d => d.placed?.[`${tx},${ty}`]), `not a fresh world: ${game.money} ${[...w().deltas.keys()]}`);
+      check(S.get(A).card.player.name === 'Nueva' && git.files.has(slotFile(acc.id, A)), 'it is not saved into its game at once');
+      const [ax, ay] = freeTile(game, near()); w().place(ax, ay, 'cofre'); w().chestAt(ax, ay)[0] = { id: 'piedra', n: 4 }; game.money = 123;
+      dispatchEvent(new Event('pagehide')); await sleep(50); await S.whenIdle();
+      const sA = await S.load(A); check(sA.save.money === 123 && sA.deltas.size > 0, 'playing does not save into its game');
+      await newGame('Otra');
+      const B = S.list()[0]?.id; check(B && B !== A && S.list().length === 2 && game.player.name === 'Otra' && !w().chestAt(ax, ay) && !w().chestAt(tx, ty) && game.money === 100, 'the second game is not from scratch');
+      // Load A again: as it was left; B untouched by it
+      game.end(); game.toMainMenu(); M.focus('m-single'); pauseKey('Enter'); game.singleMenu.list.focusId('sg-load'); pauseKey('Enter'); check(FE.active() === 's-saves' && document.querySelectorAll('#sv-list .sv-row').length === 2, 'LOAD GAME');
+      document.querySelector(`#sv-list .sv-row[data-id="${A}"]`).click(); await started();
+      check(game.player.name === 'Nueva' && game.money === 123 && w().chestAt(ax, ay)?.[0]?.n === 4, `A is not as it was: ${game.player?.name} ${game.money}`);
+      const sB = await S.load(B); check(![...sB.deltas.values()].some(d => d.chest?.[`${ax},${ay}`] || d.chest?.[`${tx},${ty}`]) && sB.save.money === 100, 'B got A\'s chest');
+      check(shared === 0, `the shared world was written ${shared} times`);
+    } finally {
+      Object.assign(Profile, { singles: own.singles, newSingle: own.newSingle, openSingle: own.open, storeSingle: own.store }); if (own.admin) Object.defineProperty(Profile, 'admin', own.admin);
+      game.end(); game.toMainMenu(); game.start(JSON.parse(snap0), new Map(JSON.parse(deltas0))); game.onSave = null; S.close(); await gameDb.delPrefix('vaults', `${acc.id}#`).catch(() => {}); await readyGround(game, 8000);
+    }
   }));
   await test('menu (english): frontend: a first screen is not left with Esc and lets the keys go when out of sight; hidden rows and tabs are skipped', async () => {
     const box = document.createElement('div'), T2 = document.createElement('div'), L2 = document.createElement('div'); box.id = 'fe-test-root'; box.className = 'show'; box.append(T2, L2); document.body.append(box);

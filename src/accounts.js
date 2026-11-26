@@ -23,6 +23,7 @@ import { gameData } from './share.js';
 import { GAME_REPO, DATA_REPO, readAccounts, getFile, putFile, deleteFile, canWrite, fileHistory, tokenExpiry } from './github.js';
 import { dataFile, keyFile, toB64, fromB64, newSalt, deriveKey, encryptText, decryptText, seal, unseal, inviteCode, normalizeCode } from './vault.js';
 import { WorldKey, keysFile, WORLD_FILE } from './worldkey.js';
+import { makeSlots, indexFile } from './slots.js';
 import { t } from './i18n.js';
 
 export const ADMIN_ID = 'alberto';
@@ -59,6 +60,15 @@ function uploaded(which, error = null) {
   if (before !== u.fails) Profile.onSync?.(Profile.syncState());
 }
 const resetUploads = () => { for (const u of Object.values(uploads)) Object.assign(u, { fails: 0, since: 0, at: 0, error: null, okAt: 0 }); };
+// The single-player games of the account (slots.js): each one its own sealed file, apart from the account's. Their uploads count
+// as the game's (the notice when GitHub fails twice)
+const Slots = makeSlots({
+  db,
+  getFile: (a, path) => getFile(a.token, DATA_REPO, path),
+  putFile: (a, path, bytes, message, sha) => putFile(a.token, DATA_REPO, path, bytes, message, sha),
+  deleteFile: (a, path) => deleteFile(a.token, DATA_REPO, path),
+  onUpload: e => uploaded('game', e),
+});
 
 // El mundo compartido va cifrado con la clave del mundo (AES-GCM): 12 bytes al azar y luego lo cifrado
 async function sealWorld(key, world) {
@@ -111,6 +121,9 @@ async function opened(upload) {
   changed = false; renewing = null; worldKeyError = '';
   resetUploads();
   await Profile.persist({ upload });
+  // The single-player games: their index, and the local world of before as one of them (it stays in data.local too, for an old
+  // version). If it cannot be done now, the next login tries again; the login goes on
+  try { await Slots.open(me); if (data?.local) await Slots.migrate(data.local); } catch (e) { console.warn('Partidas individuales:', e); }
   // La clave del mundo compartido. El admin, además, pone al día las cuentas (pasa a accounts.json las que ya
   // tienen contraseña y da la clave del mundo a quien no la tenga) al entrar y cada pocos minutos
   worldKey = openWorldKey();
@@ -255,7 +268,7 @@ export const Profile = {
   // Solo el admin: lo que necesita el mundo del servidor (la clave del mundo y su token), o null si aún no la tiene
   serverSecrets() { const raw = WorldKey.raw(); return me?.admin && raw ? { key: toB64(raw), token: me.token } : null; },
 
-  logout() { clearTimeout(keyRetry); me = null; data = null; damaged = null; renewing = null; worldKeyError = ''; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); worldSha = undefined; worldUploaded = 0; resetUploads(); },
+  logout() { clearTimeout(keyRetry); Slots.close(); me = null; data = null; damaged = null; renewing = null; worldKeyError = ''; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); worldSha = undefined; worldUploaded = 0; resetUploads(); },
 
   // ---------- La partida de GitHub que no se abre ----------
   // Busca en el historial de GitHub la versión más reciente que sí se abre (de las 30 últimas subidas). Devuelve { at } o
@@ -312,18 +325,24 @@ export const Profile = {
 
   // Guarda la partida: cifrada en este ordenador siempre y en GitHub si se pide (o si hace rato de la última)
   store(save, deltas, { upload = false } = {}) {
-    data = { format: 'pueblo-brotes', version: 1, exportedAt: new Date().toISOString(), save: save && { ...save, savedAt: Date.now() }, deltas: [...deltas], ...(data?.local ? { local: data.local } : {}) };   // (el mundo local, si lo hay, sigue con la partida)
+    // (the local world of before, if there is one, stays with it: an old version still plays it; this one has it as a single-player
+    // game: slots.js)
+    data = { format: 'pueblo-brotes', version: 1, exportedAt: new Date().toISOString(), save: save && { ...save, savedAt: Date.now() }, deltas: [...deltas], ...(data?.local ? { local: data.local } : {}) };
     changed = true;
     return this.persist({ upload });
   },
-  // El mundo local de la cuenta («Jugar en local»): una partida aparte, con su personaje y su mundo, que no es el de
-  // todos ni pasa por el servidor. Va en la misma partida guardada de la cuenta (data.local: { save, deltas }), así
-  // que se guarda igual: cifrada en este ordenador y en GitHub, solo con esta cuenta
-  storeLocal(save, deltas, { upload = false } = {}) {
-    data = { ...(data || emptyData()), exportedAt: new Date().toISOString(), local: { save: { ...save, savedAt: Date.now() }, deltas: [...deltas] } };
-    changed = true;
-    return this.persist({ upload });
-  },
+  // ---------- Single-player games (SINGLE PLAYER in the main menu: slots.js) ----------
+  // Each one, a character with its own world, without the server: [{ id, title, card, savedAt }], the last played first
+  singles() { return me && !me.server ? Slots.list() : []; },
+  // A new one (a character just made, its world from scratch): its id
+  newSingle(save, { upload = true } = {}) { return Slots.create(save, { upload }); },
+  // Opens one: { save, deltas } (throws if it cannot)
+  openSingle(id) { return Slots.load(id); },
+  // Saves the one being played: on this computer always, on GitHub if asked or if it has been a while. { local, remote }
+  storeSingle(id, save, deltas, { upload = false } = {}) { return Slots.store(id, save, deltas, { upload }); },
+  renameSingle(id, title) { return Slots.rename(id, title); },
+  // Removes it here and on GitHub (it cannot be undone from the game)
+  removeSingle(id) { return Slots.remove(id); },
   // Devuelve { local, remote } (remote: true si se ha subido, false si falló y null si no tocaba)
   persist({ upload = false } = {}) {
     const run = async () => {
@@ -373,6 +392,7 @@ export const Profile = {
     await deleteFile(me.token, DATA_REPO, dataFile(id));
     await deleteFile(me.token, DATA_REPO, keyFile(id));
     await deleteFile(me.token, DATA_REPO, keysFile(id));
+    await deleteFile(me.token, DATA_REPO, indexFile(id));   // (its single-player games' files cannot be listed from here: they stay, sealed)
     return acc.name;
   },
   async list() {

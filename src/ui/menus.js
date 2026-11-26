@@ -26,6 +26,7 @@ import { showUpdateNotice, updateNoticeOpen } from './update.js';
 import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings } from './savesafety.js';
 import { FE, alertBox, initMenuSounds, tabStrip, list, optionRow, legend, paneNav } from './frontend.js';
 import { initMainMenu, initCredits, dateText, versionText } from './mainmenu.js';
+import { initSingleMenu } from './singlemenu.js';
 import { KeyArt } from './keyart.js';
 import { initLoading } from './loading.js';
 import { initPauseHub } from './pausehub.js';
@@ -35,7 +36,7 @@ import { t, fmt, LANGS, getLang, onLangChange, applyDom, setAccountLang, account
 
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-credits', 's-pause', 's-shop', 's-settings'];
+const SCREENS = ['s-login', 's-menu', 's-single', 's-saves', 's-account', 's-creator', 's-credits', 's-pause', 's-shop', 's-settings'];
 const AUTOSAVE_MS = 15000;
 const CHEST_REACH = 4;   // (lo que se puede alejar uno de un cofre abierto)
 const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
@@ -44,15 +45,12 @@ const PUBLISHED_FRESH = 2 * 60000;   // al entrar en el mundo, lo mirado hace me
 const EXPIRY_EVERY = 60 * 60000;     // cada cuánto se mira si el permiso de guardado va a caducar (si se sabe cuándo)
 const KEY_CODE_SEEN = 'pueblo-brotes:llave-codigo';   // (el número de la llave del mundo cuyo código ya ha visto el admin)
 
-// Lo de la partida que es del mundo (y los ajustes): se conserva al empezar con un personaje nuevo. Lo demás
-// (lo que llevas, dinero, habilidades, recetas, amistades, logros, estadísticas…) es del personaje y se borra
-const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'worldAt', 'cam3d', 'volumes'];
 
 export function initMenus(game) {
   let wins = null;   // (las ventanas de la partida: se hacen más abajo)
   let hub = null;    // (the pause: src/ui/pausehub.js; made below)
   let settingsUI = null;   // (the settings: src/ui/settings.js; made below)
-  let menu = null, credits = null;   // (the main menu and its credits: src/ui/mainmenu.js; made below)
+  let menu = null, credits = null, single = null;   // (the main menu, its credits and SINGLE PLAYER: src/ui/mainmenu.js, singlemenu.js; made below)
   game.closeWindows = () => wins?.closeAll();   // (an arrest: law.js)
   const loading = game.loading = initLoading(game);   // (the loading screen: src/ui/loading.js)
   const opened = {};   // what each front screen does when it is put in sight: it takes the keys (frontend.js)
@@ -60,6 +58,7 @@ export function initMenus(game) {
     if (id !== 's-pause') hub?.shut();
     if (id !== 's-settings') settingsUI?.shut();
     if (id !== 's-credits') credits?.shut();
+    if (id !== 's-single' && id !== 's-saves') single?.shut();
     if (id === 's-login' || id === 's-menu') { wins?.closeAll(); loading.abort(); }
     SCREENS.forEach(s => $(s).classList.toggle('show', s === id));
     document.body.classList.toggle('playing', !id);
@@ -235,14 +234,15 @@ export function initMenus(game) {
     if (d.localAt === null && d.found === null) button(t('gui.login.damaged.empty'), async () => { if (await alertBox({ title: t('gui.alert.empty_title'), text: t('gui.alert.empty_text') })) await use('empty'); });
   }
 
-  // ---------- Menú principal ----------
-  // Solo hay un mundo, el de todos: con personaje se continúa la partida (en el mundo compartido; los demás, con
-  // el servidor abierto, aunque el admin no esté) o se empieza otra con un personaje nuevo (avisando de que el de
-  // ahora se borra). Sin personaje, se crea.
+  // ---------- Main menu ----------
+  // SINGLE PLAYER: the account's own games, each a character with its own world, without the server (singlemenu.js, slots.js).
+  // MULTIPLAYER: the one shared world, with your one character there (the others, with the server open, even without the admin);
+  // without a character yet, the creator first. The shared world's character is never removed from the menu, nor is there
+  // another shared world to make.
   let currentSave = null;
   let entering = 0;   // (which entering this is: one left half done, or that failed, does nothing more)
   function openMenu() {
-    localMode = false; live.local = false;
+    localMode = false; slotId = null; live.local = false;
     // (si se sale a medias de algo a oscuras, un /tp lejos o al reaparecer, que el menú no se quede tapado: al volver a
     // jugar, play lo vuelve a tapar, y el salto viejo ya no destapa nada: ver Game.coverJump)
     $('fade').classList.remove('on');
@@ -251,7 +251,7 @@ export function initMenus(game) {
     useAccent(currentSave);
     $('menu-msg').textContent = '';
     menu.busy(false);   // (al volver de jugar; sin servidor, los demás no pueden: lo dice paintLive)
-    menu.use(currentSave, Profile.data?.local?.save || null);
+    menu.use(currentSave, Profile.singles()[0] || null);
     show('s-menu');
     if (loading.enabled) KeyArt.preload();
     paintLive();
@@ -261,28 +261,44 @@ export function initMenus(game) {
   menu = game.mainMenu = initMainMenu({ pick: id => MENU[id]?.() });
   credits = initCredits({ onClose: () => { if (!hub?.isOpen) backToMenu('m-credits'); } });   // (from the pause, over it: pausehub.js)
   opened['s-menu'] = () => menu.open();
+  game.toMainMenu = () => openMenu();   // (the tests)
   function backToMenu(id) { show('s-menu'); menu.focus(id); paintLive(); }
   const MENU = {
-    'm-continue': () => { if (currentSave) enter(); },
-    'm-local': playLocal,
-    'm-new': newCharacter,
+    'm-single': () => openSingle(),
+    // (with your character there, in; the first time, the creator. There is no other way to the creator for the shared world)
+    'm-multi': () => { currentSave = Profile.data?.save || null; if (currentSave) enter(); else openCreator('multi'); },
     'm-settings': () => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); show('s-settings'); settingsUI.openScreen(); },
     'm-credits': () => { show('s-credits'); credits.open(); },
     'm-session': () => logOut(),
   };
-  // Jugar en local: un mundo solo tuyo, sin servidor ni nadie más, guardado con tu cuenta (Profile.storeLocal). Es una
-  // partida aparte: su personaje empieza de cero con el nombre y el aspecto del tuyo, y lo que hagas allí no pasa al
-  // mundo de todos (ni al revés). En él eres op: puedes usar los comandos
-  let localMode = false;
-  function playLocal() {
-    const loc = Profile.data?.local;
-    if (!loc?.save && !currentSave) { $('menu-msg').textContent = t('gui.menu.local.need_character'); return; }
-    live.close();   // (fuera del servidor mientras se juega en local; al volver al menú se busca otra vez)
-    const data = loc?.save || { player: { name: currentSave.player.name, look: { ...currentSave.player.look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
-    $('menu-msg').textContent = t('gui.menu.local.opening');
-    localMode = true; live.local = true;
+  // ---------- SINGLE PLAYER ----------
+  // A single-player game: a world of your own, without the server or anybody else, saved with your account
+  // (Profile.storeSingle: its own file, slots.js). Nothing passes between it and the shared world or the other games. In it you
+  // are op: the commands are yours. slotId: the one being played
+  let localMode = false, slotId = null;
+  single = game.singleMenu = initSingleMenu({
+    show, games: () => Profile.singles(),
+    onNew: () => openCreator('single'),
+    onLoad: id => playSingle(id),
+    onRemove: id => Profile.removeSingle(id),
+    onRename: (id, title) => Profile.renameSingle(id, title),
+    onClose: () => backToMenu('m-single'),
+  });
+  opened['s-single'] = () => single.open();
+  function openSingle(at = null) { show('s-single'); single.open(at); }
+  // Opens one (ready: { save, deltas } of a game just made, without reading it back)
+  async function playSingle(id, ready = null) {
     const mine = ++entering;
-    loading.show(data).then(() => { if (mine === entering) play(data, new Map(loc?.deltas || []), null, null); });
+    single.say(t('gui.single.opening'));
+    let g = ready;
+    try { g ||= await Profile.openSingle(id); } catch (e) {
+      if (mine === entering) single.say(t('gui.single.open_failed', { why: e.message === 'damaged' ? t('gui.single.damaged') : /^(missing|no such game)$/.test(e.message) ? t('gui.single.missing') : e.message }));
+      return;
+    }
+    if (mine !== entering) return;
+    live.close();   // (out of the server while playing alone; back in the menu it is looked for again)
+    localMode = true; slotId = id; live.local = true;
+    loading.show(g.save).then(() => { if (mine === entering) play(g.save, g.deltas, null, null); });
   }
   // Entrar en el mundo: si alguien lo lleva, en el suyo; si no, lo lleva tu juego (con el servidor abierto, los
   // demás entran contigo). Sin servidor solo puede jugar el admin. En tu partida se guarda lo tuyo; el mundo, quien
@@ -343,7 +359,7 @@ export function initMenus(game) {
     live.unclaim();
     loading.abort();
     $('menu-msg').textContent = '';
-    menu.busy(false); menu.focus('m-continue'); paintLive();
+    menu.busy(false); menu.focus('m-multi'); paintLive();
   }
   // El mundo compartido como lo guardó la última vez quien lo llevaba. El admin, si el de su partida es más
   // reciente (o aún no se ha guardado aparte), juega con ese: null
@@ -498,11 +514,6 @@ export function initMenus(game) {
     const v = await publishedNewer();
     if (v && v !== told) { told = v; outdatedNotice(v, true); }   // (una vez por versión: luego, al ir a entrar)
   }, PUBLISHED_EVERY);
-  // Nueva partida: antes, un aviso (se borra el personaje de ahora; el mundo, no). Sin personaje, al creador
-  async function newCharacter() {
-    if (!currentSave) { openCreator(); return; }
-    if (await alertBox({ title: t('gui.alert.new_title'), text: t('gui.menu.new_game_warning'), yes: t('gui.menu.new_game_confirm'), no: t('common.cancel') }) && $('s-menu').classList.contains('show')) openCreator(true);
-  }
   initMenuSounds(['s-login', 's-account', 's-creator', 'st-account']);
   // (a button clicked with the mouse does not keep the focus: Enter is still the screen's)
   for (const id of ['s-login', 's-creator']) $(id).addEventListener('click', e => { const b = e.target instanceof Element && e.target.closest('button'); if (e.detail && b) b.blur(); });
@@ -772,29 +783,38 @@ export function initMenus(game) {
     if (barber && p?.pose?.kind === 'sit') game.rest.stand();   // (up from the chair)
     resume();
   };
-  const leaveCreator = () => { if (mirror) closeMirror(false); else { openMenu(); menu.focus('m-new'); } };
+  const leaveCreator = () => { if (mirror) closeMirror(false); else if (creatorFor === 'single') openSingle('sg-new'); else { openMenu(); menu.focus('m-multi'); } };
   $('cr-back').onclick = leaveCreator;
   $('cr-start').onclick = async () => {
     if (mirror) { closeMirror(true); return; }
     const name = nameIn.value.trim();
     if (!name) { $('cr-err').textContent = t('gui.creator.need_name'); return; }
-    // Un personaje nuevo empieza de cero; si ya había partida, el mundo (y los ajustes) se quedan como estaban
-    const keep = currentSave && fresh ? Object.fromEntries(WORLD_KEYS.filter(k => k in currentSave).map(k => [k, currentSave[k]])) : {};
-    const deltas = currentSave && fresh ? new Map(Profile.data.deltas) : new Map();
-    const save = { ...keep, player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, lang: savedLang(), ...(colour !== null && { ui: { accent: colour } }) };
-    await Profile.store(save, deltas, { upload: true });
-    fresh = false;
+    // A new character starts from scratch
+    const save = { player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, lang: savedLang(), ...(colour !== null && { ui: { accent: colour } }) };
+    // SINGLE PLAYER: a new game, with its world from scratch (the same map: nothing of any other game), and into it
+    if (creatorFor === 'single') {
+      if (creating) return;
+      creating = true;
+      let id;
+      try { id = await Profile.newSingle(save, { upload: false }); } catch (e) { $('cr-err').textContent = e.message; return; } finally { creating = false; }   // (it goes up to GitHub as the game starts: play)
+      if (!creatorOpen()) return;
+      playSingle(id, { save: { ...save }, deltas: new Map() });
+      return;
+    }
+    // MULTIPLAYER, the first time: your character in the shared world (the world is the one there is)
+    await Profile.store(save, new Map(), { upload: true });
     // Se entra en el mundo; sin servidor, los demás dejan el personaje listo para cuando esté abierto
     openMenu();
     if (Profile.admin || live.status === 'on') enter();
     else $('menu-msg').textContent = t('gui.menu.ready', { admin: ADMIN_NAME });
   };
 
-  let fresh = false;   // (empezando de nuevo con un personaje nuevo, aunque ya hubiera uno)
-  function openCreator(again = false) {
+  // for: 'single' (a new single-player game) or 'multi' (your character in the shared world, the first time)
+  let creatorFor = null, creating = false;
+  function openCreator(forWhat = 'multi') {
     if (mirror) leaveMirror();
-    fresh = again;
-    nameIn.value = again ? Profile.name || '' : currentSave?.player.name || Profile.name || '';
+    creatorFor = forWhat;
+    nameIn.value = Profile.name || '';
     colour = Number.isInteger(currentSave?.ui?.accent) ? currentSave.ui.accent : null;   // (yours: a new character keeps it, unless another is chosen)
     $('cr-err').textContent = '';
     spin = 0;
@@ -830,7 +850,7 @@ export function initMenus(game) {
   };
   const saveNow = async ({ upload = false, world = true } = {}) => {
     if (!game.player || !Profile.id) return { local: false, remote: null };
-    if (localMode) return Profile.storeLocal(game.snapshot(), game.world.deltas, { upload });   // (el mundo local: aparte, solo con tu cuenta)
+    if (localMode) return Profile.storeSingle(slotId, game.snapshot(), game.world.deltas, { upload });   // (a single-player game: its own file, slots.js)
     const snap = game.snapshot(), deltas = game.world.deltas, hosting = world && !live.guest && (live.role === 'host' || Profile.admin);
     if (hosting && game.worldSaving !== false) Profile.storeWorld(live.worldOf(snap, deltas), { upload });   // (/save-off en el terminal lo para)
     // (si el mundo lo lleva otro o vienes de fuera, en tu partida se guarda lo tuyo, con tu mundo de siempre)
@@ -933,7 +953,7 @@ export function initMenus(game) {
     },
   };
   settingsUI = initSettingsUI({
-    onClose: () => { flushSave(); if (!game.player) menu.use(currentSave, Profile.data?.local?.save || null, 'm-settings'); backToMenu('m-settings'); },
+    onClose: () => { flushSave(); if (!game.player) menu.use(currentSave, Profile.singles()[0] || null, 'm-settings'); backToMenu('m-settings'); },
     accent,
     // (Guardado en GitHub: cómo va, el token del admin y la llave del mundo; al recuperarla, se vuelve a conectar con ella)
     extra: (box, head) => {
