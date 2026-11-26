@@ -58,6 +58,7 @@ export function modelMats() {
     pot: c('#b8643c', { roughness: 0.8 }), soil: c('#4a3020'), leaf: c('#4f9a3a', { flatShading: true }), leafD: c('#3f7a2e', { flatShading: true }),
     rug: mat({ map: rug(), roughness: 1 }), brass: c('#c89a48', { metalness: 0.7, roughness: 0.35 }), iron: c('#3a3634', { metalness: 0.55, roughness: 0.45 }), steel: c('#8a929a', { metalness: 0.7, roughness: 0.3 }),
     gold: c('#f0c840', { metalness: 0.8, roughness: 0.25 }), copper: c('#c8743a', { metalness: 0.6, roughness: 0.4 }),
+    horn: c('#d9c7a2', { roughness: 0.45 }), hornTip: c('#3e3026', { roughness: 0.4 }),   // (Paco's hunting horn: the horn's ivory and its dark point)
     candle: c('#fff4dc', { roughness: 0.8 }), shade: c('#f4dca0', { emissive: '#ffb860', emissiveIntensity: 0.6, roughness: 0.9, side: THREE.DoubleSide }),
     books: ['#a83a32', '#3a5aa0', '#3f8a44', '#d8a83a', '#7a4aa0', '#e0e0d0'].map(x => c(x, { roughness: 0.8 })),
     red: c('#c83a32'), white: c('#f0ece4'), straw: c('#e0c060', { roughness: 1 }), hay: c('#d8b860', { roughness: 1 }), rope: c('#c8a870'),
@@ -1279,7 +1280,27 @@ function painting(m, art, frame) {
   m.box(frame, -x, y0, z0, -x + b, y1, z1).box(frame, x - b, y0, z0, x, y1, z1).box(frame, -x + b, y0, z0, x - b, y0 + b, z1).box(frame, -x + b, y1 - b, z0, x - b, y1, z1);
   m.B(art).quadN([-x + b, y0 + b, z], [x - b, y0 + b, z], [x - b, y1 - b, z], [-x + b, y1 - b, z], [0, 0, 1], [[0, 0], [1, 0], [1, 1], [0, 1]]);
 }
+// Paco's hunting horn (Plan R3-4): an old cow's horn, ivory with a dark point and a brass mouthpiece and bands, on a leather
+// strap, hung from an oak plate on the wall (its back at z = -0.05, like the paintings)
+function huntingHorn(m) {
+  const z = -0.05, y = 1.38;
+  m.B('dark').roundBox(-0.26, y - 0.2, z, 0.26, y + 0.2, z + 0.035, 0.03);
+  const pts = [[-0.2, y + 0.02, 0.03], [-0.1, y - 0.1, 0.06], [0.05, y - 0.11, 0.07], [0.16, y - 0.03, 0.06], [0.2, y + 0.09, 0.04]].map(p => new THREE.Vector3(p[0], p[1], z + p[2]));
+  const curve = new THREE.CatmullRomCurve3(pts), seg = 20, R = 10, tube = (a, b, r0, r1, key) => {
+    const g = new THREE.TubeGeometry(curve, seg, 1, R, false), P = g.attributes.position, q = new THREE.Vector3();
+    for (let i = 0; i <= seg; i++) { const k = i / seg, at = curve.getPointAt(k), r = k < a || k > b ? 0 : r0 + (r1 - r0) * ((k - a) / (b - a)) ** 1.6; for (let j = 0; j <= R; j++) { const n = i * (R + 1) + j; q.fromBufferAttribute(P, n).sub(at).multiplyScalar(r).add(at); P.setXYZ(n, q.x, q.y, q.z); } }
+    g.computeVertexNormals(); m.B(key).addGeometry(g, new THREE.Matrix4());
+  };
+  tube(0, 1, 0.012, 0.062, 'horn');
+  tube(0, 0.14, 0.016, 0.022, 'hornTip');
+  for (const k of [0.32, 0.7]) { const a = curve.getPointAt(k), t = curve.getTangentAt(k), g = new THREE.TorusGeometry(0.012 + 0.05 * k ** 1.6 + 0.004, 0.005, 6, 16); g.lookAt(t); g.translate(a.x, a.y, a.z); m.B('brass').addGeometry(g, new THREE.Matrix4()); }
+  const b = curve.getPointAt(0); m.B('brass').addGeometry(new THREE.CylinderGeometry(0.009, 0.012, 0.03, 8).rotateZ(Math.PI / 2).translate(b.x - 0.012, b.y, b.z), new THREE.Matrix4());
+  const L = m.B('leather');
+  L.box(-0.13, y - 0.04, z + 0.035, -0.115, y + 0.15, z + 0.045); L.box(0.11, y + 0.02, z + 0.035, 0.125, y + 0.15, z + 0.045); L.box(-0.13, y + 0.14, z + 0.035, 0.125, y + 0.155, z + 0.045);
+  m.B('brass').box(-0.01, y + 0.13, z + 0.034, 0.01, y + 0.165, z + 0.05);
+}
 Object.assign(BUILD, {
+  hunting_horn: huntingHorn,
   cuadro_valle: m => painting(m, 'art_valle', 'dark'), cuadro_mar: m => painting(m, 'art_mar', 'light'),
   cuadro_flores: m => painting(m, 'art_flores', 'gold'), cuadro_noche: m => painting(m, 'art_noche', 'dark'),
 });

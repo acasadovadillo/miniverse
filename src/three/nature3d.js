@@ -19,17 +19,26 @@ import { opcion, apagada } from '../opciones.js';
 const tmp = new THREE.Object3D(), col = new THREE.Color();
 // Viento: el tiempo que mueve la hierba y las copas (lo avanza el dibujo)
 export const WIND = { value: 0 };
+// And the way it blows (Plan R3-4: x, z where it blows to, y its strength; the grass and the leaves lean that way): world3d.js
+// sets it every frame (setLean, from game.wind). ?viento3d=0: the programs of before, without it
+export const WIND_LEAN = { value: new THREE.Vector3(0, 0, 0) };
+const LEAN = !apagada('viento3d');
+export const setLean = game => { if (LEAN) { const V = game.wind; WIND_LEAN.value.set(V?.x ?? 1, (V?.s ?? 0.4) * 0.8, V?.y ?? 0); } };
+// (the lean in an instance's own frame: the world's direction turned back by its rotation, and its scale taken out)
+const LEAN_INST = `vec3 wl3 = transpose(mat3(instanceMatrix)) * vec3(windLean.x, 0.0, windLean.z); vec2 wl = wl3.xz / max(dot(wl3, wl3), 1e-4) * windLean.y;`;
 // hang: lo que cuelga (las ramillas del sauce): se mece más cuanto más abajo, en vez de cuanto más arriba
 function sway(material, amount, speed = 1, hang = false) {
   material.onBeforeCompile = sh => {
     sh.uniforms.windTime = WIND;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float windTime;').replace('#include <begin_vertex>', `#include <begin_vertex>
+    if (LEAN) sh.uniforms.windLean = WIND_LEAN;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float windTime;' + (LEAN ? '\nuniform vec3 windLean;' : '')).replace('#include <begin_vertex>', `#include <begin_vertex>
       vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
       float t = windTime * ${speed.toFixed(2)};
       float s = sin(t * 1.6 + wp.x * 0.35 + wp.z * 0.25) * 0.6 + sin(t * 2.9 + wp.x * 0.9 - wp.z * 0.4) * 0.3;
-      transformed.xz += vec2(s, s * 0.5) * ${amount.toFixed(3)} * max(${hang ? '-' : ''}position.y, 0.0);`);
+      ${LEAN ? LEAN_INST : 'vec2 wl = vec2(0.0);'}
+      transformed.xz += (vec2(s, s * 0.5) + wl) * ${amount.toFixed(3)} * max(${hang ? '-' : ''}position.y, 0.0);`);
   };
-  material.customProgramCacheKey = () => `sway${amount}:${speed}${hang ? ':cuelga' : ''}`;
+  material.customProgramCacheKey = () => `sway${amount}:${speed}${hang ? ':cuelga' : ''}${LEAN ? ':lean' : ''}`;
   return material;
 }
 
@@ -941,15 +950,17 @@ function groundShapes() {
   const wind = (m, key, inst) => {
     m.onBeforeCompile = (sh, r) => {
       sh.uniforms.windTime = WIND;
+      if (LEAN) sh.uniforms.windLean = WIND_LEAN;
       if (inst) { sh.uniforms.grassLodK = GRASS.lodK; sh.uniforms.grassCenter = GRASS.center; sh.uniforms.grassFade = GRASS.fade; }
       // (con instancias, la fase del viento sale del sitio de cada mata)
       const at = inst ? 'vec3 wp = (instanceMatrix * vec4(position, 1.0)).xyz;' : 'vec3 wp = position;';
-      const head = '#include <common>\nuniform float windTime;\nattribute float sway;' + (inst ? '\nattribute vec4 blade;\nattribute vec2 bside;\nuniform float grassLodK;\nuniform vec2 grassCenter;\nuniform vec2 grassFade;' : '');
+      const head = '#include <common>\nuniform float windTime;\nattribute float sway;' + (LEAN ? '\nuniform vec3 windLean;' : '') + (inst ? '\nattribute vec4 blade;\nattribute vec2 bside;\nuniform float grassLodK;\nuniform vec2 grassCenter;\nuniform vec2 grassFade;' : '');
       sh.vertexShader = sh.vertexShader.replace('#include <common>', head).replace('#include <begin_vertex>', `#include <begin_vertex>
         ${inst ? LOD : ''}
         ${at}
         float s = sin(windTime * 1.6 + wp.x * 0.35 + wp.z * 0.25) * 0.6 + sin(windTime * 2.9 + wp.x * 0.9 - wp.z * 0.4) * 0.3;
-        transformed.xz += vec2(s, s * 0.5) * ${inst ? '0.35' : '0.3'} * sway${inst ? ' * gk' : ''};`);
+        ${!LEAN ? 'vec2 wl = vec2(0.0);' : inst ? LEAN_INST : 'vec2 wl = windLean.xz * windLean.y;'}
+        transformed.xz += (vec2(s, s * 0.5) + wl) * ${inst ? '0.35' : '0.3'} * sway${inst ? ' * gk' : ''};`);
       // (las matas, por las dos caras con la luz de arriba: la cara de atrás no da la vuelta a la normal)
       if (inst) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'));
       // (la misma sombra de contacto que el suelo de debajo, leída en el vértice: ver contact3d.js)

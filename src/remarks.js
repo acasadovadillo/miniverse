@@ -47,7 +47,8 @@ export const REMARKS = [
   'underdressed', 'overdressed', 'fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up', 'house_kept', 'roof_worn',
 ];
 export const GOOD_REMARKS = new Set(['fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up', 'house_kept']);
-export const RECALLS = ['gift_loved', 'gift_hated', 'insult', 'take_seen', 'helped', 'knock_night', 'project', 'wish_kept', 'walked_off', 'rumour_found'];
+export const RECALLS = ['gift_loved', 'gift_hated', 'insult', 'take_seen', 'helped', 'knock_night', 'project', 'wish_kept', 'walked_off', 'rumour_found',
+  'hunt_young', 'hunt_mother', 'hunt_swan', 'hunt_waste', 'hunt_clean'];   // (the hunter's code: Paco's, huntcode.js)
 
 export const NEAR = 6;            // tiles: how close a neighbour must be to remark as you pass
 export const GAP = 40;            // s (game time) between two passing remarks anywhere

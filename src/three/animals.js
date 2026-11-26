@@ -17,6 +17,11 @@
 // The wild ones' breeds (Plan R3-2, herds.js breedOf): a deer with none is the stag (its antlers); 'hind' (no antlers, slimmer)
 // and 'calf' (white spots on the back); a boar with none is the male (tusks and mane); 'sow', 'piglet' (striped) and 'reddish'
 // (the older young). Their size is the root's scale (herds.js scaleOf).
+// The year of a stag (Plan R3-4, herds.js antlersIn and fiveTines): 'none' (cast, March: the bare pedicles), 'bud' (short
+// knobs in velvet), 'velvet' and 'velvet5' (the rack growing, thick, brown and furred, round at the tips), the hard rack of
+// three tines a side (no breed: the stag of always) and 'hard5' (five: brow, bez and trez tines and the crown fork). rack()
+// builds one side; shedModel(five) is a cast one lying on the ground (three/sheds3d.js). In the rut a stag roars (e.roar:
+// the neck forward, the nose up) and a boar charging carries its head low (e.charging)
 import * as THREE from 'three';
 import { mesh, mergeInto, G, M } from './shapes.js';
 import { Builder } from './geo.js';
@@ -344,9 +349,8 @@ const BUILD = {
     for (const s of [-1, 1]) {
       mesh(G.ball, M(fur), { p: [s * 0.13, 0.08, -0.02], s: calf || hind ? [0.095, 0.034, 0.05] : [0.08, 0.03, 0.045], r: [0, 0, s * 0.4] }, head);
       if (calf || hind) continue;
-      tube(M('#d8c8a0'), [s * 0.04, 0.1, -0.02], [s * 0.14, 0.42, -0.1], 0.02, 0.012, head, 6);       // cuernas, con sus puntas
-      tube(M('#d8c8a0'), [s * 0.09, 0.26, -0.06], [s * 0.2, 0.36, 0.04], 0.012, 0.005, head, 5);
-      tube(M('#d8c8a0'), [s * 0.12, 0.36, -0.08], [s * 0.06, 0.48, -0.02], 0.01, 0.004, head, 5);
+      const stage = breed === 'none' || breed === 'bud' ? breed : breed === 'velvet' || breed === 'velvet5' ? 'velvet' : 'hard';
+      for (const g of rack(s, stage, breed === 'velvet5' || breed === 'hard5')) mesh(g, WHITE, {}, head);   // cuernas, con sus puntas
     }
     eyes(head, 0.08, 0.05, 0.14, 0.02);
     const tail = new THREE.Group(); tail.position.set(0, 1.12, -0.48); body.add(tail); u.tail = tail;
@@ -387,6 +391,72 @@ const BUILD = {
     eyes(head, 0.04, 0.012, 0.035, 0.011);
   },
 };
+
+// ---------- the antlers ----------
+// A tube along a curve, thinner towards its end (r0 → r1), coloured by how far along it is (paint(k, c): k 0..1); round at
+// the tip with blunt (velvet)
+function antlerTube(pts, r0, r1, paint, blunt = false, seg = 12) {
+  const curve = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p))), R = 6;
+  const g = new THREE.TubeGeometry(curve, seg, 1, R, false), P = g.attributes.position, col = new Float32Array(P.count * 3), c = new THREE.Color(), q = new THREE.Vector3();
+  for (let i = 0; i <= seg; i++) {
+    const k = i / seg, at = curve.getPointAt(k), r = r0 + (r1 - r0) * Math.pow(k, 0.8);
+    paint(k, c);
+    for (let j = 0; j <= R; j++) {
+      const n = i * (R + 1) + j;
+      q.fromBufferAttribute(P, n).sub(at).multiplyScalar(r).add(at);
+      P.setXYZ(n, q.x, q.y, q.z);
+      col[n * 3] = c.r; col[n * 3 + 1] = c.g; col[n * 3 + 2] = c.b;
+    }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  const out = [g];
+  if (blunt || r1 > 0.006) {   // (the end: a cap)
+    const e = curve.getPointAt(1), cap = new THREE.SphereGeometry(r1 * (blunt ? 1.25 : 1), 6, 4).translate(e.x, e.y, e.z), cc = new Float32Array(cap.attributes.position.count * 3);
+    paint(1, c); for (let n = 0; n < cc.length; n += 3) { cc[n] = c.r; cc[n + 1] = c.g; cc[n + 2] = c.b; }
+    cap.setAttribute('color', new THREE.BufferAttribute(cc, 3)); out.push(cap);
+  }
+  return out;
+}
+const AC = { burr: new THREE.Color('#3e2e22'), beam: new THREE.Color('#6a5038'), tip: new THREE.Color('#f4ecd8'), velvet: new THREE.Color('#8d7a6a'), velvetTip: new THREE.Color('#a6927f'), pedicle: new THREE.Color('#5a4232') };
+const ANTLER_M = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72 });   // (a cast antler on its own: not merged into a head)
+const RACKS = new Map();
+// One side of a stag's rack (s: -1 left, 1 right) in its head's frame, for a stage ('none', 'bud', 'velvet', 'hard') and
+// five tines or three: geometries (cached: the same ones for every stag)
+export function rack(s, stage, five) {
+  const key = `${s}:${stage}:${five ? 5 : 3}`;
+  if (RACKS.has(key)) return RACKS.get(key);
+  const vel = stage === 'velvet', out = [];
+  const paint = (a, b) => (k, c) => c.copy(a).lerp(b, k);
+  const beamPaint = vel ? paint(AC.velvet, AC.velvetTip) : (k, c) => c.copy(AC.burr).lerp(AC.beam, Math.min(1, k * 2.5)).lerp(AC.tip, Math.max(0, (k - 0.62) / 0.38));
+  const tinePaint = vel ? paint(AC.velvet, AC.velvetTip) : (k, c) => c.copy(AC.beam).lerp(AC.tip, Math.max(0, (k - 0.25) / 0.75));
+  const base = [s * 0.045, 0.085, -0.03];
+  // (the pedicle and the burr, always there)
+  out.push(...antlerTube([base, [s * 0.05, 0.11, -0.035]], stage === 'none' ? 0.024 : 0.022, stage === 'none' ? 0.02 : 0.026, paint(AC.pedicle, stage === 'none' ? AC.pedicle : AC.burr), true, 2));
+  if (stage === 'none') { RACKS.set(key, out); return out; }
+  if (stage === 'bud') { out.push(...antlerTube([[s * 0.05, 0.1, -0.035], [s * 0.065, 0.16, -0.05], [s * 0.075, 0.2, -0.045]], 0.024, 0.02, paint(AC.velvet, AC.velvetTip), true, 4)); RACKS.set(key, out); return out; }
+  const L = five ? 1.18 : 1, th = vel ? 1.35 : 1, sp = five ? 1.1 : 1;
+  const P = (x, y, z) => [s * x * sp, 0.085 + (y - 0.085) * L, z * L];
+  const beam = [P(0.05, 0.11, -0.035), P(0.1, 0.2, -0.09), P(0.17, 0.34, -0.15), P(0.21, 0.48, -0.13), P(0.2, 0.6, -0.06), ...(five ? [P(0.17, 0.68, 0.0)] : [])];
+  out.push(...antlerTube(beam, 0.021 * th, (vel ? 0.011 : 0.005) * th, beamPaint, vel, 16));
+  const curve = new THREE.CatmullRomCurve3(beam.map(p => new THREE.Vector3(...p)));
+  const tine = (k, dir, len, r) => { const a = curve.getPointAt(k); out.push(...antlerTube([[a.x, a.y, a.z], [a.x + dir[0] * s * len * 0.5, a.y + dir[1] * len * 0.45, a.z + dir[2] * len * 0.55], [a.x + dir[0] * s * len, a.y + dir[1] * len, a.z + dir[2] * len]], r * th, (vel ? 0.009 : 0.003) * th, tinePaint, vel, 6)); };
+  tine(0.1, [0.25, 0.35, 0.9], 0.15 * L, 0.012);        // the brow tine, forward over the eyes
+  if (five) tine(0.2, [0.2, 0.4, 0.88], 0.12 * L, 0.01);   // the bez
+  tine(0.5, [0.15, 0.3, 0.95], 0.12 * L, 0.01);         // the trez
+  if (five) { tine(0.86, [-0.25, 0.75, -0.6], 0.1 * L, 0.008); tine(0.9, [0.35, 0.8, 0.45], 0.09 * L, 0.008); }   // the crown
+  RACKS.set(key, out);
+  return out;
+}
+// A cast antler lying on the ground (the left side of a rack, resting on the bend of its beam)
+export function shedModel(five = false) {
+  const g = new THREE.Group(), tilt = new THREE.Group(), inner = new THREE.Group();
+  for (const geo of rack(-1, 'hard', five)) mesh(geo, ANTLER_M, {}, inner);
+  inner.rotation.z = -Math.PI / 2;   // (the beam along x, its spread up)
+  tilt.rotation.x = -1.2; tilt.position.set(-0.3, 0.115, 0);   // (and turned over on its side: the bend of the beam on the ground)
+  tilt.add(inner); g.add(tilt);
+  return g;
+}
 
 // Perro (más grande, orejas caídas, hocico) o gato (más pequeño, orejas de punta, cola larga, bigotes)
 function pet({ body, legs, u, cb, cd, cl, k, breed }, dog) {
@@ -511,6 +581,19 @@ function onGuard(m, u, e, k, t, dt) {
     }
   } else u.ty = undefined;
 }
+// The roar of a stag in the rut (e.roar 0..1, -1 not: the neck out forward, the nose up, a breath that swells it) and a
+// boar's charge (e.charging: the head low, the body forward)
+const ROAR_NECK = 0.4, ROAR_HEAD = -0.8, CHARGE_HEAD = 0.45;
+function callOut(u, e, dt) {
+  const ro = u.ro = (u.ro || 0) + ((e.roar >= 0 ? 1 : 0) - (u.ro || 0)) * Math.min(1, dt * 6), ch = u.ch = (u.ch || 0) + ((e.charging || e.charge ? 1 : 0) - (u.ch || 0)) * Math.min(1, dt * 8);
+  if (ro > 1e-3 && u.head) {
+    const swell = e.roar >= 0 ? Math.sin(Math.min(1, e.roar) * Math.PI) : 0;
+    if (u.rig) neckPose(u, 0, ROAR_NECK * ro);
+    u.head.rotation.x = u.head.rotation.x * (1 - ro) + ROAR_HEAD * ro;
+    if (u.neck) u.neck.scale.x *= 1 + 0.12 * swell * ro;
+  } else u.ro = Math.max(0, u.ro);
+  if (ch > 1e-3 && u.head) { u.head.rotation.x += (CHARGE_HEAD - u.head.rotation.x) * ch; u.body.rotation.x += 0.08 * ch; }
+}
 function dogOut(u, e, dt) {
   const { head, tail, legs, body } = u, want = e.pointing ? 1 : 0, heel = e.dogK === -1 ? 1 : 0;
   if (!(want || heel || u.po > 0 || u.he > 0)) return;
@@ -563,6 +646,7 @@ export function animateAnimal(m, dt, t, e, st = null) {
   else body.rotation.x = Math.sin(t * 0.8 + m.phase) * 0.01;
   body.scale.x = body.scale.z = 1 + Math.sin(t * 2 + u.seed) * 0.01 * (1 - k);   // respira
   if (e?.alert || e?.staring || u.al > 0) onGuard(m, u, e, k, t, dt);
+  if ((type === 'ciervo' || type === 'jabali') && e) callOut(u, e, dt);
   if (type === 'perro' && e) dogOut(u, e, dt);
   // (bedded: eased in and out over about a second, so getting up and lying down are seen)
   const bed = BED[type], want = (e?.lying || e?.bedded) && bed ? 1 : 0;

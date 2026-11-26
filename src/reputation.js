@@ -29,7 +29,7 @@ const LOG = 8;            // the last changes kept (the journal shows four)
 const SEED_MAX = 400;     // an old game starts from what it did, «Liked» at most
 const SEEN_R = 8, NILO_NIGHT = 4;   // tiles: a neighbor this close (and in sight) sees what you take from a house; Nilo, always in the square, by night
 // Day caps of what can be repeated: the most a day can add up to (greet, insult, take) or how many times it counts (trade)
-const CAP = { greet: 6, insult: -40, take: -150 };
+const CAP = { greet: 6, insult: -40, take: -150, hunt: -60, clean: 15 };   // (hunt: the hunter's code broken, clean: clean kills; huntcode.js)
 const TRADES_A_DAY = 5;
 export const levelOf = pts => { let L = REP_LEVELS[0]; for (const l of REP_LEVELS) if (pts >= l.from) L = l; return L; };
 export const levelIndex = id => REP_LEVELS.findIndex(l => l.id === id);
@@ -76,6 +76,9 @@ export class Reputation {
     if (why === 'insult') n = Math.max(n, CAP.insult - (cap.insult || 0));
     if (why === 'take' || why === 'take_seen') n = Math.max(n, CAP.take - (cap.take || 0));
     if (why === 'trade') { if ((cap.trade || 0) >= TRADES_A_DAY) return 0; cap.trade = (cap.trade || 0) + 1; }
+    const hunt = why.startsWith('hunt_') && why !== 'hunt_clean';
+    if (hunt) { n = Math.max(n, CAP.hunt - (cap.hunt || 0)); cap.hunt = (cap.hunt || 0) + n; }
+    if (why === 'hunt_clean') { n = Math.min(n, CAP.clean - (cap.clean || 0)); cap.clean = (cap.clean || 0) + n; }
     if (why === 'greet' || why === 'insult') cap[why] = (cap[why] || 0) + n;
     if (why === 'take' || why === 'take_seen') cap.take = (cap.take || 0) + n;
     const was = v.pts;

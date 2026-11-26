@@ -109,6 +109,7 @@ export class Presence {
     }
     const v = this.events[this.next]; this.next = (this.next + 1) % this.events.length;
     v.x = x; v.y = y; v.n = n; v.r = r; v.t = t;
+    this.onLoud?.(x, y, n, r);   // (an arrow by a herd: its cell on edge, wildlife.js loud)
   }
   // (host) Another player's: near them, and no louder than a bark
   heard(peer, m) {

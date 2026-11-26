@@ -17,7 +17,7 @@ import * as village from '../world/village.js';
 import { PIECES } from '../pieces.js';
 import { CAM } from '../camera.js';
 import { Builder } from './geo.js';
-import { buildNatureChunk, buildGround, buildFarNature, shake, WIND, GRASS, TUFT_LOD, tuftLods, DITHER, nearFadeSet, releaseFadeSet, fadeMeshes } from './nature3d.js';
+import { buildNatureChunk, buildGround, buildFarNature, shake, WIND, setLean, GRASS, TUFT_LOD, tuftLods, DITHER, nearFadeSet, releaseFadeSet, fadeMeshes } from './nature3d.js';
 import { ImpostorAtlas, buildFarImpostors, IMPOSTORS_ON, MASK, MASK_GLSL } from './impostor.js';
 import { wrapIndex } from '../world/planet.js';
 import { roofShape, roofPitch } from '../world/roof.js';
@@ -113,7 +113,7 @@ export class World3D {
   update(game, scene, target, dt, snap = false, fill = 0) {
     if (scene !== this.scene || scene.gen.season !== this.season) this.reset(scene);
     this.game = game;
-    WIND.value = game.time;
+    WIND.value = game.time; setLean(game);
     const ccx = Math.floor(target.x / CHUNK), ccy = Math.floor(target.z / CHUNK);
     this.at = [ccx, ccy];
     this.updateVillage(scene);

@@ -175,6 +175,40 @@ export const Audio = {
     Audio.noiseHit(520, 0.22, 0.3 * k, 'bandpass');
     if (squeal) tone([[150, 0.09, 'sawtooth', 0.05 * k], [110, 0.14, 'sawtooth', 0.045 * k]]);
   },
+  // The rut (Plan R3-4): a stag's roar, far off (k: how loud; pan: -1 left .. 1 right): a low hoarse bellow that rises, holds
+  // with a tremble and falls, twice or three times in a row, through a stereo panner. And the deer call, blown by you: a
+  // shorter, thinner version of it, through a horn
+  roar(pan = 0, k = 1) {
+    if (!ac || !on || !(k > 0.01)) return;
+    const t0 = ac.currentTime, P = ac.createStereoPanner ? ac.createStereoPanner() : null, out = ac.createGain(), lp = ac.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 700 + 900 * k; out.gain.value = 0.55 * k;
+    if (P) { P.pan.value = Math.max(-1, Math.min(1, pan)); out.connect(lp).connect(P).connect(sfx); } else out.connect(lp).connect(sfx);
+    const n = 2 + (Math.random() < 0.5 ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * 0.95, d = i === n - 1 ? 1.5 : 0.75, o = ac.createOscillator(), o2 = ac.createOscillator(), g = ac.createGain(), vib = ac.createOscillator(), vg = ac.createGain();
+      o.type = 'sawtooth'; o2.type = 'square';
+      o.frequency.setValueAtTime(95, t); o.frequency.linearRampToValueAtTime(150, t + d * 0.35); o.frequency.linearRampToValueAtTime(120, t + d * 0.8); o.frequency.exponentialRampToValueAtTime(70, t + d);
+      o2.frequency.setValueAtTime(48, t); o2.frequency.linearRampToValueAtTime(74, t + d * 0.35); o2.frequency.exponentialRampToValueAtTime(36, t + d);
+      vib.frequency.value = 7 + Math.random() * 3; vg.gain.value = 9; vib.connect(vg); vg.connect(o.frequency);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.32, t + 0.12); g.gain.setValueAtTime(0.3, t + d * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g); o2.connect(g); g.connect(out);
+      for (const x of [o, o2, vib]) { x.start(t); x.stop(t + d + 0.05); }
+    }
+    // (the breath in it)
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), ng = ac.createGain();
+    src.buffer = noise; f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 0.8;
+    ng.gain.setValueAtTime(0.0001, t0); ng.gain.exponentialRampToValueAtTime(0.09, t0 + 0.2); ng.gain.exponentialRampToValueAtTime(0.0001, t0 + n * 0.95 + 0.6);
+    src.connect(f).connect(ng).connect(out); src.start(t0, Math.random() * 0.4, n * 0.95 + 0.7);
+  },
+  deerCall() {
+    if (!ac || !on) return;
+    const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();
+    o.type = 'sawtooth'; f.type = 'bandpass'; f.frequency.value = 520; f.Q.value = 1.4;
+    o.frequency.setValueAtTime(130, t); o.frequency.linearRampToValueAtTime(205, t + 0.5); o.frequency.linearRampToValueAtTime(170, t + 1.1); o.frequency.exponentialRampToValueAtTime(95, t + 1.5);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.1); g.gain.setValueAtTime(0.2, t + 1.1); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.55);
+    o.connect(f).connect(g).connect(sfx); o.start(t); o.stop(t + 1.6);
+    Audio.noiseHit(600, 0.6, 0.08, 'bandpass');
+  },
   meow() { if (!ac || !on) return; const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime; o.type = 'triangle'; o.frequency.setValueAtTime(600, t); o.frequency.linearRampToValueAtTime(900, t + 0.15); o.frequency.linearRampToValueAtTime(500, t + 0.4); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42); o.connect(g).connect(sfx); o.start(t); o.stop(t + 0.45); },
   neigh(k = 1) { tone([[700, 0.08, 'sawtooth', 0.025 * k], [900, 0.1, 'sawtooth', 0.025 * k], [760, 0.12, 'sawtooth', 0.02 * k], [600, 0.18, 'sawtooth', 0.015 * k]]); },
   whistle() { tone([[1800, 0.12, 'sine', 0.05], [2400, 0.25, 'sine', 0.05]]); },

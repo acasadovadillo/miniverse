@@ -11,7 +11,7 @@
 // los árboles sencillos de antes (buildFarNature). Sin pantalla (el servidor, ?modo=servidor) no hay View3D ni World3D:
 // esto ni se carga.
 import * as THREE from 'three';
-import { buildNatureChunk, WIND, DITHER, leafTint } from './nature3d.js';
+import { buildNatureChunk, WIND, WIND_LEAN, DITHER, leafTint } from './nature3d.js';
 import { treeK, ageOf, BROAD } from '../world/treedims.js';
 import { CHUNK } from '../world/gen.js';
 import { ihash } from '../util.js';
@@ -103,7 +103,7 @@ export class ImpostorAtlas {
     // las cuentas de F3 y del banco, y el viento, que si se mueve hace que las vistas no casen)
     const rt = r.getRenderTarget(), ac = r.autoClear, cc = r.getClearColor(col).clone(), ca = r.getClearAlpha(), sm = r.shadowMap.needsUpdate;
     const calls = info.calls, tris = info.triangles, pts = info.points, lines = info.lines, frame = info.frame, wind = WIND.value;
-    r.shadowMap.needsUpdate = false; r.autoClear = false; WIND.value = 0;
+    r.shadowMap.needsUpdate = false; r.autoClear = false; WIND.value = 0; const lean = WIND_LEAN.value.y; WIND_LEAN.value.y = 0;
     let views = 0;
     try {
       while (this.job) {
@@ -119,7 +119,7 @@ export class ImpostorAtlas {
     } finally {
       r.setRenderTarget(rt); r.autoClear = ac; r.setClearColor(cc, ca); r.shadowMap.needsUpdate = sm;
       info.calls = calls; info.triangles = tris; info.points = pts; info.lines = lines; info.frame = frame;
-      WIND.value = wind;
+      WIND.value = wind; WIND_LEAN.value.y = lean;
     }
     const dt = performance.now() - t0;
     this.bakeMs += dt; this.maxStep = Math.max(this.maxStep || 0, dt); this.steps = (this.steps || 0) + 1;

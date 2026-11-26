@@ -27,6 +27,7 @@ import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { GutView } from './gut3d.js';
+import { ShedView } from './sheds3d.js';
 import { Tracks3D } from './tracks3d.js';
 import { Landmarks } from './landmarks3d.js';
 import { RoutineView } from './routine3d.js';
@@ -104,6 +105,7 @@ export class View3D {
     this.fx = new Fx(this);
     this.arrows = new ArrowsView(this);
     this.guts = new GutView(this);
+    this.sheds = new ShedView(this);   // (the cast antlers of spring: huntcode.js)
     this.law3d = new LawView(this);   // (the posters on the village's board)
     this.business3d = new BusinessView(this);   // (the goods on sale in the players' shops, and their slates)
     this.tables3d = new TableView(this);   // (the table games: the dice, the tiles, the pot)
@@ -539,6 +541,7 @@ export class View3D {
     routeGround(this, game, scene, t);   // (the marked route on the ground: nothing at all without one, route3d.js)
     this.arrows.update(game, scene);
     this.guts.update(game, scene);
+    this.sheds.update(game, scene);
     this.tracks3d.update(game, scene);
     this.updateWater(t);
     paneFrame(this, game, dt, t);   // (the glass: glass3d.js)

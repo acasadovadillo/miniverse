@@ -76,6 +76,9 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // customers are not drawn. Whoever runs the world goes on making the sales, so everybody's world is the same)
 // Plan R7-4 (roads, src/world/roads.js): caminos (?caminos=0: no roads at all, painted, walked or on the maps, nor their signposts
 // and bridges, and nothing of them is saved). To compare: playing together, all must have the same
+// Plan R3-4 (seasons, populations and the hunter's code, src/huntcode.js): codigo (?codigo=0: no breach, clean kill or respect is
+// counted, Paco offers nothing new and the diary shows nothing of it; what is saved stays) and viento3d (?viento3d=0: the grass
+// and the leaves sway as before, without leaning with the wind; drawing only)
 // Plan H3 (the law, src/law.js): law (?law=0: this game says nothing of its own crimes and shows no chip of it; the host's record stays
 // as it is). And shove (not a part: ?shove=1 tries the shove of the plan, off by default)
 // Plan I (table games and jobs, docs/planes/gta/PLAN-I-juntos.md §7): juegos (?juegos=0: the tables do nothing here: no window, no
@@ -88,7 +91,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null, razas: null, riendas: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, calidad: null, routines: null,
-  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null, shops: null, caminos: null, law: null, juegos: null, misiones: null };
+  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null, shops: null, caminos: null, law: null, juegos: null, misiones: null, codigo: null, viento3d: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

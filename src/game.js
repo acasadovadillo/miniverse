@@ -56,6 +56,7 @@ import { Talk } from './talk.js';
 import { Board } from './board.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
 import { Hunt, bodyBox, kindName } from './hunt.js';
+import { Code } from './huntcode.js';
 import { Archery } from './archery.js';
 import { reportFault } from './faults.js';
 import { ANIMALS } from './art/farm.js';
@@ -223,6 +224,7 @@ export class Game {
     this.neighbors = this.addSystem(new Neighbors(this));
     this.rep = this.addSystem(new Reputation(this));   // the village's reputation (after stats and neighbors: an old game is born from them)
     this.gossip = this.addSystem(new Gossip(this));   // what the village knows about you, and who has heard it (src/gossip.js)
+    this.huntcode = this.addSystem(new Code(this));   // the hunter's code, Paco's respect, the deer call and the cast antlers (src/huntcode.js, Plan R3-4; before hunt: the call in the hand)
     this.hunt = this.addSystem(new Hunt(this));   // pegar a los animales (antes que a las criaturas: va a lo que se apunta)
     this.tracks = this.addSystem(new Tracks(this));   // prints, blood and the locked trail (src/tracks.js, Plan G; drawn by three/tracks3d.js)
     this.combat = this.addSystem(new Combat(this));

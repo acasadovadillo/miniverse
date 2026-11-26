@@ -18,6 +18,8 @@ const BASE = {
   seashell: 5, pearl: 180, mussel: 4, seaweed: 2, canteen: 24, water_jug: 20, apple_juice: 30,
   // The body (Plan E §2.3): soap sells for less than Rosa asks
   soap: 10,
+  // The hunt (Plan R3-4): what Rosa gives for Paco's things, far below what he asks for the call
+  deer_call: 90, hunting_horn: 70,
   // Tackle (Plan R1-2): all of it sells for less than Lía asks
   worm: 1, cut_bait: 3, spoon: 12, jig: 15, fish_trap: 20,
   // The catch (Plan R1-3): what each of these is worth when it does not say what fish it was (stackPrice)

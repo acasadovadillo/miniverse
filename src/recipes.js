@@ -268,6 +268,8 @@ export const RECIPES = [
 // Herramientas: todas de hierro, en el yunque
 for (const tool of ['hacha', 'pico', 'guadana', 'azada', 'pala']) RECIPES.push(R('yunque', `${tool}_hierro`, 1, [['lingote_hierro', 3], ['tablas', 1]]));
 RECIPES.push(R('yunque', 'hammer', 1, [['lingote_hierro', 1], ['tablas', 1]]));
+// The hunt (Plan R3-4): what Paco teaches (huntcode.js: buying his deer call, and his horn at his full respect)
+RECIPES.push(R('banco', 'deer_call', 1, [['asta', 1], ['piel', 1]], { teach: 'Paco' }), R('banco', 'hunting_horn', 1, [['asta', 1], ['tablas', 1], ['cuero', 1]], { teach: 'Paco' }));
 for (const r of RECIPES) if (!ITEMS[r.out] || r.ins.some(([id]) => !ITEMS[id])) throw new Error(`Receta rota: ${r.id}`);
 
 // ¿Está desbloqueada? `seen`: objetos que el jugador ha tenido alguna vez; `taught`: recetas aprendidas (las que enseña

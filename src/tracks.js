@@ -56,6 +56,7 @@ export const CAP = 3200;     // marks kept at most (the oldest go first)
 export const READ_R = 8;     // m: the crouch aid's radius
 export const HL_R = 25;      // m: the locked trail's highlight reach at tracking level 0 (+2 per level)
 export const DIRS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
+const NOSE_R = 40;   // m: how far a searching dog finds the trail again (Plan R3-4)
 // Seconds a mark lasts on each surface (none: prints take none; blood there lasts NONE_K of its time)
 export const TTL = [0, 1200, 720, 300, 420, 300];
 export const BLOOD_TTL = [360, 360, 720], NONE_K = 0.6;
@@ -526,6 +527,22 @@ export class Tracks {
     this.hver++;
   }
   ahead() { return this.ahead_; }
+  // (Plan R3-4: your dog searching the locked trail, huntcode.js) Where it goes next: the furthest mark highlighted ahead of you
+  // or, with none (a lost trail), its nose: a few marks on from the one nearest it, within NOSE_R. [x, y] (reused) or null
+  scentAhead(ax, ay) {
+    const rec = this.locked === null ? null : this.recs.get(this.locked), A = this.ahead_, P = this.noseAt ||= [0, 0];
+    if (!rec) return null;
+    if (A.length) { const i = A[A.length - 1]; P[0] = this.X[i]; P[1] = this.Y[i]; return P; }
+    const L = rec.list;
+    let best = -1, bd = NOSE_R * NOSE_R;
+    for (let j = 0; j < L.length; j++) { if (this.ORD[L[j]] < rec.from) continue; const dx = dxOf(this.X[L[j]], ax), dy = this.Y[L[j]] - ay, d = dx * dx + dy * dy; if (d < bd) { bd = d; best = j; } }
+    if (best < 0) return null;
+    const i = L[Math.min(L.length - 1, best + 3)];
+    P[0] = this.X[i]; P[1] = this.Y[i];
+    return P;
+  }
+  // (and while it has a mark to go to, the trail is not given up for lost)
+  keep() { if (this.locked !== null) this.aheadAt = this.liveT; }
 
   // ---------- ten times a second ----------
   tick(p) {

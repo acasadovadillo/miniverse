@@ -181,6 +181,11 @@ import { windAt } from './wind.js';
 import { ZONE, zoneOf, kindName } from './hunt.js';
 import { hitBody, aimPoint, READING } from './anatomy.js';
 import * as QL from './quality.js';
+import * as CODE_MOD from './huntcode.js';
+import * as WIND_MOD from './wind.js';
+import * as NATURE3D from './three/nature3d.js';
+import * as ANIMALS3D from './three/animals.js';
+import * as HUNT_DANGER from './wildlife.js';
 import { cleanLoads } from './barrow.js';
 import { SPECIES, SPECIES_IDS, GROUPS, REWARDS } from './nature.js';
 import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
@@ -11566,7 +11571,7 @@ async function soloTests(game) {
       const P = { name: 'Alberto', sex: 'boy', who: 'Rosa', kid: 'Sara', ksex: 'girl', animal: 'Trueno', other: 'Bruno' }, en = l === 'en', show = (k, src, more) => { const s = formatMessage(src, { ...P, ...more }); if (!s || /[{}]|undefined|npc\.|gossip\./.test(s) || (en && /[ñ¿¡áéíóúÁÉÍÓÚ]/.test(s.replace(/Lía|Inés/g, '')))) bad.push(`${l} ${k}: ${s}`); };
       for (const kind of NEWS_KINDS) {
         if (kind === 'rumour_found' || kind === 'wedding') continue;
-        const item = { take_seen: 'rosa/cama', knock_night: 'bruno', project: 'fuente', big_catch: 'carpa', big_game: 'ciervo', new_horse: 'Trueno', kid_born: 'Sara', looked_for: 'rosa' }[kind] || 'fresa', e = E_(dayMs(WORKDAY), kind, ['project', 'kid_born', 'new_horse'].includes(kind) ? '*' : 'rosa', item), Q = Go().params(e);
+        const item = { take_seen: 'rosa/cama', knock_night: 'bruno', project: 'fuente', big_catch: 'carpa', big_game: 'ciervo', new_horse: 'Trueno', kid_born: 'Sara', looked_for: 'rosa', hunt_code: 'young' }[kind] || 'fresa', e = E_(dayMs(WORKDAY), kind, ['project', 'kid_born', 'new_horse'].includes(kind) ? '*' : 'rosa', item), Q = Go().params(e);
         check(Q, `${l} ${kind}: no params`);
         for (const key of kind === 'project' || kind === 'kid_born' ? [kind, `${kind}_other`] : [kind]) {
           check(tList(`npc.news.${key}`).length, `${l} npc.news.${key}`);
@@ -14037,6 +14042,7 @@ async function soloTests(game) {
   // A lab with a world of herds and one made-up player (L.q), where the hour, the clock (L.ms) and game.time are the lab's
   const herdLab = fn => {
     const W = WL(), keep = { list: W.list, groups: W.groups, herds: W.herds, t: W.t, gT: W.gT, time: game.time, pl: game.mobs.players, held: game.wind.held, diff: game.difficulty };
+    keep.games = new Map([...w().deltas].filter(([, d]) => d.game).map(([k, d]) => [k, JSON.stringify(d.game)]));   // (R3-4: what the tests take is written in the chunks)
     const L = { W, hour: 18, ms: game.days.now, qs: [], q: null };
     L.q = { me: true, x: 0, y: 0, gm: 'survival', crouch: false, e: { crouch: false, gait: 0 } }; L.qs = [L.q];
     W.list = []; W.groups = new Map(); W.herds = null; W.t = -1e9; W.presence.reset();
@@ -14051,6 +14057,7 @@ async function soloTests(game) {
     try { return fn(L); } finally {
       delete W.stays; delete W.now; delete W.sense; delete game.days.hourAt; game.mobs.players = keep.pl; game.time = keep.time; game.difficulty = keep.diff; game.wind.held = keep.held; game.wind.now();
       W.list = keep.list; W.groups = keep.groups; W.herds = keep.herds; W.t = keep.t; W.gT = keep.gT; W.presence.reset(); Wildlife.herding = null;
+      for (const [k, d] of w().deltas) { if (keep.games.has(k)) d.game = JSON.parse(keep.games.get(k)); else delete d.game; }
     }
   };
   await test('herds (english): same herd tomorrow', async () => {
@@ -14062,7 +14069,7 @@ async function soloTests(game) {
       check(JSON.stringify(a) === JSON.stringify(b), `cell ${cx},${cy} is not the same twice`);
       for (const g of a) {
         const md = HERDS.dayOfYear(H0, g.bed[1]);
-        check(JSON.stringify(A.members(g, md)) === JSON.stringify(B2.members(g, md)) && A.members(g, md).length, `${g.id}: other members`);
+        check(JSON.stringify(A.members(g, md)) === JSON.stringify(B2.members(g, md)) && (A.members(g, md).length || (HERDS.winterOn(md) && A.pairOf(g)?.to)), `${g.id}: other members`);
         for (const pt of [g.bed, g.feed]) {
           const d = Math.hypot(Math.max(0, BOUNDS.x0 - pt[0], pt[0] - BOUNDS.x1), Math.max(0, BOUNDS.y0 - pt[1], pt[1] - BOUNDS.y1));
           check(d >= HERDS.HERD.VILLAGE || g.kind === 'swan', `${g.id}: ${d.toFixed(0)} m from the village`);
@@ -14089,12 +14096,12 @@ async function soloTests(game) {
     // The seasons: calves with their hinds from May to February, striped piglets from March to August, a stag with the hinds in the rut
     const hinds = [], sows = []; for (let cy = -9; cy < 9; cy++) for (let cx = -9; cx < 9; cx++) for (const g of A.cell(cx, cy)) { if (g.kind === 'deer' && !g.stags) hinds.push(g); if (g.kind === 'boar' && !g.lone) sows.push(g); }
     check(hinds.every(g => A.members(g, 601).some(m => m.young && m.mother >= 0) && !A.members(g, 410).some(m => m.young)) && hinds.every(g => A.members(g, 1001).some(m => !m.female && !m.young) && !A.members(g, 1101).some(m => !m.female && !m.young)), 'calves or the rut');
-    check(sows.every(g => A.members(g, 401).length <= HERDS.HERD.SOUNDER_MAX) && HERDS.breedOf('jabali', true, true, 501) === 'piglet' && HERDS.breedOf('jabali', true, true, 1125) === 'reddish' && HERDS.breedOf('ciervo', false, false, 501) === undefined, 'piglets');
+    check(sows.every(g => A.members(g, 401).length <= HERDS.HERD.SOUNDER_MAX) && HERDS.breedOf('jabali', true, true, 501) === 'piglet' && HERDS.breedOf('jabali', true, true, 1125) === 'reddish' && HERDS.breedOf('ciervo', false, false, 501) === 'bud' && HERDS.breedOf('ciervo', false, false, 1125) === undefined, 'piglets');
     const south = HERDS.dayOfYear(Date.UTC(2026, 0, 15), 30 + 20000); check(south > 630 && south < 800 && HERDS.dayOfYear(Date.UTC(2026, 0, 15), 30) === 115, `the south: ${south}`);
     // The ones somebody took are missing some days, and the group never ends
     const g = hinds[0], n0 = A.members(g, 1125, H0).length; A.take(g.id, 0, H0); A.take(g.id, 1, H0);
     check(A.members(g, 1125, H0).length === n0 - 2 && A.members(g, 1125, H0 + 3.9 * 864e5).length === n0 - 2 && A.members(g, 1125, H0 + 4.1 * 864e5).length === n0 - 1 && A.members(g, 1125, H0 + 8.1 * 864e5).length === n0, 'two taken');
-    for (const m of A.members(g, 1125, H0)) A.take(g.id, m.i, H0); check(A.members(g, 1125, H0 + 60e3).length === 0 && A.members(g, 1125, H0 + 2 * 36e5).length === 1, 'the last one');
+    for (const m of A.members(g, 1125, H0)) A.take(g.id, m.i, H0); check(A.members(g, 1125, H0 + 60e3).length === 0 && A.members(g, 1125, H0 + (HERDS.HERD.LAST_H + 1) * 36e5).length === 1, 'the last one');
   });
   await test('herds (english): caps and no pop-in', async () => {
     herdLab(L => {
@@ -14147,7 +14154,8 @@ async function soloTests(game) {
           for (const e of G.list) { e.aw = 0; e.alert = 0; e.staring = false; }
           const inR = G.list.filter(e => e !== a && distOf(e.x, e.y, a.x, a.y) < HERDS.HERD.SPREAD - 1), from = [a.x - 25, a.y], start = G.list.map(e => [e, e.x, e.y]);
           W.alarm(a, ...from); L.run(0.8);
-          for (const e of inR) check(e.flight === 1, `one ${distOf(e.x, e.y, a.x, a.y).toFixed(0)} m off does not flee`);
+          for (const e of inR) check(e.flight === 1 || (e.young && e.freezeT > game.time && e.bedded), `one ${distOf(e.x, e.y, a.x, a.y).toFixed(0)} m off does not flee`);   // (a calf lies flat first: R3-4)
+          L.run(3.5); for (const e of inR) check(e.flight >= 1, `a calf ${distOf(e.x, e.y, a.x, a.y).toFixed(0)} m off stays lying`);
           L.run(40); const dirs = start.filter(([e]) => inR.includes(e) || e === a).map(([e, x, y]) => [dxOf(e.x, x), e.y - y]).filter(d => Math.hypot(...d) > 8);
           let mx = 0, my = 0; for (const d of dirs) { const l = Math.hypot(...d); mx += d[0] / l; my += d[1] / l; }
           check(dirs.length >= inR.length * 0.6 && Math.hypot(mx, my) / dirs.length > 0.6, `they scatter: ${dirs.length} of ${inR.length + 1}, ${(Math.hypot(mx, my) / (dirs.length || 1)).toFixed(2)}`);
@@ -14253,6 +14261,289 @@ async function soloTests(game) {
       check(ms < 0.6 && tick / 60 < 0.05, `${ms.toFixed(3)} ms a frame, ${tick.toFixed(2)} a look`);
       W.presence.byKey.delete('c');
     });
+  });
+  // ---------- Plan R3-4: seasons, populations, the code and Paco ----------
+  await test('seasons (english): the year of the herds', async () => {
+    const A = new HERDS.Herds(w().gen), S = HERDS;
+    // (antlers: cast in March, buds and velvet until July, hard from August; five tines for the big prime ones)
+    check(S.antlersIn(310) === 'none' && S.antlersIn(420) === 'bud' && S.antlersIn(615) === 'velvet' && S.antlersIn(801) === 'hard' && S.antlersIn(1125) === 'hard' && S.antlersIn(215) === 'hard', 'antler stages');
+    check(QL.antlersOn(801) && !QL.antlersOn(615) && QL.antlersOn(215), 'the hard antlers of quality.js');
+    check(S.breedOf('ciervo', false, false, 1001, 1.1, S.AGE.prime) === 'hard5' && S.breedOf('ciervo', false, false, 1001, 0.9, S.AGE.adult) === undefined && S.breedOf('ciervo', false, false, 620, 1.1, S.AGE.old) === 'velvet5' && S.breedOf('ciervo', false, false, 320) === 'none' && S.breedOf('ciervo', true, false, 320) === 'hind', 'stag breeds');
+    const cells = []; for (let cy = -9; cy < 9; cy++) for (let cx = -9; cx < 9; cx++) cells.push(...A.cell(cx, cy));
+    const hinds = cells.filter(g => g.kind === 'deer' && !g.stags), sows = cells.filter(g => g.kind === 'boar' && !g.lone);
+    // (the calves come through May, the piglets through March; none of this year's before)
+    const calves = md => hinds.reduce((n, g) => n + A.seeded(g, md).filter(m => m.young).length, 0), piglets = md => sows.reduce((n, g) => n + A.seeded(g, md).filter(m => m.young).length, 0);
+    check(calves(420) === 0 && calves(503) <= calves(515) && calves(515) <= calves(531) && calves(531) === calves(615) && calves(615) > 0, `calves: ${calves(503)} ${calves(515)} ${calves(531)}`);
+    check(piglets(302) <= piglets(320) && piglets(320) <= piglets(401) && piglets(401) > 0, `piglets: ${piglets(302)} ${piglets(320)} ${piglets(401)}`);
+    // (winter: two herds of a pair go together, never more than WINTER_MAX, and the one gone has no members)
+    let pairs = 0, lower = 0, wl = 0;
+    for (const g of hinds) {
+      const P = A.pairOf(g);
+      if (P?.from) { pairs++; const n = A.members(g, 1215).length; check(n <= S.HERD.WINTER_MAX && n > A.members(g, 1101).length, `${g.id}: ${n} in winter`); check(A.members(P.from, 1215).length === 0, 'the other herd is still there'); }
+      const W2 = A.winterOf(g); if (W2 !== g) { wl++; if ((w().gen.groundAt(...W2.feed) ?? 0) < (w().gen.groundAt(...g.feed) ?? 0)) lower++; }
+    }
+    check(pairs > 0 && lower === wl, `${pairs} pairs; ${lower} of ${wl} winter places lower`);
+    // (the cast antlers: some herds in woods, near their bed, the same every time, another place next year)
+    let sh = 0, again = 0;
+    for (const g of cells.filter(q => q.kind === 'deer')) { const a = A.shedOf(g, 2027), b = new HERDS.Herds(w().gen).shedOf(g, 2027); if (a) { sh++; check(Math.hypot(a.x - g.bed[0], a.y - g.bed[1]) <= S.HERD.SHED_R[1] + 0.5 && b && b.x === a.x && b.y === a.y, `${g.id}: its antler`); if (A.shedOf(g, 2028)?.x === a.x) again++; } }
+    check(sh > 2 && again < sh, `${sh} cast antlers, ${again} in the same place next year`);
+    // (the roar: from 20 to 60 s apart, only in its hours, and the same for everyone)
+    let last = -1, gaps = [], t0 = Date.UTC(2026, 9, 1, 6) ;
+    for (let s = 0; s < 3600; s += 0.25) { const k = S.roarPhase('g1.2.0', t0 + s * 1000, 7); if (k >= 0 && k < 0.11) { if (last >= 0 && s - last > 3) gaps.push(s - last); last = s; } }
+    check(gaps.length > 50 && Math.min(...gaps) >= 19 && Math.max(...gaps) <= 61, `roars: ${gaps.length}, ${Math.min(...gaps)}..${Math.max(...gaps)} s`);
+    check(S.roarPhase('g1.2.0', t0, 13) === -1 && S.roarPhase('g1.2.0', t0, 23) !== undefined, 'roar hours');
+    const stagG = cells.find(g => g.kind === 'deer' && g.stags), hindG = hinds[0];
+    check(A.roarer(stagG, 1001, 0) === 0 && A.roarer(hindG, 1001, 0) === 20 && A.roarer(hindG, 1101, 0) === -1, 'who roars');
+  });
+  const W0 = (L, g) => {
+    const { W } = L; W.list = []; W.groups.clear(); L.H.spooked.clear(); g.retry = 0;
+    const G = L.real(g); if (!G) return;
+    const e = G.list[0], K = W.kOf(e), base = SENSES_MOD.DIFF_K.normal;
+    W.lost(G.list[G.list.length - 1]);
+    check(G.wary && L.H.isWary(g, L.ms), 'a kill does not put the cell on edge');
+    // (what it is: senses × WARY_K; the look back halved)
+    const seen = {}, P = { expo: 0.6, noise: 0.45, scent: 1, hidden: 1 }, E = { light: 1, sky: 1, diff: base * HERDS.HERD.WARY_K, wx: 1, wy: 0, ws: 0.4 };
+    SENSES_MOD.perceive(K, { fx: 1, fy: 0, down: false, staring: false, bedded: false }, P, E, 30, 0, 30, seen);
+    check(Math.abs(seen.D - K.sight * 0.6 * HERDS.HERD.WARY_K) < 0.01, `wary sight ${seen.D}`);
+  };
+  await test('populations (english): regrowth, saved in the chunk', async () => {
+    const keep = new Map([...w().deltas].filter(([, d]) => d.game).map(([k, d]) => [k, JSON.stringify(d.game)]));
+    try {
+      herdLab(L => {
+        const g = L.all('deer', 12, q => !q.stags && L.H.seeded(q, 1125).length >= 4)[0]; check(g, 'no herd');
+        const H = L.H, n0 = H.members(g, 1125, L.ms).length, D0 = Date.UTC(2026, 10, 20);
+        H.take(g.id, 1, D0); H.take(g.id, 2, D0 + 36e5); H.take(g.id, 3, D0 + 2 * 36e5);
+        const d = w().deltas.get(`${wrapIndex(g.cx * 4, CHUNK)},${g.cy * 4}`);
+        check(Array.isArray(d?.game?.deer) && d.game.deer.length === 7, `not written: ${JSON.stringify(d?.game)}`);
+        // (another game, or after loading again: the same)
+        const B2 = new HERDS.Herds(w().gen, { store: { read: (cx, cy) => w().deltas.get(`${wrapIndex(cx * 4, CHUNK)},${cy * 4}`)?.game || null, write: null } });
+        const n = t => H.members(g, 1125, D0 + t).length, m = t => B2.members(B2.cell(g.cx, g.cy).find(o => o.id === g.id), 1125, D0 + t).length;
+        check(n(3 * 36e5) === n0 - 3 && m(3 * 36e5) === n0 - 3, `3 taken: ${n(3 * 36e5)} of ${n0}`);
+        check(m(4.05 * 864e5) === n0 - 2 && m(8.1 * 864e5) === n0 - 1 && m(12.2 * 864e5) === n0, `back: ${m(4.05 * 864e5)} ${m(8.1 * 864e5)} ${m(12.2 * 864e5)}`);
+        // (in summer twice as fast)
+        const S0 = Date.UTC(2026, 5, 10); H.take(g.id, 0, S0); check(H.members(g, 615, S0 + 2.1 * 864e5).length === H.members(g, 615, S0 - 1).length, 'not faster in summer');
+        // (never all: the last one comes back in LAST_H hours)
+        for (const mm of H.seeded(g, 1125)) H.take(g.id, mm.i, D0 + 30 * 864e5);
+        check(H.members(g, 1125, D0 + 30 * 864e5 + 60e3).length === 0 && H.members(g, 1125, D0 + 30 * 864e5 + (HERDS.HERD.LAST_H + 0.1) * 36e5).length === 1, 'the last one');
+        // (wary for three days after a kill)
+        H.alarm(g, D0); check(H.isWary(g, D0 + 2.9 * 864e5) && !H.isWary(g, D0 + 3.1 * 864e5), 'wary');
+        // (a guest writes nothing)
+        const live = game.live, was = live.guest; Object.defineProperty(live, 'guest', { value: true, configurable: true });
+        try { const before = JSON.stringify(d.game); H.alarm(g, D0 + 40 * 864e5); check(JSON.stringify(d.game) === before, 'a guest wrote d.game'); } finally { delete live.guest; check(live.guest === was || was === undefined, 'guest'); }
+        // (a kill puts the cell on edge, and its animals notice from further off)
+        W0(L, g);
+      });
+    } finally { for (const [k, d] of w().deltas) { if (keep.has(k)) d.game = JSON.parse(keep.get(k)); else delete d.game; } }
+  });
+  await test('code (english): breaches, clean kills and Paco\'s respect', async () => {
+    const C = game.huntcode, R = game.rep, keepV = C.v, keepR = JSON.stringify(R.v), gm = game.gamemode, floats = [];
+    const fl = game.gather.float; game.gather.float = (s) => floats.push(s);
+    try {
+      game.gamemode = 'survival'; C.reset({}); R.v.pts = 0; R.v.cap = {};
+      const pts = () => R.v.pts;
+      C.killed({ type: 'ciervo', young: true, x: 0, y: 0 }); check(pts() === -15 && C.v.breach.young === 1, `young: ${pts()}`);
+      C.killed({ type: 'jabali', female: true, mo: 1, x: 0, y: 0 }); check(pts() === -35, `mother: ${pts()}`);
+      C.killed({ type: 'cisne', x: 0, y: 0 }); check(pts() === -60, `swan: ${pts()}`);
+      C.killed({ type: 'cisne', x: 0, y: 0 }); check(pts() === -60, `the day cap: ${pts()}`);
+      check(game.neighbors.memories('paco').some(m => m.kind === 'hunt_swan') && floats.includes(t('hunt.code.swan')), 'Paco does not remember');
+      check(!game.gossip.off ? game.gossip.v.list.some(e => e[2] === 'hunt_code') : true, 'nobody talks');
+      // (clean kills: respect, and the levels)
+      C.reset({}); R.v.cap = {};
+      for (let i = 0; i < 3; i++) C.killed({ type: 'ciervo', cl: 1, x: 0, y: 0 });
+      check(C.v.respect === 3 && C.level() === 1, `level ${C.level()} at ${C.v.respect}`);
+      C.killed({ type: 'ciervo', cl: 2, bled: true, x: 50, y: 50 }); check(C.v.respect === 3 && C.v.pend.length === 1, 'a liver one counted at once');
+      C.pending({ x: 50.5, y: 50 }); check(C.v.respect === 4 && !C.v.pend.length, 'a liver one found');
+      for (let i = 0; i < 4; i++) C.killed({ type: 'ciervo', cl: 1, x: 0, y: 0 }); check(C.level() === 2, `level ${C.level()}`);
+      const ctx = { id: 'paco', cold: false, game, N: game.neighbors }, ids = () => talkOptions.for(ctx).map(o => o.id);
+      check(ids().includes('paco_game') && ids().includes('paco_call') && !ids().includes('paco_horn'), `options: ${ids()}`);
+      for (let i = 0; i < 7; i++) C.killed({ type: 'jabali', cl: 1, x: 0, y: 0 }); check(C.level() === 3 && C.priceK() === 1.15 && ids().includes('paco_horn'), `level 3: ${C.level()}`);
+      // (a breach: level 3 and the call wait a week)
+      C.killed({ type: 'ciervo', young: true, x: 0, y: 0 }); check(C.level() === 2 && !ids().includes('paco_call') && C.priceK() === 1, 'a breach holds nothing back');
+      C.v.lastBreach = game.days.realDay - 8; check(C.level() === 3, 'for ever');
+      // (a clean carcass used: +5, at most 15 a day)
+      R.v.cap = {}; const a = pts(); for (let i = 0; i < 5; i++) C.used([60, 1, 0, 0, 1, 1, QL.F.CLEAN]); check(pts() - a === 15, `clean used: ${pts() - a}`);
+      C.used([60, 1, 0, 0, 1, 1, 0]); check(pts() - a === 15, 'a carcass that was not clean');
+      // (creative: nothing counts; ?codigo=0 neither)
+      game.gamemode = 'creative'; const r0 = C.v.respect; C.killed({ type: 'ciervo', cl: 1 }); check(C.v.respect === r0, 'creative counts');
+      game.gamemode = 'survival'; CODE_MOD.HuntCode.force = false; C.killed({ type: 'ciervo', cl: 1 }); check(C.v.respect === r0 && !ids().length || !ids().includes('paco_game'), 'codigo=0'); CODE_MOD.HuntCode.force = null;
+      // (the save: back and forth; an old one is zeros)
+      const out = {}; C.save(out); const v2 = JSON.stringify(out.hunt); C.reset({ hunt: JSON.parse(v2) }); check(JSON.stringify(C.v) === v2, 'the save');
+      C.reset({}); check(C.v.respect === 0 && C.level() === 0, 'an old save'); C.reset({ hunt: { respect: 'x', breach: 4, sheds: { year: 'a' }, left: [[1]] } }); check(C.v.respect === 0 && C.v.left.length === 0, 'a bad save');
+    } finally { C.v = keepV; Object.assign(R.v, JSON.parse(keepR)); game.gamemode = gm; game.gather.float = fl; CODE_MOD.HuntCode.force = null; }
+  });
+  await test('code (english): the host says who was a mother and what was clean', async () => {
+    herdLab(L => {
+      const { W } = L, H = game.hunt; L.hour = 7;
+      const g = L.all('deer', 12, q => !q.stags)[0], G = g && L.real(g); check(G, 'no herd'); W.sense = () => {};
+      const mom = G.list.find(e => e.female && !e.young && G.list.some(c => c.mom === e)), got = [];
+      const kc = game.carry.hunted, rw = H.reward; game.carry.hunted = () => false; H.reward = m => got.push(m);
+      try {
+        L.ms = Date.UTC(2026, 5, 10, 7);
+        if (mom) { const c = G.list.find(o => o.mom === mom); c.x = mom.x + 2; c.y = mom.y; mom.shot = null; H.damage(mom, 99, [mom.x - 20, mom.y], null, { zone: ZONE.vital, arrow: true }); check(got.at(-1)?.mo === 1, `a mother: ${JSON.stringify(got.at(-1))}`); }
+        const e = G.list.find(o => !o.young && o !== mom); e.hp = undefined; e.shot = null; e.hitAt = 0;
+        H.damage(e, 99, [e.x - 20, e.y], null, { zone: ZONE.vital, arrow: true });
+        check(got.at(-1)?.cl === 1 && (!got.at(-1).cq || got.at(-1).cq[6] & QL.F.CLEAN), `clean: ${JSON.stringify(got.at(-1))}`);
+        const f = G.list.find(o => !o.young); if (f) { f.hp = undefined; f.shot = null; f.hitAt = 0; H.damage(f, 2, [f.x - 20, f.y], null, { zone: ZONE.gut, arrow: true }); H.damage(f, 99, [f.x - 20, f.y], null); check(!got.at(-1)?.cl, 'a gut shot then a blow is clean'); }
+      } finally { game.carry.hunted = kc; delete game.carry.hunted; H.reward = rw; delete H.reward; }
+    });
+  });
+  await test('rut (english): a stag comes to the call; out of it a hind may look', async () => {
+    herdLab(L => {
+      const { W } = L; L.hour = 7; L.ms = Date.UTC(2026, 9, 1, 7);
+      const rutG = L.all('deer', 12, q => !q.stags && L.H.members(q, 1001, L.ms).some(m => m.i === 20)), g = rutG.find(q => w().gen.biomeAt(...q.feed) === B.MEADOW) || rutG[0]; check(g, 'no rut herd');
+      const G = L.real(g, 300); check(G, 'it does not appear'); W.sense = () => {};
+      const stag = G.list.find(e => e.rut); check(stag && stag.breed !== 'hind', 'no stag in the hind group');
+      check(W.kOf(stag).sight < SENSES_MOD.SENSES.ciervo.sight && W.kOf(stag).look > 0.7, 'rut senses');
+      // (a call from 110 m away, where the way there is open land: the stag put where there is one, round its herd)
+      const openAt = (x, y, k) => { if (W.offLimits({ x, y }, HUNT_DANGER.KINDS.ciervo) || w().blocked(x, y)) return false; const q = { x, y }; collideNow(q, w().collidersNear(x, y), 0.7); return Math.hypot(q.x - x, q.y - y) < 0.05; };
+      let cx = null, cy = 0;
+      for (let r = 0; r <= 60 && cx === null; r += 12) for (let b = 0; b < 8 && cx === null; b++) {
+        const sx = stag.x + Math.cos(b * Math.PI / 4) * r, sy = stag.y + Math.sin(b * Math.PI / 4) * r;
+        if (!openAt(sx, sy)) continue;
+        for (let i = 0; i < 16 && cx === null; i++) { const a = i * Math.PI / 8; if ([...Array(28)].every((_, k) => openAt(sx + Math.cos(a) * 4 * (k + 1), sy + Math.sin(a) * 4 * (k + 1)))) { stag.x = sx; stag.y = sy; cx = sx + Math.cos(a) * 110; cy = sy + Math.sin(a) * 110; } }
+      }
+      if (cx === null) { console.log('rut: no open way round the stag: the walk is not looked at'); return; }
+      check(W.called(cx, cy) === 'stag' && stag.callTo, 'it does not answer');
+      let d = 1e9; L.run(80, 0.1, () => { d = Math.min(d, distOf(stag.x, stag.y, cx, cy)); });   // (there it stands a while, looking, and goes back to its herd)
+      check(d >= 38 && d <= 62, `the stag stopped ${d.toFixed(0)} m off`);
+      let roared = 0; stag.roarCall = game.time; L.run(1, 0.1, () => { if (stag.roar >= 0) roared++; }); check(roared > 3, 'no roar');
+      check(SENSES_MOD.packF(stag) >= 0 && ((SENSES_MOD.packF(stag) | (1 << 9)) & (1 << 9)), 'f');
+      // (one nobody is near: its middle comes)
+      W.list = []; W.groups.clear(); L.H.drawn.clear(); const o = L.at(g); L.q.x = o.x + 500; const r = W.called(o.x + 150, o.y), gid = [...L.H.drawn.keys()][0], gg = gid && L.all('deer', 14, q => q.id === gid)[0];
+      check(r === 'stag' && gg && L.H.drawn.size === 1, `a far one: ${r} ${gid}`);
+      const dr = L.H.drawn.get(gid); game.time += dr.s + 1; const o2 = L.at(gg); check(distOf(o2.x, o2.y, o.x + 150, o.y) < 70, `its middle ${distOf(o2.x, o2.y, o.x + 150, o.y).toFixed(0)} m off`); L.H.drawn.clear();
+      // (out of the rut, no stag comes; a hind may)
+      L.ms = Date.UTC(2026, 10, 25, 7); W.list = []; W.groups.clear(); g.retry = 0; const G2 = L.real(g, 300); check(G2, 'not again');
+      for (const e of G2.list) e.rut = false;
+      const h = G2.list.find(e => e.female && !e.young), withR = fn => { const r0 = Math.random; Math.random = () => 0.1; try { return fn(); } finally { Math.random = r0; } };
+      const res = withR(() => W.called(h.x + 60, h.y)); check(res === 'hind' && G2.list.some(e => e.callTo), `a hind: ${res}`);
+    });
+  });
+  await test('danger (english): a sow charges, a bluff on normal, a hit on hard; never lethal on normal', async () => {
+    herdLab(L => {
+      const { W } = L; L.hour = 23; L.ms = Date.UTC(2026, 4, 10, 23);
+      const g = L.all('boar', 14, q => !q.lone && L.H.members(q, 510, L.ms).some(m => m.young))[0]; check(g, 'no sounder with piglets');
+      const C = game.combat, hp = C.hp, inv = C.invuln, hit = C.hit; let hits = [];
+      C.hit = (d) => hits.push(d);
+      try {
+        for (const diff of ['normal', 'hard']) {
+          game.difficulty = diff; W.list = []; W.groups.clear(); g.retry = 0; hits = [];
+          const G = L.real(g, 300); check(G, 'none'); W.sense = () => {};
+          const sow = G.list.find(e => e.female && !e.young); for (const e of G.list) if (e.young) { e.x = sow.x + 1; e.y = sow.y; }
+          L.q.x = sow.x + 6; L.q.y = sow.y; L.q.crouch = false; sow.chargeNext = 0; C.invuln = 0;
+          W.mayCharge(sow, L.qs); check(sow.charge, `${diff}: no charge`);
+          let near = 99; L.run(3, 1 / 30, () => { near = Math.min(near, distOf(sow.x, sow.y, L.q.x, L.q.y)); });
+          if (diff === 'normal') check(!hits.length && near >= HUNT_DANGER.CHARGE.STOP - 0.3, `normal: ${hits} at ${near.toFixed(2)}`);
+          else check(hits.length === 1 && hits[0] === 2, `hard: ${hits}`);
+          check(!sow.charge, 'it charges for ever');
+          L.q.crouch = true; sow.chargeNext = 0; W.mayCharge(sow, L.qs); check(!sow.charge, 'it charges a crouched one');
+        }
+        // (the floor: on normal a hit never leaves you below DIFF.starve)
+        C.hit = hit; game.difficulty = 'normal'; C.hp = 1.6; C.invuln = 0; W.hurtPlayer({ me: true, gm: 'survival' }, 1.5, { x: p().x + 1, y: p().y }); check(C.hp >= C.diff.starve - 1e-9, `normal: ${C.hp}`);
+      } finally { C.hit = hit; C.hp = hp; C.invuln = inv; C.paint(); }
+    });
+  });
+  await test('wind (english): thermals and the lean of the grass', async () => {
+    const { thermalAt } = WIND_MOD;
+    const up = [...thermalAt(12, 0.1, 0)], dn = [...thermalAt(22, 0.1, 0)];
+    check(up && Math.abs(up[0] - 1) < 1e-9, 'by day up the slope'); check(dn && Math.abs(dn[0] + 1) < 1e-9, 'at night down');
+    check(!thermalAt(18, 0.1, 0) && !thermalAt(12, 0.001, 0.001), 'between, or flat');
+    const W = WL(), V = game.wind, keep = V.held, out = {};
+    try {
+      V.held = null; V.x = 0; V.y = 1; W.airAt(p().x, p().y, 0.6, out); check(out.x === 0 && out.y === 1 && !out.th, 'a real wind');
+      V.held = { dir: 0, s: 0.1 }; W.airAt(p().x, p().y, 0.1, out); check(!out.th, 'held: as before');
+      // (the foliage: world3d sets the lean from the wind)
+      V.held = null; V.x = 0.6; V.y = 0.8; V.s = 0.5; NATURE3D.setLean(game);
+      const L2 = NATURE3D.WIND_LEAN.value; check(apagada('viento3d') || (Math.abs(L2.x - 0.6) < 1e-6 && Math.abs(L2.z - 0.8) < 1e-6 && Math.abs(L2.y - 0.4) < 1e-6), `lean ${L2.x} ${L2.y} ${L2.z}`);
+    } finally { V.held = keep; V.now(); }
+  });
+  await test('dog (english): search along a locked trail', async () => {
+    const R = game.ranch, dog = R.animals.find(a => a.type === 'perro' && a.owner === (Profile.id || 'yo'));
+    if (!dog) { console.log('dog search: no dog in this game: skipped'); return; }
+    const keep = { x: dog.x, y: dog.y, s: dog.search };
+    try {
+      dog.x = p().x + 1; dog.y = p().y; dog.search = { x: p().x + 8, y: p().y, till: game.time + 3 };
+      for (let i = 0; i < 60; i++) { game.time += 0.05; R.searchTrail(dog, p(), 1, 0.05); }
+      check(dog.x > p().x + 3, `it does not go: ${(dog.x - p().x).toFixed(1)}`);
+      const x0 = dog.x; dog.search = { x: p().x + 30, y: p().y, till: game.time + 3 }; for (let i = 0; i < 20; i++) { game.time += 0.05; R.searchTrail(dog, p(), 20, 0.05); }
+      check(Math.abs(dog.x - x0) < 0.01, 'it does not wait for its owner');
+      R.searchBy({ id: 'other' }, { id: dog.id, x: dog.x + 5, y: dog.y }); check(dog.search?.x !== dog.x + 5 || dog.owner === 'other', 'a stranger sends it');
+    } finally { Object.assign(dog, { x: keep.x, y: keep.y, search: keep.s }); }
+  });
+  await test('net (english): R3-4 for old peers', async () => {
+    const W = WL(), keep = W.list;
+    try {
+      // (a new host: roar and charge in f; an old guest reads only the bits it knows)
+      const f = SENSES_MOD.packF({ alert: 1, traits: true, female: false, age: 2, size: 1.1 }) | (1 << 9) | (1 << 18);
+      W.netList([['g1.1.0.20', 'ciervo', 5, 5, 0, 0, 0, 0, 5, 5, 0, f]]); const e = W.list[0];
+      check(e.roar === 0 && e.charging && e.breed === HERDS.breedOf('ciervo', false, false, HERDS.dayOfYear(game.days.now, 5), 1.1, 2), `roar ${e.roar} breed ${e.breed}`);
+      W.netList([['w1', 'ciervo', 5, 5, 0, 0]]); check(W.list[0].roar === -1 && !W.list[0].charging, 'an old host');
+      check(SENSES_MOD.unpackF(f, {}).alert === 1, 'the old bits');
+    } finally { W.list = keep; }
+    // (two clients: what the host writes of the ones taken goes as chunk ops; the guest's copy, after them, gives the same herd
+    // and the same cell on edge, and the roars are the same in both)
+    {
+      const hostD = new Map(), guestD = new Map(), K = (cx, cy) => `${cx},${cy}`;
+      const mk = (D, write) => ({ read: (cx, cy) => D.get(K(cx, cy))?.game || null, write: write ? (cx, cy, k, v) => { const d = D.get(K(cx, cy)) || {}; const o = d.game ||= {}; if (v == null) delete o[k]; else o[k] = v; if (!Object.keys(o).length) delete d.game; D.set(K(cx, cy), d); } : null });
+      const A = new HERDS.Herds(w().gen, { store: mk(hostD, true) }), Bq = new HERDS.Herds(w().gen, { store: mk(guestD, false) });
+      let g = null; for (let cy = -4; cy < 4 && !g; cy++) for (let cx = -4; cx < 4 && !g; cx++) g = A.cell(cx, cy).find(q => q.kind === 'deer' && A.seeded(q, 1125).length >= 3) || null;
+      check(g, 'no deer herd'); const D0 = Date.UTC(2026, 10, 20, 19), sync = () => { for (const [k, d] of hostD) { const ops = diffChunk(guestD.get(k) || {}, d); const gd = guestD.get(k) || {}; applyOps(gd, ops); guestD.set(k, gd); } };
+      A.take(g.id, 1, D0); A.take(g.id, 2, D0 + 6e5); A.alarm(g, D0); sync();
+      const gB = Bq.cell(g.cx, g.cy).find(q => q.id === g.id), same = t => JSON.stringify(A.members(g, 1125, t)) === JSON.stringify(Bq.members(gB, 1125, t));
+      const n1 = A.members(g, 1125, D0 + 36e5).length;   // (in time order: what came back does not go again)
+      check(same(D0 + 36e5) && n1 === A.seeded(g, 1125).length - 2 && same(D0 + 4.2 * 864e5), 'the two clients see other herds');
+      check(Bq.isWary(gB, D0 + 864e5) === A.isWary(g, D0 + 864e5) && A.isWary(g, D0 + 864e5), 'wary on one only');
+      const before = JSON.stringify(guestD.get(`${g.cx},${g.cy}`)); Bq.take(gB.id, 0, D0); check(JSON.stringify(guestD.get(`${g.cx},${g.cy}`)) === before, 'a guest wrote');
+      check(HERDS.roarPhase(g.id, D0 + 3e5, 7) === HERDS.roarPhase(gB.id, D0 + 3e5, 7), 'roars');
+    }
+    // (preydead without mo and cl: as before, and nothing of the code)
+    const C = game.huntcode, v = C.v, got = []; C.killed = k => got.push(k);
+    const sd = game.gather.spawnDrops; game.gather.spawnDrops = () => {};
+    try { game.hunt.killed({ type: 'ciervo', id: 'w9', x: 0, y: 0 }); check(got.length === 1 && got[0].mo === 0 && got[0].cl === 0, JSON.stringify(got)); game.hunt.killed({ type: 'ciervo', id: 'w9', x: 0, y: 0, mo: 7, cl: 9 }); check(got[1].mo === 0 && got[1].cl === 0, 'a bad host'); }
+    finally { delete C.killed; C.v = v; game.gather.spawnDrops = sd; delete game.gather.spawnDrops; }
+    // (a charge on a guest: 'hurt' with fl never kills on normal)
+    const Cb = game.combat, hp = Cb.hp, live = game.live, j = live.joined;
+    const dk = game.difficulty;
+    try { game.difficulty = 'normal'; Cb.hp = 1.4; Cb.invuln = 0; Cb.hitAbove(3, { x: p().x + 1, y: p().y }); check(Math.abs(Cb.hp - Cb.diff.starve) < 1e-9, `the floor: ${Cb.hp}`); } finally { game.difficulty = dk; Cb.hp = hp; Cb.paint(); }
+  });
+  await test('paco (english): where the game is, on the map', async () => {
+    const C = game.huntcode, set = game.route?.set, pins = [];
+    if (game.route) game.route.set = (tg) => pins.push(tg);
+    try {
+      const tip = await C.bestGame(); check(tip && Number.isFinite(tip.x) && ['deer', 'boar'].includes(tip.kind), `tip: ${JSON.stringify(tip)}`);
+      const said = [], T = { live: true, e: { x: 0, y: 30 } }, talk = { mine: async () => {}, think: async () => {}, say: async (id, l) => said.push(...l), point() {} };
+      C.v.tipDay = null; await C.tell({ T, N: game.neighbors, talk, id: 'paco' });
+      check(said.length && said[0].length > 10 && !/\{|npc\./.test(said[0]) && (!game.route || pins.length === 1), `said: ${said}`);
+      await C.tell({ T, N: game.neighbors, talk, id: 'paco' }); check(!game.route || pins.length === 2, 'again');
+      check(C.placeWords(tip).length > 6, 'words');
+    } finally { if (game.route) game.route.set = set; }
+  });
+  await test('perf (english): what R3-4 adds a frame', async () => {
+    // (the far roars once a second in the rut, the cast antlers and the code once a second, the thermals in the senses)
+    const W = WL(), C = game.huntcode, D = game.days, sh = D.shift, held = game.wind.held, keepH = D.hourAt;
+    try {
+      D.shift = (Date.UTC(2026, 9, 1, 7) - (D.now - sh * 36e5)) / 36e5; D.hourAt = () => 7;
+      W.herdsOf(); for (let i = 0; i < 90; i++) W.farRoars(p());   // (the cells round, made once)
+      let t0 = performance.now(); for (let i = 0; i < 200; i++) { W.roared.clear(); W.farRoars(p()); } const roars = (performance.now() - t0) / 200;
+      D.shift = (Date.UTC(2026, 3, 10, 12) - (D.now - sh * 36e5)) / 36e5; C.findSheds(p());
+      t0 = performance.now(); for (let i = 0; i < 200; i++) { C.t = 9; C.update(0.016); } const code = (performance.now() - t0) / 200;
+      game.wind.held = null; const out = {}, e = { x: p().x + 20, y: p().y }; t0 = performance.now(); for (let i = 0; i < 2000; i++) { e.slopeAt = null; W.airAt(e.x + (i % 7) * 5, e.y, 0.2, out, e); } const air = (performance.now() - t0) / 2000;
+      // (a second: one roar look and one code look; the senses, 12 animals 4 times a second, the thermals when there is hardly any wind)
+      const frame = (roars + code + air * 48) / 60;
+      console.log(`R3-4 cost: far roars ${roars.toFixed(3)} ms a look, the code and the antlers ${code.toFixed(3)} ms, a thermal ${(air * 1000).toFixed(1)} µs; ${frame.toFixed(4)} ms a frame at 60 fps`);
+      check(frame < 0.15, `${frame.toFixed(3)} ms a frame`);
+    } finally { D.shift = sh; D.hourAt = keepH; delete D.hourAt; game.wind.held = held; game.wind.now(); C.sheds = []; }
+  });
+  await test('sheds (english): a cast antler in spring, once a year', async () => {
+    const C = game.huntcode, inv = game.inv, n0 = inv.count('asta'), keep = JSON.stringify(C.v.sheds);
+    try {
+      const s = { key: 'test.0', x: p().x + 1, y: p().y, yaw: 0, five: false }; C.sheds = [s];
+      const box = (x, y, a, b, c, d) => ({ x, y, a, b, c, d }), A = C.aimables(p(), game.world, box);
+      check(A?.length === 1 && A[0].act()?.text === t('hunt.shed.take'), 'no E on it');
+      A[0].act().run(); check(inv.count('asta') === n0 + 1 && C.v.sheds.cells.includes('test.0') && !C.sheds.length, 'not picked up');
+      C.takeShed(s); check(inv.count('asta') === n0 + 1, 'twice');
+      check(new THREE.Box3().setFromObject(ANIMALS3D.shedModel(true)).getSize(new THREE.Vector3()).length() > 0.3, 'its model');
+    } finally { inv.remove('asta', inv.count('asta') - n0); C.v.sheds = JSON.parse(keep); C.sheds = []; }
   });
   await test('nature (english): looking fills a new page', async () => {
     const s = trackLine(8); check(s, 'no open ground');

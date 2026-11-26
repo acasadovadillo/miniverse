@@ -279,6 +279,10 @@ defineNames(NEW_FISH, 'item', ['name']);
 const TACKLE_ITEMS = { worm: {}, cut_bait: {}, spoon: { stack: 8, lure: 60 }, jig: { stack: 8, lure: 60 }, landing_net: { stack: 1 }, fish_trap: { stack: 4 }, rod_rest: { place: 'furniture', stack: 4 } };
 Object.assign(ITEMS, TACKLE_ITEMS);
 defineNames(TACKLE_ITEMS, 'item');
+// ---------- The hunt (Plan R3-4, huntcode.js): Paco's deer call, and his old hunting horn to hang on a wall ----------
+const HUNT_ITEMS = { deer_call: { stack: 1, call: true }, hunting_horn: { place: 'wall', stack: 4 } };
+Object.assign(ITEMS, HUNT_ITEMS);
+defineNames(HUNT_ITEMS, 'item');
 // ---------- Exploración (fase 8) ----------
 Object.assign(ITEMS, {
   amatista: { name: 'Amatista', desc: 'Gema morada de las cuevas (desde el nivel 3).', gem: true },

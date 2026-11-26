@@ -62,6 +62,9 @@ const HEAT_MS = 30000, REST_MS = 5 * 60000, MATE_NEAR = 8;
 const SPEED = { gallina: 1.1, pato: 0.9, conejo: 1.3, cerdo: 0.8, cabra: 1, caballo: 1.3, perro: 1.6, gato: 1.2 };
 // The dog out hunting (stalk): where it heels, and its point (m and seconds)
 const HEEL = { BACK: 1.5, NEAR: 0.6, SLOW: 0.6 }, POINT = { R: 40, EVERY: 2, FOR: 4, REST: 6, LEASH: 12 };
+// Searching a trail (Plan R3-4 §3.10, huntcode.js): its speed, and it waits when its owner falls this far behind
+const SEARCH = { SPEED: 1.9, WAIT: 15 };
+const AIR = { x: 1, y: 0, th: false };
 const RUN = { perro: 4.2, gato: 2.6, caballo: 5 };   // corriendo (siguiendo a su dueño o al llamarlo)
 // A called horse (Plan F §1.3): its speed by level (always faster than a player who walks, 3.2, so it catches up), slower for
 // the last COME_SLOW m. Cut off by something (a rock, a wall) for STUCK s, it goes around it (goAround): up to COME_TRIES
@@ -661,6 +664,7 @@ export class Ranch {
     if (follow) {
       a.sleep = false;
       const d = Math.hypot(owner.x - a.x, owner.y - a.y);
+      if (a.search && this.searchTrail(a, owner, d, dt)) return;
       if (this.stalk(a, owner, d, dt)) return;
       // (se había quedado atrás: aparece corriendo; si su dueño nada, no: los perros no nadan, lo espera en la orilla)
       if (d > 16) { if (!owner.swim && !this.world.blocked(owner.x - 1, owner.y - 1)) { a.x = a.tx = owner.x - 1; a.y = a.ty = owner.y - 1; } else a.vx = a.vy = 0; return; }
@@ -709,6 +713,27 @@ export class Ranch {
     }
     return true;
   }
+  // Searching the trail its owner follows (a.search: the next mark, from huntcode.js; held there for a few seconds): nose
+  // down along it, at a walk, waiting when they fall SEARCH.WAIT behind. true: that is what it does now
+  searchTrail(a, owner, d, dt) {
+    const S = a.search, g = this.game;
+    if (!S || g.time > S.till || d > 40) { a.search = null; return false; }
+    a.sleep = false; a.dogK = -1; a.pointing = false; a.heeling = false;
+    const dt2 = Math.hypot(S.x - a.x, S.y - a.y);
+    if (d > SEARCH.WAIT || dt2 < 0.6) { a.vx = a.vy = 0; if (dt2 >= 0.6) a.faceTo(S.x - a.x, S.y - a.y); return true; }
+    // (held up by a trunk or a rock: round it, to one side for a moment, the other the next time)
+    if (a.detour && g.time < a.detour[2]) a.go(a.detour[0], a.detour[1]); else { a.detour = null; a.go(S.x, S.y); }
+    a.walk(dt, this.world, SEARCH.SPEED);
+    if (a.stuck > 0.5 && !a.detour) { const dx = S.x - a.x, dy = S.y - a.y, l = Math.hypot(dx, dy) || 1, side = (a.side = -(a.side || 1)) * 2.2; a.detour = [a.x - dy / l * side + dx / l, a.y + dx / l * side + dy / l, g.time + 1.2]; a.stuck = 0; }
+    a.sniff = true;
+    return true;
+  }
+  // (whoever moves the dogs) A guest's dog searching: the mark it goes to now (none: it stops)
+  searchBy(peer, m) {
+    const a = this.animals.find(o => o.id === m.id && o.type === 'perro' && o.owner === peer.id);
+    if (!a) return;
+    a.search = Number.isFinite(m.x) && Number.isFinite(m.y) && distOf(m.x, m.y, a.x, a.y) < 60 ? { x: m.x, y: m.y, till: this.game.time + 3 } : null;
+  }
   face(a, w) {
     const dx = dxOf(w.x, a.x), dy = w.y - a.y;
     a.vx = a.vy = 0; a.tx = a.x; a.ty = a.y; a.pointing = true;
@@ -721,8 +746,8 @@ export class Ranch {
     let best = null, bd = POINT.R;
     if (V) for (const w of g.wildlife.list) {
       if (w.type === 'cisne') continue;
-      const dx = dxOf(a.x, w.x), dy = a.y - w.y, d = Math.hypot(dx, dy);
-      if (d < bd && d > 2 && downwind(V.x, V.y, dx, dy, d)) { bd = d; best = w; }
+      const dx = dxOf(a.x, w.x), dy = a.y - w.y, d = Math.hypot(dx, dy), A = g.wildlife.airAt ? g.wildlife.airAt(w.x, w.y, V.s, AIR) : V;   // (with hardly any wind, the thermals: wildlife.js)
+      if (d < bd && d > 2 && downwind(A.x, A.y, dx, dy, d)) { bd = d; best = w; }
     }
     return best;
   }
@@ -1247,6 +1272,7 @@ export class Ranch {
     if (food) return { text: `Darle ${ITEMS[food].name.toLowerCase()} a ${a.name} (para que tenga una cría)`, run: () => this.court(a, food) };
     const whose = a.owner && !mine ? `, de ${g.live.nameOf?.(a.owner) || 'otra persona'}` : '';
     const sit = def.pet && mine ? { text: a.sit ? 'Que se levante' : 'Que se siente', run: () => this.toggleSit(a) } : null;   // (el perro y el gato propios)
+    if (mine && g.huntcode?.canSearch(a)) return { text: tr('dog.search_opt', { name: a.name }), run: () => g.huntcode.startSearch(a), alt: sit };   // (a trail locked: «Search!», huntcode.js)
     if (a.petDay !== this.today) return { text: `Acariciar a ${a.name}${whose}${grass ? ` (${grass})` : ''}`, run: () => this.pet(a), alt: sit };
     // (si han comido esta mañana y, los que pastan, lo que llevan hoy, que es lo que cuenta para mañana)
     const fed = (a.fedDay === this.today ? 'ha comido' : 'tiene hambre') + (grass ? ` · ${grass}` : '');

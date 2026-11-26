@@ -387,6 +387,7 @@ export class Carry {
     const g = this.game, ar = this.cq?.[3] || 0;
     if (!this.held || !(price > 0)) return null;
     if (isGame(this.held) && starsOf(this.cq, this.now()) >= 3) g.gossip?.news('big_game', 'anselmo', BULKY[this.held].prey);   // (he tells the whole bar: gossip.js)
+    g.huntcode?.used(this.cq);
     this.set(null);
     g.addMoney(price);
     g.stats?.add('ventas', price);
@@ -421,6 +422,7 @@ export class Carry {
   convert(list) {
     const g = this.game, id = this.held;
     if (!id) return;
+    if (BULKY[id].prey) g.huntcode?.used(this.cq);   // (a clean kill, used: huntcode.js)
     this.set(null);
     const sum = new Map();   // (the same thing twice, the most and the extra: one notice, "+3 Bone")
     for (const [m, n] of list) sum.set(m, (sum.get(m) || 0) + n);
@@ -485,6 +487,7 @@ export class Carry {
     if (!B?.prey || g.scene.unplace(o) === false) return;
     this.forget(o.tile);
     g.gather.spawnDrops(o, { drops: fieldDrops(o.placed, cq, this.now()) });
+    g.huntcode?.used(cq);   // (a clean kill, used: huntcode.js)
     g.gather.chips(o.x, o.y, 'dirt', 14);
     g.body?.butchered();
     Audio.noiseHit(180, 0.2, 0.35);

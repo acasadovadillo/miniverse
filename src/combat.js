@@ -127,6 +127,9 @@ export class Combat {
       if (d < 0.55 && m.cool <= 0 && this.invuln <= 0 && !g.busy && g.gamemode === 'survival') { m.cool = 1.5; this.hit(Math.max(0.5, def.dmg * this.diff.dmg), m); }   // (en creativo y de espectador no hacen daño)
     }
   }
+  // A hit that never leaves you below the floor of the difficulty (DIFF.starve: on normal it never kills): a boar's charge
+  // (wildlife.js, Plan R3-4)
+  hitAbove(dmg, from) { const n = Math.min(dmg, Math.max(0, this.hp - this.diff.starve)); if (n > 0) this.hit(n, from); return n; }
   hit(dmg, from) {
     const g = this.game, p = g.player;
     // La armadura quita daño y cada pieza se gasta un poco con cada golpe (y se rompe al acabarse; con irrompibilidad,

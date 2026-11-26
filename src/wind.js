@@ -26,6 +26,16 @@ export function windAt(seed, ms, out = {}) {
   return out;
 }
 
+// The thermals (Plan R3-4 §3.1): with hardly any wind, the air near the ground goes up the slopes by day (9 to 17) and down
+// them at night (19 to 7). The way it carries a scent at an hour on a slope (gx, gy: how the ground rises along x and y, m
+// per m), a unit vector [x, y] reused, or null (flat ground, or the hours between)
+const TH = [0, 0], FLAT = 0.02;
+export function thermalAt(h, gx, gy) {
+  const up = h >= 9 && h < 17, down = h >= 19 || h < 7, l = Math.hypot(gx, gy);
+  if ((!up && !down) || !(l > FLAT)) return null;
+  TH[0] = (up ? gx : -gx) / l; TH[1] = (up ? gy : -gy) / l;
+  return TH;
+}
 // game.wind: the wind now, worked out once a second. dir, x, y (the unit vector it blows along), s (its strength where you
 // are, 0..1) and sAt(y) (anywhere: the host asks for other players). held: the tests fix it ({ dir, s })
 export class Wind {

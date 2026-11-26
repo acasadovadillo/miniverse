@@ -43,6 +43,7 @@ export const NEWS = {
   knock_night: { val: -1, days: 2 }, looked_for: { val: 0, days: 1 }, big_catch: { val: 1, days: 4 }, big_game: { val: 1, days: 4 },
   new_horse: { val: 1, days: 7 }, wedding: { val: 1, days: 30 },
   stall_seen: { val: -1, days: 5 }, jailed: { val: -1, days: 7 },   // (the law, law.js)
+  hunt_code: { val: -1, days: 5 },   // (the hunter's code broken: item young, mother, swan or waste; huntcode.js)
 };
 export const NEWS_KINDS = Object.keys(NEWS);
 // …and the kinds a couple tells each other (Plan R6.4)
@@ -179,6 +180,7 @@ export class Gossip {
         if (!ITEMS[item]) return null;
         return { ...P, item: thing(item), some: someOf(item) };
       case 'big_game': return has(`nature.name.${item}`) ? { ...P, item: noun('nature.name', item) } : null;
+      case 'hunt_code': return has(`gossip.hunt.${item}`) ? { ...P, deed: t(`gossip.hunt.${item}`) } : null;
       case 'project': return own(PROJECTS, item) ? { ...P, project: has(`gossip.project.${item}`) ? t(`gossip.project.${item}`) : PROJECTS[item].name } : null;
       case 'kid_born': return { ...P, kid: item, ksex: e[7] === 'chica' ? 'girl' : 'boy' };
       case 'new_horse': return { ...P, animal: item };

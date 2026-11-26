@@ -118,6 +118,10 @@ function animalFacts(id, g) {
       const herd = WILD.herdsOn?.() && `nature.fact.herd.${id}`;   // (Plan R3-2: its herd's places and hours)
       out.push(['nature.fact.habitat', { list: biomeNames(k.biomes) }, 1], ...(herd ? [[herd, null, 2]] : hoursFact(k.hours, 2)));
       if (herd && id !== 'cisne') out.push(['nature.fact.alarm', null, 3]);
+      // (the year of Plan R3-4: the rut, the antlers, the young; and that a hunted place fills again)
+      if (herd && id === 'ciervo') out.push(['nature.fact.rut', null, 2], ['nature.fact.antlers', null, 2], ['nature.fact.calves', null, 2]);
+      if (herd && id === 'jabali') out.push(['nature.fact.piglets', null, 2], ['nature.fact.charge', null, 3]);
+      if (herd && id !== 'cisne') out.push(['nature.fact.comeback', { days: 4 }, 3]);
       const K = WILD.sensesOn?.() && SENSES[id];   // (the senses of Plan R3: what it sees and smells of you, on a fine day)
       if (K) {
         out.push(['nature.fact.notices', { m: Math.round(K.sight * EXPO.walk), c: Math.round(K.sight * EXPO.crouch) }, 2]);

@@ -563,7 +563,11 @@ export class Live {
       // (a guest's places found before R7, for this world to keep them: explore.js)
       case 'places': if (this.role === 'host' && g.player && this.takes(peer) && !peer.old && !peer.toldPlaces) { peer.toldPlaces = true; g.places.keepFound(m.k); } break;   // (once per connection: looking them up costs)
       case 'preydead': if (fromHost) g.hunt.killed(m); break;
-      case 'hurt': if (fromHost && this.joined && g.player && g.gamemode === 'survival' && g.combat.invuln <= 0 && Number.isFinite(m.dmg)) g.combat.hit(Math.min(20, m.dmg), { x: m.x, y: m.y }); break;
+      case 'hurt': if (fromHost && this.joined && g.player && g.gamemode === 'survival' && g.combat.invuln <= 0 && Number.isFinite(m.dmg)) { if (m.fl) g.combat.hitAbove(Math.min(20, m.dmg), { x: m.x, y: m.y }); else g.combat.hit(Math.min(20, m.dmg), { x: m.x, y: m.y }); } break;   // (fl: never below the floor of the difficulty, a boar's charge: wildlife.js)
+      // The hunt of Plan R3-4 (huntcode.js, wildlife.js): a deer call blown by a guest, a roar of a stag nobody sees, a dog searching a trail
+      case 'call': if (this.takes(peer)) g.huntcode?.calledBy(peer, m); break;
+      case 'roar': if (fromHost) g.wildlife.roarHeard(m.x, m.y); break;
+      case 'dsearch': if (this.takes(peer)) g.ranch.searchBy?.(peer, m); break;
       case 'mobdead': if (fromHost) g.mobs.killed(m); break;
       // Lo que se tira al suelo
       case 'drop':
@@ -849,7 +853,7 @@ export class Live {
     applyOps(w.delta(cx, cy, true), ops);
     if (this.guest) { const s = this.synced.get(k) || {}; applyOps(s, ops); this.synced.set(k, s); }
     // (only a pushed wheelbarrow's record, a plan of a building, a fish trap, a business, the stock of a spot or a request: nothing new to draw, the chunks are not made again; barrow.js)
-    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished' || f === 'shop' || f === 'pilfer' || f === 'tg' || f === 'tgkit')) w.note(cx, cy);
+    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished' || f === 'shop' || f === 'pilfer' || f === 'tg' || f === 'tgkit' || f === 'game')) w.note(cx, cy);
     else {
       w.touch(cx, cy);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) w.merged.delete(`${cx + dx},${cy + dy}`);   // (tejados y vallas miran a sus vecinas)

@@ -3,7 +3,7 @@
 // sounder of boar (or a lone male), a pair of swans, or nothing. A group has its places (a bed in cover, a feeding place and
 // water to drink) and its hours, so where its middle is at any time (where) is worked out, never stored, and the same herd is
 // in the same meadow tomorrow at dawn. Here only the numbers, pure: the cells, the members, the hours; and what whoever runs
-// the world remembers of a group (a disturbed one, the ones somebody took: neither is saved). wildlife.js makes the group a
+// the world remembers of a group (a disturbed one, which is not saved). wildlife.js makes the group a
 // player comes near real, moves it, and lets it go when nobody is near.
 import { ihash } from './util.js';
 import { B, BIOMES, climate, classify, wetness } from './world/biomes.js';
@@ -32,7 +32,10 @@ export const HERD = {
   QUIET: [8, 16],              // nothing built at its place nor this far round it
   SPREAD: 30, ROUSE: 15, WARN: 0.8,   // an alarm goes through the group this far (awareness WARN); one on its guard, this far
   SPOOKED: 360, WARY: 0.3,     // a group that fled stays where it fled for this long, and is uneasy when it is met again
-  BACK_DAYS: 4, LAST_H: 1,     // one taken comes back in so many real days; the last of a group, in so many hours
+  BACK_DAYS: 4, LAST_H: 12,    // one taken comes back in so many real days; the last of a group, in so many hours
+  WARY_DAYS: 3, WARY_K: 1.25,  // a cell somebody hunted in: on edge for so long, and its animals notice from this much further
+  WINTER_MAX: 8, WINTER_R: [20, 36, 52],   // the animals of two herds gone together, at most; where their winter feeding place may be
+  SHED: 0.6, SHED_R: [4, 22],  // of the herds in woods, the ones with a cast antler to find in spring, and how far from their bed
   AROUND: [3, 8], NIGHT: [4, 11], YOUNG: [1.2, 3],   // how far from its leader (its mother) each one wanders
   BED: [1.8, 5], STRAY: 14, HURRY: 2.2,   // round the bed; further than STRAY from its leader it hurries back
   DRINK: [8, 18], ROOT: [10, 30],          // seconds of a drink, and of a boar's rooting
@@ -44,7 +47,16 @@ export const HIND_K = 0.9, YOUNG = 0.55;     // (how big a hind or a sow is by a
 export const scaleOf = e => (e.young ? YOUNG : 1) * (e.type === 'caballo' ? raceSize(e) : 1) * (e.traits ? (e.size || 1) * (e.female && !e.young && e.type !== 'cisne' ? HIND_K : 1) : 1);
 const TYPE = { deer: 'ciervo', boar: 'jabali', swan: 'cisne' };
 const KINDS = ['deer', 'boar', 'swan'];
-const NONE = Object.freeze([]);
+const NONE = Object.freeze([]), DAY = 864e5;
+export const MERGED = 40;   // (what is added to the member index of a herd that has come to another in winter)
+// The ones taken of a group, from its record (d.game): a Map with its step, or null
+function readLost(rec) {
+  if (!Array.isArray(rec) || !Number.isFinite(rec[0]) || rec.length < 3) return null;
+  const M = new Map();
+  M.step = rec[0];
+  for (let n = 1; n + 1 < rec.length && M.size < 60; n += 2) if (Number.isInteger(rec[n]) && Number.isFinite(rec[n + 1])) M.set(rec[n], rec[n + 1]);
+  return M.size ? M : null;
+}
 const GRID = 8, STEP = CELL / GRID, TAU = Math.PI * 2;
 const DIRS = Array.from({ length: 12 }, (_, i) => [Math.cos(i * TAU / 12), Math.sin(i * TAU / 12)]);
 const green = b => b === B.MEADOW || b === B.FOREST || b === B.PINES, wood = b => b === B.FOREST || b === B.PINES;
@@ -60,13 +72,21 @@ export function dayOfYear(ms, y = 0) {
 }
 export const calvesOn = md => md >= 501 || md < 301;                 // (with their mothers until the next spring's)
 export const rutOn = md => md >= 915 && md <= 1020;
+export const winterOn = md => md >= 1201 || md < 301;
+export const shedsOn = md => md >= 301 && md <= 531;
+// The antlers of a stag: none (cast), buds (short, in velvet), velvet or hard
+export const ANTLERS = ['none', 'bud', 'velvet', 'hard'];
+export const antlersIn = md => (md >= 801 || md < 301 ? 'hard' : md < 415 ? 'none' : md < 601 ? 'bud' : 'velvet');
+// Does one this big, and of this age, carry five tines a side (the others, three)?
+export const fiveTines = (size, age) => age >= AGE.prime && size >= 1.05;
 export const stripedOn = md => md >= 301 && md < 901;                // (the piglets' stripes; then, reddish)
-// How a wild animal looks, for its model (three/animals.js breeds): undefined, the stag and the male boar
-export function breedOf(type, female, young, md) {
-  if (type === 'ciervo') return young ? 'calf' : female ? 'hind' : undefined;
+// How a wild animal looks, for its model (three/animals.js breeds): undefined, the stag with its three tines and the male boar
+export function breedOf(type, female, young, md, size = 1, age = AGE.adult) {
+  if (type === 'ciervo') return young ? 'calf' : female ? 'hind' : stagBreed(antlersIn(md), fiveTines(size, age));
   if (type === 'jabali') return young ? (stripedOn(md) ? 'piglet' : 'reddish') : female ? 'sow' : undefined;
   return undefined;
 }
+const stagBreed = (a, five) => (a === 'none' || a === 'bud' ? a : a === 'velvet' ? (five ? 'velvet5' : 'velvet') : five ? 'hard5' : undefined);
 // Its name (lang wild.*), or null: the species' own (a summoned one, or an old host's)
 export function nameKey(e) {
   if (!e.traits) return null;
@@ -98,18 +118,32 @@ export function hours(kind, h, water, out) {
   }
   return set(out, 'feed', 'feed');
 }
+// ---------- the roar of the rut ----------
+// A stag roars every 20 to 60 s, from 6 to 10 and from 18 to 24: how far into a roar it is now (0..1), or -1. h: the hour
+// there; ms: the game's clock
+export const ROAR = { SLOT: 40, JIT: 20, FOR: 2.4, R: 250 };
+export const roarHour = h => (h >= 6 && h < 10) || h >= 18;
+export function roarPhase(id, ms, h) {
+  if (!roarHour(h)) return -1;
+  let k = 7;
+  for (let i = 0; i < id.length; i++) k = (k * 31 + id.charCodeAt(i)) % 9973;
+  const s = ms / 1000, n = Math.floor(s / ROAR.SLOT), t = s - (n * ROAR.SLOT + ihash(n, k, 977) * ROAR.JIT);
+  return t >= 0 && t < ROAR.FOR ? t / ROAR.FOR : -1;
+}
 // (0 by day, 1 by night: they spread out more)
 const nightK = h => Math.max(ease((h - 21) / 1.5), 1 - ease((h - 4) / 1.5));
 
 // ---------- the cells ----------
 export class Herds {
-  // gen: the world's generator (grassAt, seed). ready: sites of R7 not used yet (lick: see place of a deer group)
-  constructor(gen, { lick = null } = {}) {
-    this.gen = gen; this.seed = gen.seed; this.lick = lick;
+  // gen: the world's generator (grassAt, seed). ready: sites of R7 not used yet (lick: see place of a deer group). store: where
+  // the ones somebody took are kept, { read(cx, cy) → d.game or null, write(cx, cy, key, value) (null on a guest) }
+  constructor(gen, { lick = null, store = null } = {}) {
+    this.gen = gen; this.seed = gen.seed; this.lick = lick; this.store = store;
     this.cells = new Map();      // 'cx,cy' → its groups (an LRU)
     this.c = {};
     this.spooked = new Map();    // id → { till, dx, dy }: where a disturbed group is, off its hours' place
-    this.gone = new Map();       // id → Map(member index → when, ms)
+    this.gone = new Map();       // id → Map(member index → when, ms; step: when the last one came back)
+    this.drawn = new Map();      // id → { x, y, dx, dy, t, s, till }: a group that comes to a call, off its hours' place
     this.H = { act: '', from: '', to: '', k: 0 };
     this.stats = { cells: 0, ms: 0, worst: 0 };
   }
@@ -137,7 +171,7 @@ export class Herds {
     const ms = performance.now() - t0;
     this.stats.cells++; this.stats.ms += ms; this.stats.worst = Math.max(this.stats.worst, ms);
     this.cells.set(k, c);
-    if (this.cells.size > 120) this.cells.delete(this.cells.keys().next().value);
+    if (this.cells.size > 260) this.cells.delete(this.cells.keys().next().value);
     return c;
   }
   has(cx, cy) { return this.cells.has(wrapIndex(cx, CELL) + ',' + cy); }
@@ -240,47 +274,142 @@ export class Herds {
 
   // ---------- the members ----------
   // The animals of a group, the first one its leader: [{ i, female, young, age, size, mother }], by the seed and the day of the
-  // year (md), so they are the same ones every day: without the ones somebody took (now: ms)
+  // year (md), so they are the same ones every day: without the ones somebody took (now: ms). In winter, with the ones of the
+  // herd that has come to it (their i + MERGED), and none of one that has gone to another
   members(g, md, now = 0) {
+    const P = winterOn(md) ? this.pairOf(g) : null;
+    if (P?.to) return [];
+    const out = this.own(g, md, now);
+    if (P?.from) for (const m of this.own(P.from, md, now)) out.push({ ...m, i: m.i + MERGED, mother: m.mother >= 0 ? m.mother + MERGED : -1 });
+    return out;
+  }
+  // As seeded, all of them (full), or the ones that are left
+  seeded(g, md) {
     const out = [], R = n => this.roll(g.cx, g.cy, g.s + n), many = ([a, b], n) => a + Math.floor(R(n) * (b - a + 1));
     const add = (i, female, age, mother = -1) => out.push({ i, female, young: age === 0, age, size: sizeOf(age ? 1 + Math.floor(R(400 + i) * 7) : md >= 1101 || md < 301 ? 5 : md >= 801 ? 3 : 1), mother });   // (the young grow through the year)
     const grown = i => { const v = R(300 + i); return v < 0.4 ? AGE.adult : v < 0.8 ? AGE.prime : AGE.old; };
     if (g.kind === 'swan') { add(0, true, AGE.prime); add(1, false, AGE.prime); for (const m of out) m.size = sizeOf(3); }
     else if (g.kind === 'deer' && g.stags) { const n = many(HERD.STAGS, 1); for (let i = 0; i < n; i++) add(i, false, i ? grown(i) : AGE.prime); }
     else if (g.kind === 'deer') {
-      const n = many(HERD.HINDS, 1);
+      const n = many(HERD.HINDS, 1), born = j => !(md >= 501 && md < 601) || md - 501 >= Math.floor(R(340 + j) * 31);   // (each on its day of May)
       for (let i = 0; i < n; i++) add(i, true, i ? grown(i) : AGE.old);
-      if (calvesOn(md)) for (let j = 0, m = many(HERD.CALVES, 2); j < m; j++) add(10 + j, R(320 + j) < 0.5, AGE.young, j + (n > 1 ? 1 : 0) < n ? j + (n > 1 ? 1 : 0) : 0);
+      if (calvesOn(md)) for (let j = 0, m = many(HERD.CALVES, 2); j < m; j++) if (born(j)) add(10 + j, R(320 + j) < 0.5, AGE.young, j + (n > 1 ? 1 : 0) < n ? j + (n > 1 ? 1 : 0) : 0);
       if (rutOn(md)) add(20, false, AGE.prime);
     } else if (g.lone) add(0, false, AGE.old);
     else {
-      const n = many(HERD.SOWS, 1);
+      const n = many(HERD.SOWS, 1), born = j => !(md >= 301 && md < 401) || md - 301 >= Math.floor(R(340 + j) * 31);   // (from the first of March, each on its day)
       for (let i = 0; i < n; i++) add(i, true, i ? grown(i) : AGE.old);
-      for (let j = 0, m = Math.min(many(HERD.PIGLETS, 2), HERD.SOUNDER_MAX - n); j < m; j++) add(10 + j, R(320 + j) < 0.5, AGE.young, j % n);
+      for (let j = 0, m = Math.min(many(HERD.PIGLETS, 2), HERD.SOUNDER_MAX - n); j < m; j++) if (born(j)) add(10 + j, R(320 + j) < 0.5, AGE.young, j % n);
     }
-    const lost = this.gone.get(g.id);
+    return out;
+  }
+  own(g, md, now) {
+    const out = this.seeded(g, md), lost = this.lostOf(g);
     if (!lost) return out;
-    this.regrow(g.id, lost, md, now);
+    this.regrow(g, lost, now);
     let left = out.filter(m => !lost.has(m.i));
     // (never all of it: the last one's place is taken by another soon after)
-    if (!left.length) { let last = out[0], at = Infinity; for (const m of out) { const t = lost.get(m.i) ?? 0; if (t < at) { at = t; last = m; } } left = now - Math.max(...lost.values()) > HERD.LAST_H * 36e5 ? [last] : left; }
+    if (!left.length && out.length) { let last = out[0], at = Infinity; for (const m of out) { const t = lost.get(m.i) ?? 0; if (t < at) { at = t; last = m; } } left = now - Math.max(...lost.values()) > HERD.LAST_H * 36e5 ? [last] : left; }
     return left;
   }
+  // The ones of a group that somebody took, as they are written now (store): Map(i → when), or undefined
+  lostOf(g) {
+    const rec = this.store?.read(g.cx, g.cy)?.[g.kind];
+    if (this.store && rec !== g.rec) {
+      g.rec = rec;
+      const M = readLost(rec);
+      if (M) this.gone.set(g.id, M); else this.gone.delete(g.id);
+    }
+    return this.gone.get(g.id);
+  }
   // One of them died (now: ms)
-  take(id, i, now) { let m = this.gone.get(id); if (!m) { this.gone.set(id, m = new Map()); m.step = now; } m.delete(i); m.set(i, now); }
-  // (one comes back every BACK_DAYS, the one that has been missing longest; twice as fast in spring and summer)
-  regrow(id, lost, md, now) {
-    const days = HERD.BACK_DAYS * (md >= 501 && md < 901 ? 0.5 : 1) * 864e5;
+  take(id, i, now) {
+    const p = parseId(id + '.0'), g = p && this.cell(p.cx, p.cy).find(o => o.id === id);
+    if (!g) return;
+    if (i >= MERGED) { const from = this.pairOf(g)?.from; if (from) this.take(from.id, i - MERGED, now); return; }
+    let m = this.lostOf(g);
+    if (m) this.regrow(g, m, now);
+    if (!m || !m.size) { this.gone.set(id, m = new Map()); m.step = now; }
+    m.delete(i); m.set(i, now);
+    this.write(g, m);
+  }
+  write(g, m) {
+    if (!this.store?.write) return;
+    const rec = m && m.size ? [Math.round(m.step), ...[...m].flatMap(([i, at]) => [i, Math.round(at)])] : undefined;
+    g.rec = rec;
+    this.store.write(g.cx, g.cy, g.kind, rec);
+  }
+  // (one comes back every BACK_DAYS, the one that has been missing longest; twice as fast from May to August. By the time gone
+  // by, at the pace of each moment: the same whoever works it out, and whenever)
+  regrow(g, lost, now) {
     if (now < lost.step) lost.step = now;   // (the clock was put back)
-    while (lost.size && now - lost.step > days) { lost.delete(lost.keys().next().value); lost.step += days; }
-    if (!lost.size) this.gone.delete(id);
+    for (;;) {
+      const md = dayOfYear(lost.step, g.bed[1]), ms = HERD.BACK_DAYS * (md >= 501 && md < 901 ? 0.5 : 1) * DAY;
+      if (!lost.size || now - lost.step <= ms) break;
+      lost.delete(lost.keys().next().value); lost.step += ms;
+    }
+    if (lost.size) return;
+    this.gone.delete(g.id);
+    if (g.rec) { if (this.store?.write) this.write(g, null); }
+  }
+  // How many of a group are missing
+  missing(g, now) { const m = this.lostOf(g); if (!m) return 0; this.regrow(g, m, now); return m.size; }
+  // Until when a cell is on edge (ms; 0: it is not), and putting it so
+  waryTill(cx, cy) { const v = this.store?.read(cx, cy)?.wary; return Number.isFinite(v) ? v : 0; }
+  isWary(g, now) { const t = this.waryTill(g.cx, g.cy); return t > now && t - now <= HERD.WARY_DAYS * DAY + 36e5; }
+  alarm(g, now) {
+    const till = Math.round(now + HERD.WARY_DAYS * DAY), was = this.waryTill(g.cx, g.cy);
+    if (this.store?.write && !(was > till - 36e5 && was <= till + 36e5)) this.store.write(g.cx, g.cy, 'wary', till);   // (not at every arrow)
+  }
+
+  // ---------- the year ----------
+  // In winter: the herd that comes to this one (from), or the one it has gone to (to); null, on its own. The deer of the cell
+  // by it, if they are not too many together; the bigger herd keeps its places (the stags go to the hinds)
+  pairOf(g) {
+    if (g.pair !== undefined) return g.pair;
+    const o = g.kind === 'deer' ? this.cell(g.cx ^ 1, g.cy).find(x => x.kind === 'deer') : null, a = o && this.seeded(g, 1215).length, b = o && this.seeded(o, 1215).length;
+    const host = o && (a !== b ? a > b : (g.cx & 1) === 0);
+    return (g.pair = o && a + b <= HERD.WINTER_MAX ? (host ? { from: o, to: null } : { from: null, to: o }) : null);
+  }
+  // Its places in winter: the lowest feeding place there is (out of the wind and the deep snow), and its water if it can be walked to
+  winterOf(g) {
+    if (g.win || g.kind !== 'deer') return g.win || g;
+    const H = (x, y) => this.gen.groundAt?.(wrapX(x), y) ?? 0, d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    let best = g.feed, h = H(...g.feed);
+    for (const r of HERD.WINTER_R) for (let i = 0; i < DIRS.length; i += 2) {
+      const x = g.bed[0] + DIRS[i][0] * r, y = g.bed[1] + DIRS[i][1] * r, k = H(x, y);
+      if (k < h - 1 && this.goodLand(x, y) && this.dryWay(g.bed, x, y)) { h = k; best = [x, y]; }
+    }
+    const water = g.water && d(g.water, best) <= HERD.FEED_R[1] && this.dryWay(best, g.water[0], g.water[1]) ? g.water : null;
+    return (g.win = best === g.feed ? g : { bed: g.bed, feed: best, water });
+  }
+  // Its cast antler, the spring of a year: { key, x, y, yaw, five } or null (in woods near its bed)
+  shedOf(g, year) {
+    if (g.kind !== 'deer') return null;
+    const S = g.sheds ||= new Map();
+    if (S.has(year)) return S.get(year);
+    const R = n => this.roll(g.cx + (year % 97) * 13, g.cy, g.s + 700 + n);
+    let out = null;
+    if (wood(this.land(...g.bed)) && R(0) < HERD.SHED) for (let i = 0; i < 8 && !out; i++) {
+      const a = R(1 + i) * TAU, r = lerp(HERD.SHED_R[0], HERD.SHED_R[1], R(20 + i)), x = g.bed[0] + Math.cos(a) * r, y = g.bed[1] + Math.sin(a) * r;
+      if (this.goodLand(x, y, wood)) out = { key: `${g.cx}.${g.cy}`, x: wrapX(x), y, yaw: R(40) * TAU, five: R(41) < 0.4 };
+    }
+    S.set(year, out);
+    return out;
+  }
+  // The member of a group that roars in the rut (its stag's i), or -1
+  roarer(g, md, now) {
+    if (g.kind !== 'deer' || !rutOn(md)) return -1;
+    const i = g.stags ? 0 : 20;
+    return this.lostOf(g)?.has(i) && this.own(g, md, now).every(m => m.i !== i) ? -1 : i;
   }
 
   // ---------- where ----------
   // Where a group's middle is at an hour (the one where it lives; ms: the game's clock, for its slow wander), into out:
   // x, y, act, night (0..1). shift: where a disturbed one is (now: game seconds)
   where(g, h, ms, now, out) {
-    const H = hours(g.kind, h, g.water, this.H), a = g[H.from], b = g[H.to];
+    const P = g.kind === 'deer' && winterOn(dayOfYear(ms, g.bed[1])) ? this.winterOf(g) : g;
+    const H = hours(g.kind, h, P.water, this.H), a = P[H.from], b = P[H.to];
     out.act = H.act; out.night = nightK(h);
     out.x = lerp(a[0], b[0], H.k); out.y = lerp(a[1], b[1], H.k);
     if (H.act === 'feed') {
@@ -289,6 +418,11 @@ export class Herds {
     }
     const s = this.spooked.get(g.id);
     if (s) { if (now > s.till || now < s.till - HERD.SPOOKED - 1) this.spooked.delete(g.id); else { out.x += s.dx; out.y += s.dy; } }
+    const c = this.drawn.size ? this.drawn.get(g.id) : null;
+    if (c) {   // (a stag comes to a call: that far so far, and back to its own places in a while)
+      if (now > c.till || now < c.t) this.drawn.delete(g.id);
+      else { const k = Math.min(1, (now - c.t) / c.s, Math.max(0, c.till - now) / c.s); out.x += c.dx * k; out.y += c.dy * k; }
+    }
     out.x = wrapX(out.x);
     return out;
   }

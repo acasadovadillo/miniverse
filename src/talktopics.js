@@ -29,6 +29,7 @@ import { ihash } from './util.js';
 import { momentK, waterC } from './fishwater.js';
 import { recent } from './reputation.js';
 import { t, tList, has, noun, formatMessage } from './i18n.js';
+import { dayOfYear } from './herds.js';
 
 export const REST = 10;            // days a line rests after being said
 export const KEEP_TOPICS = 2;      // topics that do not come back at once
@@ -144,7 +145,8 @@ export function cropNews(ctx) {
   if (!farm) return out;
   const a = farm.almanac(FIELDS.x, FIELDS.y), grown = cropsIn(ctx), danger = ctx.hour >= 5 ? farm.frostTonight() : [];   // (after midnight «tonight» could be either night)
   let well = false;
-  for (const { id, days: n } of a.crops) {
+  for (const { id, days, now } of a.crops) {
+    const n = now === 'glass_only' ? farm.daysHere(id, FIELDS.x, FIELDS.y) : days;   // (the days under glass are not the fields': greenhouse.js)
     const g = GROW[id], r = rateAt(id, a.mean), P = { id, crop: someOf(id), n, c: Math.round(a.min) };
     const good = r >= GOOD && n <= CROPS[id].days * SLOWER;
     if (good) well = true;
@@ -237,8 +239,23 @@ export const TOPICS = {
   misc: { weight: () => 1, keys: c => [{ key: `npc.chat.${c.id}.misc` }] },
   rumour_tease: { weight: c => (c.hearts >= 1 && c.game.rumours?.offer(c.id) ? 1 : 0), subs: c => { const a = c.game.rumours?.tease(c.id); return a ? [{ sub: '', params: { a } }] : []; } },   // (a place they could tell you of: rumours.js)
   tip: { weight: c => (c.id === 'nilo' ? 3 : 0), keys: () => [{ key: 'npc.chat.nilo.tip' }] },
+  // (Paco, the hunter: the year of the animals and his code; Plan R3-4, huntcode.js)
+  hunting: { weight: c => (c.id === 'paco' && c.game.huntcode?.on ? 2.5 : 0), subs: c => huntTalk(c) },
 };
 const goalKey = node => (node.startsWith('door') ? 'home' : node.startsWith('pond') ? 'pond' : node);
+// What Paco can say of the hunt now (keys npc.topic.hunting.<sub>): every line true
+function huntTalk(c) {
+  const g = c.game, v = g.huntcode.v, md = dayOfYear(g.days.now, 0), out = [{ sub: 'wind' }, { sub: 'thermals' }, { sub: 'gut' }];
+  if (md >= 901 && md <= 1020) out.push({ sub: 'rut' });
+  if (md >= 301 && md < 901) out.push({ sub: 'mother' });
+  if (md >= 301 && md <= 531) out.push({ sub: 'sheds' });
+  if (md >= 415 && md < 801) out.push({ sub: 'velvet' });
+  if (md >= 1201 || md < 301) out.push({ sub: 'winter' });
+  if (v.breach.waste) out.push({ sub: 'waste' });
+  if (v.clean) out.push({ sub: 'clean' });
+  if (g.huntcode.overhunted?.()) out.push({ sub: 'overhunt' });
+  return out;
+}
 // A taste of theirs that you know now (journal)
 export function learn(f, item) {
   if (!ITEMS[item]) return;

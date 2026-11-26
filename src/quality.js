@@ -29,7 +29,7 @@ export const qualityOn = () => Quality.force ?? !apagada('calidad');
 
 export const Gore = { on: true };          // (Settings › blood, for whoever must not import the settings: three/gut3d.js keeps it)
 const MIN = 60e3, HOUR = 3600e3, DAY = 864e5;
-export const F = { TAINTED: 1, WARM: 2, WARM_GUT: 4, ANTLERS: 8, MANY: 16, THIN: 32, MELEE: 64 };
+export const F = { TAINTED: 1, WARM: 2, WARM_GUT: 4, ANTLERS: 8, MANY: 16, THIN: 32, MELEE: 64, CLEAN: 128 };   // (CLEAN: a clean kill, Plan R3-4: huntcode.js)
 export const STAR3 = 70, STAR2 = 45;                 // Q from which
 export const BASE_Q = [35, 55, 70, 80];              // by age (herds.js AGE); one nobody knows the age of (a summoned one) is an adult
 export const Q_SIZE = 20, Q_ARROW = 12, Q_GUT = 20, Q_MELEE = 8, Q_LATE = 25, Q_RUT = 10, Q_FAT = 5, Q_THIN = 5;
@@ -60,7 +60,7 @@ export function recordOf(e, g) {
   return [Math.max(0, Math.min(100, Math.round(Q))), 0, e.female ? 1 : 0, Math.min(99, e.arrows || 0), ms, Math.round(size * 100) / 100, flags];
 }
 // The antlers: cast in March, hard again in August
-export const antlersOn = md => md >= 801 || md < 301;
+export const antlersOn = md => md >= 801 || md < 301;   // (hard: the same as herds.js antlersIn)
 
 // What comes from a save or the network: a record, or null
 const num = (v, lo, hi) => typeof v === 'number' && v >= lo && v <= hi;
@@ -143,4 +143,5 @@ export function carcassPrice(id, q, now, factor = 1) {
   return !buysCarcass(id) ? 0 : Math.max(1, Math.round(PRICE[id] * STAR_K[starsOf(q, now) - 1] * (q && !q[1] ? WHOLE_K : 1) * factor));
 }
 // What he would give now for what the arms carry (0: nothing he buys), by what the village thinks of you
-export const carcassOffer = g => (g.carry?.held && g.carry.bigNow ? carcassPrice(g.carry.held, g.carry.cq, g.days.now, g.rep?.sellFactor() ?? 1) : 0);
+// (and what Paco vouching for you adds: huntcode.js)
+export const carcassOffer = g => (g.carry?.held && g.carry.bigNow ? carcassPrice(g.carry.held, g.carry.cq, g.days.now, (g.rep?.sellFactor() ?? 1) * (g.huntcode?.priceK() ?? 1)) : 0);

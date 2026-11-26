@@ -35,6 +35,15 @@
 // wounded one's lying). An alarm goes through the group, and one that fled stays about where it fled to. Their ids say whose
 // they are (herds.js memberId), so a game that takes the world over adopts them. Traits (female, age, young, size) travel in f.
 // ?manadas=0 (the host's; or ?sentidos=0): single animals at random round each player, as before. /summon's are on their own.
+//
+// The year and the numbers (Plan R3-4, §3.7, §3.8, §3.11): in the rut a stag roars at dawn and dusk (every game hears the
+// same ones: herds.js roarPhase; a real one says it in f, bit 9), sees less and stops to look back more, and comes to a
+// call (called) from as far as ROAR.R; out of the rut a hind may come a few steps to look. A herd's young lie flat for a
+// moment when their mothers take fright, then follow. Whoever runs the world writes the ones taken (herds.js take, d.game)
+// and puts the cell on edge for some days after a kill, a hit or an arrow by its animals (wary: they notice from further and
+// look back less). A sow with her piglets charges whoever comes upon her standing, and a badly wounded boar may charge once
+// who walks up to it (charge; f bit 18): a bluff that stops short, but on hard it hits, and never kills on normal.
+// Thermals: with hardly any wind, the scent goes uphill by day and down at night (airAt).
 import { B } from './world/biomes.js';
 import { inBounds } from './world/village.js';
 import { CHUNK } from './world/gen.js';
@@ -46,8 +55,10 @@ import { Profile } from './accounts.js';
 import { shotHit } from './world/shots.js';
 import { Presence, stalkingAs } from './presence.js';
 import { ZONE } from './anatomy.js';
-import { Herds, HERD, AGE, memberId, parseId, breedOf, dayOfYear } from './herds.js';
-import { SENSES, ALERT, CALM, TENSE, ALARM, FAR, DIFF_K, EVENT_S, A_CALM, A_ALERT, A_ALARM, A_TENSE, perceive, hearEvent, advance, lightAt, packF, unpackF } from './senses.js';
+import { Herds, HERD, AGE, memberId, parseId, breedOf, dayOfYear, rutOn, winterOn, roarPhase, ROAR, CELL } from './herds.js';
+import { thermalAt } from './wind.js';
+import { CAM } from './camera.js';
+import { SENSES, ALERT, CALM, TENSE, ALARM, FAR, DIFF_K, EVENT, EVENT_S, ARROW_R, A_CALM, A_ALERT, A_ALARM, A_TENSE, perceive, hearEvent, advance, lightAt, packF, unpackF } from './senses.js';
 
 const MAX = 6, SPAWN_EVERY = 4, NEAR = [14, 26], GONE = 42, CREEP = 0.3, SEND_EVERY = 0.15, RESEND = 2;
 // With the senses: they see further than they used to run from, so they appear further off and stay longer (the cap
@@ -74,6 +85,17 @@ const SENSE = { EVERY: 0.25, RAYS: 8, UNEASY: 0.2, LOOK_AT: 40, SPREAD: 20, RAY_
 export const FLIGHT = { BURST_FOR: 2, CLEAR: 40, LOOK_FOR: [2, 5], LEGS: 4, LEG: [30, 50], LEG_FOR: 30, TURN_AT: 12, TROT: 0.5, SWAN: 2, STOPPED: 1.2 };
 // What you hear of them: the stamp and the huff (m), the bark of alarm (m)
 const HEARD = { STAMP: 20, BARK: 60, EVERY: [2.2, 4], STAMP_FOR: 0.45 };
+// A stag in the rut sees less (it has other things on its mind) and stops more to look back; and so far the call reaches
+export const RUT_K = { ...SENSES.ciervo, sight: SENSES.ciervo.sight * 0.7, look: 0.8 };
+// A call (the deer call, huntcode.js): how near a stag comes, a hind's steps to look, how far she hears it, how long either keeps at it
+export const CALL = { STAG: [40, 60], HIND: [10, 20], HIND_R: 80, HIND_P: 0.5, FOR: 90, WALK: 1.6, BACK: 300, NEAR: 25 };
+// The young lie flat when their mothers take fright (s), and not again for a while
+export const FREEZE = { FOR: 3, AGAIN: 20 };
+const CALL_TURNS = [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8];   // (going to a call: the turns tried round what is in the way)
+// A charge (s, m, m/s): the head down first, the run, how near a sow lets you come standing, a wounded boar, the chance, how
+// often, how short a bluff stops; the damage by difficulty (0: a bluff)
+export const CHARGE = { WARN: 0.6, RUN: 6, FOR: 3, SOW: 8, SOW_ALARM: 12, WOUNDED: 5, WOUNDED_P: 0.4, AGAIN: 60, STOP: 1.5, HIT: 0.9, YOUNG_R: 12,
+  SOW_DMG: { hard: 2 }, BOAR_DMG: { hard: 3, normal: 1.5 } };
 
 export { KINDS, GRAZE, CREEP };   // (read by the nature book's facts, nature.js)
 const r2 = v => Math.round(v * 100) / 100;
@@ -113,9 +135,9 @@ const REAIM = [0, 1, -1, 2, -2, 3, -3].map(n => n * Math.PI / 4);
 export const sensesOn = () => Wildlife.senses ?? !apagada('sentidos');
 // The herds: on unless ?manadas=0 (or without the senses). Wildlife.herding: the tests turn them on and off
 export const herdsOn = () => sensesOn() && (Wildlife.herding ?? !apagada('manadas'));
-const WHERE = { x: 0, y: 0, act: '', night: 0 }, TAU = Math.PI * 2;
+const WHERE = { x: 0, y: 0, act: '', night: 0 }, TAU = Math.PI * 2, ROARING = 1 << 9, CHARGING = 1 << 18;
 const DIR8 = Array.from({ length: 8 }, (_, i) => [Math.cos(i * TAU / 8), Math.sin(i * TAU / 8)]);
-const SEEN = {}, ENV = { light: 1, sky: 1, diff: 1, wx: 1, wy: 0, ws: 0.4 }, ANIMAL = { fx: 0, fy: 1, down: false, staring: false, bedded: false };   // (reused: no allocation in the senses)
+const AIR = { x: 1, y: 0, th: false }, SEEN = {}, ENV = { light: 1, sky: 1, diff: 1, wx: 1, wy: 0, ws: 0.4 }, ANIMAL = { fx: 0, fy: 1, down: false, staring: false, bedded: false };   // (reused: no allocation in the senses)
 // On unless ?wounds=0. Wildlife.wounds: the tests turn it on and off without the URL
 export const woundsOn = () => Wildlife.wounds ?? !apagada('wounds');
 
@@ -132,7 +154,7 @@ export class Wildlife {
   static wounds = null;
   static senses = null;
   static herding = null;
-  constructor(game) { this.game = game; this.herds = null; this.groups = new Map(); this.gT = 0; this.presence = new Presence(game); this.presT = 0; this.rays = 0; this.raysT = -9; this.tension = false; this.hunting = false; this.walkers = []; this.list = []; this.t = 0; this.n = 0; this.sendT = 0; this.resend = 0; this.lastSent = ''; this.bCache = new Map(); this.bWorld = null; this.bTouch = -1; this.bSlot = -1; }
+  constructor(game) { this.game = game; this.herds = null; this.groups = new Map(); this.gT = 0; this.roarT = 0; this.roared = new Map(); this.presence = new Presence(game); this.presence.onLoud = (x, y, n, r) => this.loud(x, y, n, r); this.presT = 0; this.rays = 0; this.raysT = -9; this.tension = false; this.hunting = false; this.walkers = []; this.list = []; this.t = 0; this.n = 0; this.sendT = 0; this.resend = 0; this.lastSent = ''; this.bCache = new Map(); this.bWorld = null; this.bTouch = -1; this.bSlot = -1; }
   reset() { this.list = []; this.herds = null; this.groups.clear(); this.lastSent = ''; this.tension = this.hunting = false; this.presence.reset(); }
   get world() { return this.game.world; }
 
@@ -159,11 +181,11 @@ export class Wildlife {
         if (n < MAX && m < MAX_S) this.spawn(q, walkers);
       }
     }
-    for (const w of this.list) this.move(w, dt, walkers);
+    for (const w of this.list) { this.move(w, dt, walkers); w.roar = w.rut ? this.roarOf(w) : -1; }
     this.cues(dt);
     this.bleedAll(dt);
     if (g.live.joined && (this.sendT += dt) >= SEND_EVERY) {
-      const m = this.list.map(w => [w.id, w.type, r2(w.x), r2(w.y), w.hurt > 0 ? 1 : 0, w.grazing ? 1 : 0, w.gutshot ? 1 : w.bleed || 0, w.lying ? 1 : 0, w.sx ?? r2(w.x), w.sy ?? r2(w.y), w.limp || 0, packF(w)]), s = JSON.stringify(m);
+      const m = this.list.map(w => [w.id, w.type, r2(w.x), r2(w.y), w.hurt > 0 ? 1 : 0, w.grazing ? 1 : 0, w.gutshot ? 1 : w.bleed || 0, w.lying ? 1 : 0, w.sx ?? r2(w.x), w.sy ?? r2(w.y), w.limp || 0, packF(w) | (w.roar >= 0 ? ROARING : 0) | (w.charge && w.charge.ph < 2 ? CHARGING : 0)]), s = JSON.stringify(m);
       this.resend += this.sendT; this.sendT = 0;
       if (s !== this.lastSent || this.resend >= RESEND) { this.lastSent = s; this.resend = 0; g.live.net?.send({ t: 'wild', w: m }); }   // (de vez en cuando, aunque no cambie: por quien acaba de entrar)
     }
@@ -180,9 +202,29 @@ export class Wildlife {
   // The herds of this world, or null (off: ?manadas=0, ?sentidos=0)
   herdsNow() {
     if (!herdsOn()) { if (this.groups.size) this.disband(); return null; }
-    const gen = this.world.gen;
-    if (!this.herds || this.herds.gen !== gen || this.herds.seed !== gen.seed) { this.disband(); this.herds = new Herds(gen); }
+    return this.herdsOf();
+  }
+  // The herds of this world, to look at (a guest too: their roars, a cast antler, Paco's tip), or null without a world
+  herdsOf() {
+    const gen = this.world?.gen;
+    if (!gen) return null;
+    if (!this.herds || this.herds.gen !== gen || this.herds.seed !== gen.seed) { this.disband(); this.herds = new Herds(gen, { store: this.storeOf() }); }
     return this.herds;
+  }
+  // Where the ones taken of each cell are written: d.game of its first chunk (only whoever runs the world writes it)
+  storeOf() {
+    const K = CELL / CHUNK, key = (cx, cy) => `${wrapIndex(cx * K, CHUNK)},${cy * K}`;
+    return {
+      read: (cx, cy) => this.world?.deltas?.get(key(cx, cy))?.game || null,
+      write: (cx, cy, k, v) => {
+        const W = this.world;
+        if (!W || this.game.live?.guest) return;
+        const d = W.delta(cx * K, cy * K, true), o = d.game ||= {};
+        if (v === undefined || v === null) delete o[k]; else o[k] = v;
+        if (!Object.keys(o).length) delete d.game;
+        W.note(cx * K, cy * K);
+      },
+    };
   }
   // The groups no more (another game runs the world, or they are off): the animals stay, each on its own
   disband() { for (const w of this.list) w.herd = null; this.groups.clear(); }
@@ -200,7 +242,7 @@ export class Wildlife {
     let best = null, bd = HERD.NEAR + HERD.WARM;
     const ms = this.now(), now = this.game.time;
     for (const q of walkers) herds.around(q.x, q.y, 2, g => {
-      if (this.groups.has(g.id)) return;
+      if (this.groups.has(g.id) || (g.kind === 'deer' && winterOn(dayOfYear(ms, g.bed[1])) && herds.pairOf(g)?.to)) return;   // (gone to another herd for the winter)
       herds.where(g, this.game.days.hourAt(g.bed[0]), ms, now, WHERE);
       const d = distOf(q.x, q.y, WHERE.x, WHERE.y);
       if (d < bd && !(g.retry > now && g.retry < now + HERD.RETRY * 2) && !inBounds(q.x, q.y)) { bd = d; best = g; }
@@ -221,7 +263,7 @@ export class Wildlife {
     for (let n = 0; n < 9 && !this.ready(x, y); n++) this.warm(x, y);
     const k = KINDS[g.type], at = this.spotFor(g, x, y, k, walkers);
     if (!at) return false;
-    const G = { g, id: g.id, list: [], x: at[0], y: at[1], act, night, lead: null, run: null, runT: -9, spook: 0 };
+    const G = { g, id: g.id, list: [], x: at[0], y: at[1], act, night, lead: null, run: null, runT: -9, spook: 0, wary: herds.isWary(g, ms) };
     const md = dayOfYear(ms, g.bed[1]), uneasy = herds.spooked.has(g.id);
     // (moved over, because of what is built there: it keeps off it a while)
     if (at[2]) herds.spook(g.id, dxOf(at[0], x), at[1] - y, time + HERD.SPOOKED);
@@ -230,7 +272,7 @@ export class Wildlife {
       const p = this.placeNear(mom ? mom.x : at[0], mom ? mom.y : at[1], R, slot, k, walkers);
       if (!p) continue;
       const w = new Wild(g.type, p[0], p[1], memberId(g, m.i));
-      Object.assign(w, { sx: qs(w.x), sy: qs(w.y), traits: true, female: m.female, young: m.young, age: m.age, size: m.size, breed: breedOf(g.type, m.female, m.young, md), herd: G, mi: m.i, mother: m.mother, slot, aw: uneasy ? HERD.WARY : 0, wait: Math.random() * 3 });
+      Object.assign(w, { sx: qs(w.x), sy: qs(w.y), traits: true, female: m.female, young: m.young, age: m.age, size: m.size, breed: breedOf(g.type, m.female, m.young, md, m.size, m.age), herd: G, mi: m.i, mother: m.mother, slot, aw: uneasy ? HERD.WARY : 0, wait: Math.random() * 3, rut: g.type === 'ciervo' && !m.female && !m.young && rutOn(md) });
       w.dir = [Math.cos(slot * 3), Math.sin(slot * 3)];
       if (act === 'bed' && g.kind !== 'swan') w.bedded = true;
       G.list.push(w); this.list.push(w);
@@ -322,7 +364,7 @@ export class Wildlife {
       herds.spook(G.id, dxOf(G.lead.x, WHERE.x), G.lead.y - WHERE.y, G.spook);
     }
     herds.where(G.g, h, ms, now, WHERE);
-    G.x = WHERE.x; G.y = WHERE.y; G.act = WHERE.act; G.night = WHERE.night;
+    G.x = WHERE.x; G.y = WHERE.y; G.act = WHERE.act; G.night = WHERE.night; G.wary = herds.isWary(G.g, ms);
     // (off its places, it does not go to the water: it grazes, or lies, where it is. And its place built over while it was here,
     // it keeps about where its leader is)
     const off = herds.spooked.has(G.id), k = KINDS[G.g.type];
@@ -346,14 +388,30 @@ export class Wildlife {
     if (!G) { this.groups.set(g.id, G = { g, id: g.id, list: [], x: w.x, y: w.y, act: 'feed', night: 0, lead: null, run: null, runT: -9, spook: 0 }); }
     if (G.list.some(o => o.mi === p.i)) { w.id = `w${++this.n}`; return; }
     const ms = this.now(), m = herds.members(g, dayOfYear(ms, g.bed[1]), ms).find(o => o.i === p.i);
-    Object.assign(w, { herd: G, mi: p.i, mother: m ? m.mother : -1, slot: Math.random() * TAU });
+    Object.assign(w, { herd: G, mi: p.i, mother: m ? m.mother : -1, slot: Math.random() * TAU, rut: w.type === 'ciervo' && w.traits && !w.female && !w.young && rutOn(dayOfYear(ms, g.bed[1])) });
     G.list.push(w); G.list.sort((a, b) => a.mi - b.mi);
     this.lead(G);
   }
   // (hunt.js) One died: its group is one less for some days
-  lost(w) { if (w.herd && this.herds) { this.herds.take(w.herd.id, w.mi, this.now()); w.herd.list = w.herd.list.filter(o => o !== w); if (w.herd.list.length) this.lead(w.herd); } }
-  // (hunt.js) One was hit, from (x, y): the rest of its group takes fright
-  startle(w, x, y) { if (w.herd && sensesOn() && Number.isFinite(x) && Number.isFinite(y)) this.warn(w, x, y); }
+  // (the cell is on edge for some days)
+  lost(w) { if (w.herd && this.herds) { this.herds.take(w.herd.id, w.mi, this.now()); this.herds.alarm(w.herd.g, this.now()); w.herd.wary = true; w.herd.list = w.herd.list.filter(o => o !== w); if (w.herd.list.length) this.lead(w.herd); } }
+  // (hunt.js) One was hit, from (x, y): the rest of its group takes fright, and the cell is on edge
+  startle(w, x, y) {
+    if (w.herd && this.herds) { this.herds.alarm(w.herd.g, this.now()); w.herd.wary = true; }
+    if (w.herd && sensesOn() && Number.isFinite(x) && Number.isFinite(y)) this.warn(w, x, y);
+  }
+  // (presence.js, whoever runs the world) A loud thing: an arrow that lands by a herd puts its cell on edge
+  loud(x, y, n, r) {
+    if (n !== EVENT.arrow || r !== ARROW_R || !this.herds || !this.groups.size) return;
+    for (const G of this.groups.values()) if (!G.wary && G.list.some(o => distOf(o.x, o.y, x, y) < SENSE.LOOK_AT)) { this.herds.alarm(G.g, this.now()); G.wary = true; }
+  }
+  // (hunt.js, the code of the village) Was w a mother with her young by her, in their season?
+  motherNow(w) {
+    if (!w.female || w.young || !w.herd) return false;
+    const md = dayOfYear(this.now(), w.y);
+    if (!(w.type === 'ciervo' ? md >= 501 && md < 901 : md >= 301 && md < 901)) return false;
+    return w.herd.list.some(o => o.young && o.mom === w && distOf(o.x, o.y, w.x, w.y) < 10);
+  }
   warn(w, x, y) {
     for (const o of w.herd.list) {
       if (o === w || o.flight || o.bleed === 2 || distOf(o.x, o.y, w.x, w.y) > HERD.SPREAD) continue;
@@ -429,6 +487,7 @@ export class Wildlife {
   move(w, dt, walkers) {
     const k = KINDS[w.type], g = this.game;
     if (!(w.eating > 0)) w.grazing = false;   // (lo que llegó por red, si ahora los mueve este juego)
+    if (w.charge) { this.moveCharge(w, dt, walkers); return; }
     if (w.bleed === 2) { if (w.aw || w.flight || w.alert) this.calm(w); this.moveWounded(w, dt, walkers, k); return; }
     if (sensesOn()) { this.moveAware(w, dt, walkers, k); return; }
     let sp = k.speed, q = null, d = Infinity, flee = false;
@@ -501,12 +560,13 @@ export class Wildlife {
   calm(w) { w.aw = 0; w.alert = A_CALM; w.flag = w.staring = false; w.flight = 0; w.quiet = 9; }
   // What w notices now (dt since its last turn), and what that makes of it. From ALARM it flees
   sense(w, dt) {
-    const g = this.game, K = SENSES[w.type], P = this.presence, f = w.dir, fl = f ? Math.hypot(f[0], f[1]) || 1 : 1;
+    const g = this.game, K = this.kOf(w), P = this.presence, f = w.dir, fl = f ? Math.hypot(f[0], f[1]) || 1 : 1;
     let fx = f ? f[0] / fl : 0, fy = f ? f[1] / fl : 1, sure = 0, heard = 0, best = 0, by = null, bx = 0, byY = 0;
     if (w.staring) { fx = Math.sin(w.stareYaw); fy = Math.cos(w.stareYaw); }
     ENV.light = lightAt(g.days.hourAt(w.x), K.night);
-    ENV.diff = DIFF_K[g.difficulty] ?? 1;
-    ENV.wx = g.wind?.x ?? 1; ENV.wy = g.wind?.y ?? 0;
+    ENV.diff = (DIFF_K[g.difficulty] ?? 1) * (w.herd?.wary ? HERD.WARY_K : 1);
+    this.airAt(w.x, w.y, P.list[0]?.ws ?? 0.4, AIR, w);
+    ENV.wx = AIR.x; ENV.wy = AIR.y;
     ANIMAL.fx = fx; ANIMAL.fy = fy; ANIMAL.down = !!w.grazing; ANIMAL.bedded = !!(w.lying || w.bedded);
     for (const r of P.list) {
       const dx = dxOf(r.x, w.x), dy = r.y - w.y, d = Math.hypot(dx, dy);
@@ -542,6 +602,26 @@ export class Wildlife {
     if (w.staring && w.awX !== undefined) w.stareYaw = Math.atan2(dxOf(w.awX, w.x), w.awY - w.y);
     if (w.herd && was === A_CALM && w.alert !== A_CALM && best > 0) this.rouse(w);
   }
+  // Its senses: a stag in the rut's, or its species'
+  kOf(w) { return w.rut ? RUT_K : SENSES[w.type]; }
+  // The way the air carries a scent at (x, y), into out (x, y: a unit vector; th: by the thermals). With the wind as it is,
+  // or, with hardly any (s under 0.3: thermalAt), up the slope by day and down it at night. w: an animal, which keeps the
+  // slope where it stands until it moves on
+  airAt(x, y, s, out, w = null) {
+    const V = this.game.wind;
+    out.x = V?.x ?? 1; out.y = V?.y ?? 0; out.th = false;
+    if (!V || V.held || !(s < 0.3) || !this.world) return out;
+    let gx, gy;
+    if (w && w.slopeAt && Math.abs(dxOf(w.slopeAt[0], x)) + Math.abs(w.slopeAt[1] - y) < 4) { gx = w.slopeAt[2]; gy = w.slopeAt[3]; }
+    else {
+      const W = this.world, H = (a, b) => W.groundRaw(wrapX(a), b);
+      gx = (H(x + 4, y) - H(x - 4, y)) / 8; gy = (H(x, y + 4) - H(x, y - 4)) / 8;
+      if (w) w.slopeAt = [x, y, gx, gy];
+    }
+    const d = thermalAt(this.game.days.hourAt(x), gx, gy);
+    if (d) { out.x = d[0]; out.y = d[1]; out.th = true; }
+    return out;
+  }
   // Nothing between w's eyes and r's chest: trunks, walls, rocks, fences (world/shots.js), nor a rise of the ground. At
   // most RAYS a turn; past that it is taken as seen (what a wood hides is already in r.hidden)
   inSight(w, K, r, d) {
@@ -576,6 +656,13 @@ export class Wildlife {
   // Off it goes, away from (x, y): a run of its species' length to one point, nudged towards cover, and the ones after it
   // (moveFlight). flight: 1 running, 2 stopped looking back, 3 trotting off
   fleeFrom(w, x, y, range = SENSES[w.type].run, legs = 0) {
+    const now = this.game.time;
+    if (w.freezeT > now) return;
+    // (a young one of a herd lies flat a moment, by its mother's side, and then runs after her)
+    if (w.young && w.herd && w.mom && legs === 0 && !(now - (w.frozeAt ?? -1e9) < FREEZE.AGAIN)) {
+      Object.assign(w, { freezeT: now + FREEZE.FOR, frozeAt: now, freezeFrom: [x, y], bedded: true, vx: 0, vy: 0, eating: 0, grazing: false, aw: 1, alert: A_ALERT, staring: false, flight: 0 });
+      return;
+    }
     let from = [x, y];
     const G = w.herd, run = G && legs === 0 && range === SENSES[w.type].run && this.game.time - G.runT < 5 ? G.run : null;
     if (run) {   // (with the others, unless whoever it is stands on that side of it)
@@ -597,7 +684,15 @@ export class Wildlife {
       this.alarm(w, at ? at[0] : w.x + Math.random() - 0.5, at ? at[1] : w.y + Math.random() - 0.5);
       w.scareAt = null;
     }
-    if ((w.senseT += dt) >= SENSE.EVERY) { const t = Math.min(w.senseT, 0.6); w.senseT = 0; this.sense(w, t); }
+    if (w.freezeT) {   // (lying flat: and then after its mother)
+      w.vx = w.vy = 0;
+      if (g.time < w.freezeT && g.time > w.freezeT - FREEZE.FOR - 1) return;
+      const f = w.freezeFrom || [w.x, w.y];
+      Object.assign(w, { freezeT: 0, bedded: false });
+      this.fleeFrom(w, f[0], f[1]);
+    }
+    if (w.charge) { this.moveCharge(w, dt, walkers); return; }
+    if ((w.senseT += dt) >= SENSE.EVERY) { const t = Math.min(w.senseT, 0.6); w.senseT = 0; this.sense(w, t); if (!w.flight || w.flight === 2) this.mayCharge(w, walkers); if (w.charge) return; }
     if (w.flight) { this.moveFlight(w, dt, walkers, k); return; }
     if (w.alert) {   // (it stops and stares: the body turns a little when whoever it is stands behind it)
       w.vx = w.vy = 0; w.grazing = false;
@@ -606,6 +701,7 @@ export class Wildlife {
       if (Math.abs(off) > 1.3) { const a = w.stareYaw - Math.sign(off) * 0.9; w.faceTo(Math.sin(a), Math.cos(a)); }
       return;
     }
+    if (w.callTo && this.toCall(w, dt, k)) return;
     if (w.eating > 0) {
       w.vx = w.vy = 0;
       if ((w.eating -= dt) <= 0) { this.ate(w); return; }
@@ -623,6 +719,135 @@ export class Wildlife {
     }
     if ((w.wait -= dt) > 0) { w.vx = w.vy = 0; return; }
     this.wander(w, dt, k, w.hurry ? k.speed * HERD.HURRY : k.speed);
+  }
+  // ---------- the call (host side) ----------
+  // Somebody blew a deer call at (x, y): in the rut, the nearest stag within ROAR.R answers and comes to CALL.STAG of it (a
+  // group nobody is near, its middle: herds.js drawn); else a hind within CALL.HIND_R may come a few steps to look.
+  // 'stag', 'hind' or ''
+  called(x, y) {
+    const g = this.game, herds = this.herds || this.herdsOf(), now = g.time, ms = this.now();
+    if (!herds || !sensesOn()) return '';
+    let best = null, bd = ROAR.R;
+    for (const w of this.list) if (w.rut && !w.flight && !w.charge && w.bleed !== 2 && !w.callTo) { const d = distOf(x, y, w.x, w.y); if (d < bd) { bd = d; best = w; } }
+    if (best) {
+      const stop = within(CALL.STAG);
+      best.callTo = { x, y, stop: Math.max(stop, Math.min(bd, stop)), till: now + CALL.FOR }; best.calledAt = 0;
+      best.roarCall = now + 1.2 + Math.random();
+      return 'stag';
+    }
+    if (herdsOn() && rutOn(dayOfYear(ms, y))) {   // (one of a herd nobody is near)
+      let vg = null, vd = ROAR.R;
+      herds.around(x, y, 16, G => {
+        if (this.groups.has(G.id) || herds.roarer(G, dayOfYear(ms, G.bed[1]), ms) < 0) return;
+        herds.where(G, g.days.hourAt(G.bed[0]), ms, now, WHERE);
+        const d = distOf(x, y, WHERE.x, WHERE.y);
+        if (d < vd && d > CALL.STAG[1]) { vd = d; vg = { G, x: WHERE.x, y: WHERE.y }; }
+      }, 4);
+      if (vg) {
+        const d = vd, go = d - within(CALL.STAG), dx = dxOf(x, vg.x) / d * go, dy = (y - vg.y) / d * go, s = go / CALL.WALK;
+        herds.drawn.set(vg.G.id, { dx, dy, t: now, s, till: now + s + CALL.BACK });
+        this.roarOut(vg.x, vg.y, 1.5 + Math.random());
+        return 'stag';
+      }
+    }
+    for (const w of this.list) {
+      if (w.type !== 'ciervo' || !w.female || w.young || w.flight || w.alert || w.callTo || w.bleed) continue;
+      const d = distOf(x, y, w.x, w.y);
+      if (d < CALL.HIND_R && d > CALL.NEAR + 5 && Math.random() < CALL.HIND_P) { w.callTo = { x, y, stop: Math.max(CALL.NEAR, d - within(CALL.HIND)), till: now + CALL.FOR / 3 }; w.calledAt = 0; return 'hind'; }
+    }
+    return '';
+  }
+  // (a roar of one nobody sees, at (x, y) in s seconds: every game plays it, roarHeard)
+  roarOut(x, y, s = 0) {
+    const g = this.game;
+    setTimeout(() => { this.roarHeard(x, y); if (g.live?.joined) g.live.net?.send({ t: 'roar', x: r2(x), y: r2(y) }); }, s * 1000);
+  }
+  roarHeard(x, y) {
+    const g = this.game, p = g.player;
+    if (Profile.server || !p || g.scene !== g.world || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    const d = distOf(p.x, p.y, x, y);
+    if (d < ROAR.R * 1.2) Audio.roar?.(this.panOf(p, x, y), 1 - d / (ROAR.R * 1.2));
+  }
+  // Where a sound at (x, y) is, left to right for your ears (-1..1: as the camera looks)
+  panOf(p, x, y) {
+    const a = CAM.yaw, dx = dxOf(x, p.x), dy = y - p.y, l = Math.hypot(dx, dy) || 1;
+    return Math.max(-1, Math.min(1, (dx * Math.cos(a) - dy * Math.sin(a)) / l));
+  }
+  // On its way to a call: true while it goes, or stands there looking that way
+  toCall(w, dt, k) {
+    const c = w.callTo, g = this.game;
+    if (g.time > c.till || w.flight || w.charge) { w.callTo = null; w.calledAt = 0; return false; }
+    const d = distOf(w.x, w.y, c.x, c.y);
+    if (d <= c.stop + 0.5) {
+      w.vx = w.vy = 0; w.eating = 0; w.grazing = false; w.staring = true; w.stareYaw = Math.atan2(dxOf(c.x, w.x), c.y - w.y);
+      if (!(w.calledAt > 0)) w.calledAt = g.time;
+      if (g.time - w.calledAt > 20) { w.callTo = null; w.calledAt = 0; w.staring = false; }
+      return true;
+    }
+    w.eating = 0; w.grazing = false; w.staring = false;
+    // (straight there at a brisk walk, round what is in its way for a moment; held up for 3 s, it gives up)
+    const a0 = Math.atan2(c.y - w.y, dxOf(c.x, w.x)), s = k.speed * HERD.HURRY * dt, p = STEP, g2 = this.game;
+    let ok = false, a = a0;
+    for (const turn of w.callTurnT > g2.time ? [w.callTurn, 0] : CALL_TURNS) {
+      a = a0 + turn; p.x = w.x + Math.cos(a) * s; p.y = w.y + Math.sin(a) * s;
+      collide(p, this.world.collidersNear(p.x, p.y), k.r);
+      if (!this.offLimits(p, k) && Math.hypot(dxOf(p.x, w.x), p.y - w.y) >= s * 0.2) { ok = true; if (turn && !(w.callTurnT > g2.time)) { w.callTurn = turn; w.callTurnT = g2.time + 1; } break; }
+    }
+    // (no nearer in 4 s: it gives up)
+    if (!(d < (c.best ?? Infinity) - 1)) { if ((w.callStuck = (w.callStuck || 0) + dt) > 4) { w.callTo = null; w.callStuck = 0; return false; } } else { c.best = d; w.callStuck = 0; }
+    if (!ok) { w.vx = w.vy = 0; return true; }
+    w.faceTo(Math.cos(a), Math.sin(a)); w.vx = (p.x - w.x) / dt; w.vy = (p.y - w.y) / dt; w.x = wrapX(p.x); w.y = p.y; w.tx = w.x; w.ty = w.y;
+    return true;
+  }
+
+  // ---------- charges (host side) ----------
+  // Four times a second, a boar on its guard: a sow with her piglets by her when somebody comes upon her standing, within
+  // CHARGE.SOW (or within SOW_ALARM as she takes fright)
+  mayCharge(w, walkers) {
+    if (w.type !== 'jabali' || !w.female || w.young || !w.herd || w.bleed === 2 || !(this.game.time >= (w.chargeNext || 0))) return;
+    if (!w.herd.list.some(o => o.young && distOf(o.x, o.y, w.x, w.y) < CHARGE.YOUNG_R)) return;
+    const R = w.flight === 1 || w.alert === A_ALARM ? CHARGE.SOW_ALARM : CHARGE.SOW;
+    for (const q of walkers) if (!q.crouch && !q.e?.mount && q.gm !== 'spectator' && distOf(q.x, q.y, w.x, w.y) < R) { this.charge(w, q, CHARGE.SOW_DMG); return; }
+  }
+  // Head down, and at whoever it is: dmg by difficulty (none: it stops short and turns away)
+  charge(w, q, dmg) {
+    const g = this.game, hit = dmg[g.difficulty] || 0;
+    w.chargeNext = g.time + CHARGE.AGAIN;
+    Object.assign(w, { charge: { key: q.me ? 'me' : q.conn, ph: 0, t: 0, hit, done: false }, bedded: false, lying: false, eating: 0, grazing: false, flight: 0, vx: 0, vy: 0, alert: A_TENSE, staring: true });
+    w.stareYaw = Math.atan2(dxOf(q.x, w.x), q.y - w.y);
+  }
+  moveCharge(w, dt, walkers) {
+    const c = w.charge, g = this.game, q = walkers.find(o => (o.me ? 'me' : o.conn) === c.key);
+    c.t += dt;
+    const end = () => {
+      w.charge = null; w.staring = false;
+      const from = q ? [q.x, q.y] : [w.x + 1, w.y];
+      if (w.bleed === 2) { w.runs = (w.runs || 0) + 1; this.bolt(w, from, WOUND.GETUP); } else this.fleeFrom(w, from[0], from[1]);
+    };
+    if (!q || c.t > CHARGE.WARN + CHARGE.FOR) { end(); return; }
+    const dx = dxOf(q.x, w.x), dy = q.y - w.y, d = Math.hypot(dx, dy) || 1;
+    w.stareYaw = Math.atan2(dx, dy);
+    w.faceTo(dx / d, dy / d);
+    if (c.ph === 0) { w.vx = w.vy = 0; if (c.t >= CHARGE.WARN) c.ph = 1; return; }
+    if (d <= (c.hit ? CHARGE.HIT : CHARGE.STOP)) {
+      if (c.hit && !c.done) { c.done = true; this.hurtPlayer(q, c.hit, w); }
+      end(); return;
+    }
+    const s = Math.min(d - (c.hit ? 0.6 : CHARGE.STOP - 0.2), CHARGE.RUN * dt), p = STEP;
+    p.x = w.x + dx / d * s; p.y = w.y + dy / d * s;
+    collide(p, this.world.collidersNear(p.x, p.y), KINDS[w.type].r);
+    if (this.offLimits(p, KINDS[w.type])) { end(); return; }
+    w.vx = (p.x - w.x) / dt; w.vy = (p.y - w.y) / dt; w.x = wrapX(p.x); w.y = p.y;
+  }
+  // The hit of a charge on a player: in survival only, and never below the floor of the difficulty (DIFF.starve: on normal it
+  // never kills). A guest's game applies it ('hurt' with fl)
+  hurtPlayer(q, dmg, w) {
+    const g = this.game;
+    if (q.gm !== 'survival') return;
+    if (!q.me) { g.live?.order?.(q.conn, { t: 'hurt', dmg, x: r2(w.x), y: r2(w.y), fl: 1 }); return; }
+    const C = g.combat;
+    if (!C || C.invuln > 0) return;
+    C.hitAbove(dmg, w);
   }
   nearestTo(w, walkers) {
     let q = null, d = Infinity;
@@ -675,9 +900,9 @@ export class Wildlife {
   }
   // The end of a run (stopped: something cut it short)
   runOver(w, k, q, d, stopped = false) {
-    const K = SENSES[w.type], near = K.run[0] < 30, after = q && (d < FLIGHT.CLEAR * (near ? 0.3 : 1) || this.chased(w, q, d));
+    const K = this.kOf(w), near = K.run[0] < 30, after = q && (d < FLIGHT.CLEAR * (near ? 0.3 : 1) || this.chased(w, q, d));
     if (after && w.legs < FLIGHT.LEGS) { this.fleeFrom(w, q.x, q.y, near ? K.run : FLIGHT.LEG, w.legs + 1); return; }
-    if (!after && Math.random() < K.look) this.lookBack(w);
+    if (!after && Math.random() < K.look * (w.herd?.wary ? 0.5 : 1)) this.lookBack(w);
     else if (K.trot && !stopped) this.trotOff(w, k);
     else this.settle(w);
   }
@@ -716,7 +941,37 @@ export class Wildlife {
         if (v > 0 && !(this.barkAt > g.time) && !this.barked(w)) { this.barkAt = g.time + 0.8; if (w.type === 'ciervo') Audio.alarmBark?.(0.2 + 0.8 * v); else if (w.type === 'jabali') Audio.huff?.(0.4 + 0.6 * v, true); }
       }
       if (w.stampAt !== undefined) { w.stamp = (g.time - w.stampAt) / HEARD.STAMP_FOR; if (!(w.stamp >= 0 && w.stamp < 1)) { w.stamp = 0; w.stampAt = undefined; } }
+      // (the rut: a stag's roar, as far as ROAR.R; a boar's charge: its squeal)
+      const roaring = w.roar >= 0, ch = !!(w.charge ? w.charge.ph < 2 : w.charging);
+      if (roaring && !w.cueR) { const d = distOf(p.x, p.y, w.x, w.y); if (d < ROAR.R) Audio.roar?.(this.panOf(p, w.x, w.y), 1 - d / ROAR.R); }
+      if (ch && !w.cueC) { const v = 1 - distOf(p.x, p.y, w.x, w.y) / HEARD.BARK; if (v > 0) Audio.huff?.(0.6 + 0.4 * v, true); }
+      w.cueR = roaring; w.cueC = ch;
     }
+    if ((this.roarT += dt) >= 1) { this.roarT = 0; this.farRoars(p); }
+  }
+  // Once a second, in the rut: the roars of the stags of herds nobody is near (every game works them out the same way)
+  farRoars(p) {
+    const g = this.game, ms = this.now(), md = dayOfYear(ms, p.y), h = g.days.hourAt(p.x);
+    if (!rutOn(md) || !(h >= 5.9 && (h < 10 || h >= 18)) || !herdsOn()) return;
+    const herds = this.herdsOf();
+    if (!herds) return;
+    herds.around(p.x, p.y, 1, G => {
+      if (G.kind !== 'deer' || this.list.some(w => typeof w.id === 'string' && w.id.startsWith(G.id + '.'))) return;
+      const k = roarPhase(G.id, ms, g.days.hourAt(G.bed[0]));
+      if (k < 0 || this.roared.get(G.id) > ms - 10e3 || herds.roarer(G, dayOfYear(ms, G.bed[1]), ms) < 0) return;
+      herds.where(G, g.days.hourAt(G.bed[0]), ms, g.time, WHERE);
+      if (distOf(p.x, p.y, WHERE.x, WHERE.y) > ROAR.R) return;
+      if (this.roared.size > 60) this.roared.clear();
+      this.roared.set(G.id, ms);
+      this.roarHeard(WHERE.x, WHERE.y);
+    }, 4);
+  }
+  // (host) Whether a stag of the rut roars now: by its herd's id and the clock, as farRoars; and after a call
+  roarOf(w) {
+    if (!w.rut || w.flight === 1 || w.bleed) return -1;
+    const g = this.game;
+    if (w.roarCall > 0) { const k = (g.time - w.roarCall) / ROAR.FOR; if (k >= 0 && k < 1) return k; if (k >= 1) w.roarCall = 0; }
+    return w.herd ? roarPhase(w.herd.id, this.now(), g.days.hourAt(w.x)) : -1;
   }
   // Has its herd barked in this flight already? (one bark each: every game, by the id)
   barked(w) {
@@ -806,6 +1061,8 @@ export class Wildlife {
     if (w.lying || !w.run) {
       w.vx = w.vy = 0;
       if (!w.lying) { this.bed(w); return; }
+      // (a male boar, badly hurt, may get up at whoever walks up to it: once)
+      if (q && w.type === 'jabali' && !w.female && !w.young && !w.charged && sensesOn() && !q.crouch && q.gm !== 'spectator' && d < CHARGE.WOUNDED) { w.charged = true; if (Math.random() < CHARGE.WOUNDED_P) { this.charge(w, q, CHARGE.BOAR_DMG); return; } }
       if (q && !(w.downTill > this.game.time) && d < k.fear * WOUND.LIE_FEAR * (q.crouch ? CREEP : 1) * (w.gutshot && this.game.time - (w.downAt ?? -1e9) < WOUND.GUT_WARY ? WOUND.GUT_FEAR : 1)) { w.runs = (w.runs || 0) + 1; this.bolt(w, [q.x, q.y], WOUND.GETUP); }
       return;
     }
@@ -927,7 +1184,8 @@ export class Wildlife {
       w.lying = !!lying;
       w.limp = Number.isFinite(limp) ? Math.max(0, Math.min(1, limp)) : 0;
       unpackF(f, w); w.flight = 0; w.herd = null;
-      w.breed = w.traits ? breedOf(type, w.female, w.young, md) : undefined;   // (it is the host's to run it; if this game takes over, it starts calm)
+      w.roar = Number.isInteger(f) && f & ROARING ? 0 : -1; w.charging = Number.isInteger(f) && !!(f & CHARGING);
+      w.breed = w.traits ? breedOf(type, w.female, w.young, md, w.size, w.age) : undefined;   // (it is the host's to run it; if this game takes over, it starts calm)
       // (you hit it a moment ago and the host says it bleeds: its trail is locked for you, hunt.js)
       if (w.bleed > 0 && w.lockAsk !== undefined) { if (g.time - w.lockAsk < LOCK_WAIT) g.tracks?.lock(trailKey(w), 'blood'); w.lockAsk = undefined; }
       return w;

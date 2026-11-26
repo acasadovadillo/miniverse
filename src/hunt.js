@@ -19,10 +19,14 @@
 // The carcass (Plan R3-3, quality.js): the host keeps how it was shot (e.shot: the arrows that hit it, a gut hit, the blows)
 // and the arrows stuck in it (e.arrows: a guest's hita says st: 1 when its arrow stays in), and writes its record when it
 // dies: it goes with the carcass it places, or to whoever killed it (preydead.cq; ar, the arrows, without a carcass).
+//
+// The hunter's code (Plan R3-4, huntcode.js): the host also says whether it was a mother with her young by her (preydead.mo)
+// and whether it was a clean kill (cl: 1 one arrow in the chest or the spine; 2 one in the liver, clean if its carcass is found
+// soon); whoever gets the reward weighs it (huntcode.killed). An old host says neither: only the young and the swans count.
 import { ANIMALS } from './art/farm.js';
 import { Audio } from './audio.js';
 import { ZONE, GRAZE_DMG, organOf } from './anatomy.js';
-import { qualityOn, recordOf, cleanCq, killDrops, starsOf, starText } from './quality.js';
+import { qualityOn, recordOf, cleanCq, killDrops, starsOf, starText, F } from './quality.js';
 import { Profile } from './accounts.js';
 import { obb } from './world/fit.js';
 import { distOf } from './world/planet.js';
@@ -151,15 +155,23 @@ export class Hunt {
     }
     this.scare(e, from);
     if (e.hp > 0) { if (bleeds) this.wound(e, zone, from, by, peer); return false; }
+    const mo = ANIMALS[e.type].wild && g.wildlife.motherNow?.(e) ? 1 : 0, cl = this.cleanOf(e);
     if (ANIMALS[e.type].wild) { g.wildlife.list.splice(g.wildlife.list.indexOf(e), 1); g.wildlife.lost(e); }
     else g.ranch.remove(e);
-    const cq = this.recordOf(e), ar = e.arrows || 0;
-    if (by === null) this.reward({ type: e.type, young: e.young, female: e.female, x: e.x, y: e.y, id: e.id, sx: e.sx, sy: e.sy, cq, ar });
-    else g.live.net?.send({ t: 'preydead', id: e.id, type: e.type, young: !!e.young, ...(e.female ? { female: 1 } : {}), x: r2(e.x), y: r2(e.y), ...(e.sx !== undefined ? { sx: e.sx, sy: e.sy } : {}), ...(cq ? { cq } : {}), ...(ar ? { ar } : {}) }, by);   // (sx, sy: whose trail it was; cq, ar: its record and its arrows: optional)
+    const cq = this.recordOf(e, cl), ar = e.arrows || 0;
+    if (by === null) this.reward({ type: e.type, young: e.young, female: e.female, x: e.x, y: e.y, id: e.id, sx: e.sx, sy: e.sy, cq, ar, mo, cl });
+    else g.live.net?.send({ t: 'preydead', id: e.id, type: e.type, young: !!e.young, ...(e.female ? { female: 1 } : {}), x: r2(e.x), y: r2(e.y), ...(e.sx !== undefined ? { sx: e.sx, sy: e.sy } : {}), ...(cq ? { cq } : {}), ...(ar ? { ar } : {}), ...(mo ? { mo } : {}), ...(cl ? { cl } : {}) }, by);   // (sx, sy: whose trail it was; cq, ar: its record and its arrows; mo, cl: the code: optional)
     return true;
   }
   // (host) The record of the carcass of a wild land animal, or null (quality.js)
-  recordOf(e) { const A = ANIMALS[e.type]; return A?.wild && !A.swims && qualityOn() ? recordOf(e, this.game) : null; }
+  recordOf(e, cl = 0) { const A = ANIMALS[e.type]; if (!(A?.wild && !A.swims && qualityOn())) return null; const q = recordOf(e, this.game); if (cl) q[6] |= F.CLEAN; return q; }
+  // (host) A clean kill? 1: one arrow and nothing else, in the chest or the spine; 2: one in the liver (clean if its carcass is
+  // found soon: huntcode.js); 0. Deer and boar only, grown ones
+  cleanOf(e) {
+    const A = ANIMALS[e.type], s = e.shot;
+    if (!A?.wild || A.swims || e.young || !s || s.n !== 1 || s.melee || s.gut) return 0;
+    return e.lastZone === ZONE.vital || e.lastZone === ZONE.spine ? 1 : e.lastZone === ZONE.liver ? 2 : 0;
+  }
   // (quien lleva el mundo) It survived the hit: it bleeds (wildlife.js runs the wound). Heavy at HEAVY_AT of its hp or after
   // a vital hit; a graze only lightly. Your own hit locks its trail for you
   wound(e, zone, from, by, peer) {
@@ -196,13 +208,13 @@ export class Hunt {
     if (ANIMALS[msg.type].wild && !Number.isFinite(msg.sx)) { const w = W.list.find(w => w.id === msg.id); if (w) msg = { ...msg, sx: w.sx, sy: w.sy }; }   // (an old host does not say its spawn point)
     if (ANIMALS[msg.type].wild) W.list = W.list.filter(w => w.id !== msg.id);
     else if (a) R.remove(a); else R.gone.add(msg.id);
-    this.reward({ ...msg, cq: qualityOn() ? cleanCq(msg.cq) : null, ar: Number.isInteger(msg.ar) ? Math.max(0, Math.min(99, msg.ar)) : 0 });
+    this.reward({ ...msg, cq: qualityOn() ? cleanCq(msg.cq) : null, ar: Number.isInteger(msg.ar) ? Math.max(0, Math.min(99, msg.ar)) : 0, mo: msg.mo === 1 ? 1 : 0, cl: msg.cl === 1 || msg.cl === 2 ? msg.cl : 0 });
   }
   // Lo que suelta (la cría, solo un trozo de carne), y lo que se aprende. bled: it bled out (far from you, maybe): its
   // carcass was placed by the host (placed), or else what it leaves falls only if you are in the world and near it
   // (id, sx, sy: a wild one's trail, so following it counts: tracks.js taken; cq: the record of its carcass; ar: the arrows in
   // it, in its record if it leaves a carcass; else they fall with the rest)
-  reward({ type, young, female, x, y, bled = 0, placed = 0, id, sx, sy, cq = null, ar = 0 }) {
+  reward({ type, young, female, x, y, bled = 0, placed = 0, id, sx, sy, cq = null, ar = 0, mo = 0, cl = 0 }) {
     const g = this.game, def = PREY[type], p = g.player;
     if (ANIMALS[type].wild && id !== undefined && Number.isFinite(sx) && Number.isFinite(sy)) g.tracks?.taken(trailKey({ id, sx, sy }), !!bled);
     const here = !bled || (g.scene === g.world && p && Number.isFinite(x) && Number.isFinite(y) && distOf(p.x, p.y, x, y) < BLED_NEAR);
@@ -219,6 +231,7 @@ export class Hunt {
     g.stats?.add('cazados', 1);
     g.xp?.add(roll(1, 3));
     g.nature?.harvested(type);   // (the nature book: hunted → Known; also through killed and bledOut, which come here)
+    if (ANIMALS[type].wild) g.huntcode?.killed({ type, young: !!young, female: !!female, x, y, bled: !!bled, placed: !!placed || (!young && !!g.carry?.bigNow && !bled), mo, cl, cq });   // (the hunter's code: huntcode.js)
     g.onSave?.();
   }
   // (host) A heavily wounded wild animal died of its wound: removed like a kill; the host places its carcass where it lies
@@ -232,10 +245,10 @@ export class Hunt {
     W.list.splice(i, 1);
     W.lost(w);
     const by = w.by || null, forId = !g.live?.joined ? null : by?.me ? (Profile.id || null) : (by?.id ?? null);
-    const cq = this.recordOf(w), ar = w.arrows || 0;
+    const mo = g.wildlife.motherNow?.(w) ? 1 : 0, cl = this.cleanOf(w), cq = this.recordOf(w, cl), ar = w.arrows || 0;
     const placed = !w.young && (g.carry?.bigNow || Profile.server) && !!g.carry?.placeCarcass(w.type, w.x, w.y, forId, !!w.female, cq);
     if (ar && !(placed && cq)) this.dropArrows(w.x, w.y, ar);   // (here: whoever wounded it may be far, or gone)
-    const msg = { id: w.id, type: w.type, young: !!w.young, ...(w.female ? { female: 1 } : {}), x: r2(w.x), y: r2(w.y), bled: 1, placed: placed ? 1 : 0, sx: w.sx, sy: w.sy, ...(cq ? { cq } : {}) }, conn = by && !by.me ? this.connOf(by) : null;
+    const msg = { id: w.id, type: w.type, young: !!w.young, ...(w.female ? { female: 1 } : {}), x: r2(w.x), y: r2(w.y), bled: 1, placed: placed ? 1 : 0, sx: w.sx, sy: w.sy, ...(cq ? { cq } : {}), ...(mo ? { mo } : {}), ...(cl ? { cl } : {}) }, conn = by && !by.me ? this.connOf(by) : null;
     if (by?.me && !Profile.server) this.reward(msg);
     else if (conn !== null) g.live.net.send({ t: 'preydead', ...msg }, conn);
     return true;

@@ -19,7 +19,7 @@
 import * as THREE from 'three';
 import { getModel } from './models.js';
 import { nearX } from '../world/planet.js';
-import { WIND } from './nature3d.js';
+import { WIND, WIND_LEAN } from './nature3d.js';
 import { PIECES } from '../pieces.js';
 import { yawOf } from '../art/stations.js';
 
@@ -69,7 +69,7 @@ const MASK = shell(true), LINE = shell(false);
 // The parts of a tree (instanced, with the wind of nature3d.js: sway = [amount, speed, 1 or -1 if it hangs]), grown like
 // the shells above. CARD: a leaf card, cut by its texture and grown on the screen around its centre (a flat quad has no
 // side to push out), with its leaves grown in the texture by as many pixels
-const INST_VS = `uniform vec2 res; uniform float width; uniform float windTime; uniform vec3 sway;
+const INST_VS = `uniform vec2 res; uniform float width; uniform float windTime; uniform vec3 sway; uniform vec3 windLean;
   #ifdef CARD
   varying vec2 vUv;
   #endif
@@ -79,7 +79,9 @@ const INST_VS = `uniform vec2 res; uniform float width; uniform float windTime; 
     vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
     float t = windTime * sway.y;
     float s = sin(t * 1.6 + wp.x * 0.35 + wp.z * 0.25) * 0.6 + sin(t * 2.9 + wp.x * 0.9 - wp.z * 0.4) * 0.3;
-    p.xz += vec2(s, s * 0.5) * sway.x * max(sway.z * position.y, 0.0);
+    vec3 wl3 = transpose(mat3(instanceMatrix)) * vec3(windLean.x, 0.0, windLean.z);
+    vec2 wl = wl3.xz / max(dot(wl3, wl3), 1e-4) * windLean.y;
+    p.xz += (vec2(s, s * 0.5) + wl) * sway.x * max(sway.z * position.y, 0.0);
     mat4 mv = modelViewMatrix * instanceMatrix;
     vec4 v = mv * vec4(p, 1.0), c = projectionMatrix * v;
     #ifdef CARD
@@ -110,7 +112,7 @@ const INST_FS = `uniform float glow; uniform sampler2D map; uniform float width;
 const WHITE = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); WHITE.needsUpdate = true;
 function instMat(line, card) {
   return new THREE.ShaderMaterial({
-    uniforms: { res: U.res, width: line ? U.width : U.seam, glow: U.glow, windTime: WIND, sway: { value: new THREE.Vector3() }, map: { value: WHITE } },
+    uniforms: { res: U.res, width: line ? U.width : U.seam, glow: U.glow, windTime: WIND, windLean: WIND_LEAN, sway: { value: new THREE.Vector3() }, map: { value: WHITE } },
     vertexShader: INST_VS, fragmentShader: INST_FS, defines: card ? { CARD: '' } : {},
     colorWrite: line, depthWrite: false, depthTest: line, side: THREE.DoubleSide, toneMapped: false, ...(line ? STENCIL_LINE : STENCIL_MARK),
   });
