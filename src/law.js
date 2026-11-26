@@ -16,7 +16,7 @@
 //
 // The cell: 1 to 5 real minutes (until is real time, so being away counts). Whoever is in it is kept inside (leash), cannot build,
 // sprint or use the wheel, and comes out at the door. Nothing of theirs is ever taken.
-import { LAW_OFFICE, STALL, BOUNDS, WALK_NODES, hasProject, inOwnHouse, inLawOffice } from './world/village.js';
+import { LAW_OFFICE, STALL, BOUNDS, WALK_NODES, hasBuilding, inOwnHouse, inLawOffice, onVillageChange } from './world/village.js';
 import { lawOfficePlan } from './world/blueprints.js';
 import { CHUNK } from './world/gen.js';
 import { distOf, nearX, dxOf } from './world/planet.js';
@@ -42,8 +42,12 @@ import { FINES, REPORTED, WANTED, BOUNTY_MAX, CRIMES_KEPT, SIGHT, SPEEDS, levelO
 
 const OFF = apagada('law');         // (?law=0: this game says nothing of its own crimes and shows no chip)
 export const RAMIRO = 'ramiro';
-export const OFFICE = lawOfficePlan(LAW_OFFICE);
-const C = OFFICE.cell;
+// (the law office's plan where it stands in this world: villagesites.js; laid out again whenever the village changes)
+export const OFFICE = {};
+const C = {};
+const placeOffice = () => { const P = lawOfficePlan(LAW_OFFICE); for (const k of Object.keys(OFFICE)) delete OFFICE[k]; Object.assign(OFFICE, P); Object.assign(C, P.cell); };
+placeOffice();
+onVillageChange(placeOffice);
 const DAY = 864e5, THINK = 0.1, LOOK = 0.5, SEND = 0.25;
 const CATCH_R = 1.1, CATCH_S = 1, LOST_S = 20, CHASE_S = 90, OUT_R = 40, ASK_R = 1.7, ASK_FAR = 10;
 const HOLD_S = 40, ASK_S = 35, ANSWER_S = 30, REST_S = 60, ASK_AGAIN = 15 * 60, LATER_AGAIN = 30 * 60, MIN_CHASE = 6;   // s
@@ -61,10 +65,10 @@ const inRect = (x, y, m = 0) => x > C.x0 - m && x < C.x1 + m && y > C.y0 - m && 
 // The stalls: where they are, whose, and what there is on them (one thing a day each, with nobody at it)
 export const STALLS = {
   rosa: { x: STALL.x0 + 1, y: STALL.y0 + 0.5, owner: 'rosa', goods: ['tomate', 'zanahoria', 'manzana', 'nabo', 'fresa'] },
-  market_a: { x: 25, y: 27.5, owner: 'bruno', need: 'mercado', node: 'market_a', goods: ['carbon', 'cobre', 'carbon', 'hierro'] },
-  market_b: { x: 13, y: 31.5, owner: 'lia', need: 'mercado', node: 'market_b', goods: ['sardina', 'carpa', 'perca', 'sardina'] },
+  market_a: { x: 25, y: 27.5, owner: 'bruno', need: 'market_a', node: 'market_a', goods: ['carbon', 'cobre', 'carbon', 'hierro'] },
+  market_b: { x: 13, y: 31.5, owner: 'lia', need: 'market_b', node: 'market_b', goods: ['sardina', 'carpa', 'perca', 'sardina'] },
 };
-const stallNow = key => (own(STALLS, key) && (!STALLS[key].need || hasProject(STALLS[key].need)) ? STALLS[key] : null);
+const stallNow = key => (own(STALLS, key) && (!STALLS[key].need || hasBuilding(STALLS[key].need)) ? STALLS[key] : null);
 
 CLAIMS.stall_take = (g, c, d, k, extra) => {
   const S = stallNow(c.key), L = g.law;
@@ -101,7 +105,7 @@ export class Law {
   get world() { return this.game.world; }
   decides() { const b = this.game.barrow; return !b || b.decides(); }
   // Is there law in this world? Not before the office is built, nor in peaceful, nor if an op turned it off
-  get active() { const g = this.game; return hasProject('law_office') && g.rules?.doLaw !== false && g.difficulty !== 'peaceful'; }
+  get active() { const g = this.game; return hasBuilding('law_office') && g.rules?.doLaw !== false && g.difficulty !== 'peaceful'; }
   // Does what this player does count?
   get counts() { return this.active && !OFF && !Profile.server && !!this.game.rep?.counts && !this.jailed; }
   reset(save) {

@@ -17,6 +17,7 @@ import { SatTiles } from './sattiles.js';
 import { MapOverlay } from './mapoverlay.js';
 import { RoadLines } from './roadlines.js';
 import { MapGround } from './mapground.js';
+import { landPicture, drawLand } from './landmask.js';
 import { blips, blipScale } from './blips.js';
 import { sprite } from './mapglyphs.js';
 import { accent } from './skin.js';
@@ -351,6 +352,8 @@ export class MapView {
     if (a >= 1) { const x0 = Math.floor(cx - w / 2 / a), y0 = Math.floor(cy - h / 2 / a), [sx, sy] = this.toScreen(x0, y0, cx, cy, w, h); this.floodOver(g, explored, x0, y0, Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
     if (a >= ROOFS_FROM && this.tiles.ready) this.roofs(g, explored, cx, cy, a, w, h);
     this.roadLines.flat(g, gen, [cx - w / 2 / a, cy - h / 2 / a, cx + w / 2 / a, cy + h / 2 / a], off => g.setTransform(r * a, 0, 0, r * a, r * (w / 2 + a * (off - cx)), r * (h / 2 - a * cy)), a);
+    // The village's land washed and your plot's edge (landmask.js): what is free to build is the rest
+    { const L = landPicture(); g.setTransform(r * a, 0, 0, r * a, r * (w / 2 + a * (nearX(L.x0, cx) - cx)), r * (h / 2 + a * (L.y0 - cy))); drawLand(g, explored); }
     g.setTransform(r, 0, 0, r, 0, 0);
     // The marked route: from where you are on it to the pin (the pin goes with the spots, for its label)
     const R = this.route;

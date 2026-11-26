@@ -9,7 +9,7 @@
 // Days: a guest plays with the host's calendar (livesync.js dayBase), so the day caps and the days kept are only ever
 // compared with === and !== (as neighbors.js does with f.talk), and "recent" is 0 <= today - day <= n.
 import { t, tHtml } from './i18n.js';
-import { HOUSES, inTavern, inChapel, inLawOffice, hasProject } from './world/village.js';
+import { HOUSES, inTavern, inChapel, inLawOffice, houseStands } from './world/village.js';
 import { ROUTINES } from './routines.js';
 import { PEOPLE } from './neighbors.js';
 import { Audio } from './audio.js';
@@ -129,7 +129,7 @@ export class Reputation {
   // ---------- the neighbors' houses ----------
   // Whose house is this tile in: 'rosa', 'bruno', 'dani', 'taberna' or null (your own house and the hamlets do not count)
   houseAt(tx, ty) {
-    for (const [id, h] of Object.entries(HOUSES)) if ((!h.project || hasProject(h.project)) && tx >= h.x0 && tx < h.x1 && ty >= h.y0 && ty < h.y1) return id;
+    for (const [id, h] of Object.entries(HOUSES)) if (houseStands(h) && tx >= h.x0 && tx < h.x1 && ty >= h.y0 && ty < h.y1) return id;
     return inTavern(tx + 0.5, ty + 0.5) ? 'taberna' : inChapel(tx + 0.5, ty + 0.5) ? 'chapel' : inLawOffice(tx + 0.5, ty + 0.5) ? 'law_office' : null;
   }
   // Who sees you take something from that house: its owner if they are in (even hidden indoors, as when you knock: they

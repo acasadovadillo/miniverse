@@ -27,6 +27,7 @@ import { getLang } from '../i18n.js';
 import { rgbOf } from '../util.js';
 import { opcion, apagada } from '../opciones.js';
 import { reportFault } from '../faults.js';
+import { LAND_RGB, PLOT_RGB, landEdges, landVersion } from '../ui/landmask.js';
 
 export const MAP3D = SAT && !apagada('mapa3d');
 export const N = 161;                  // vertices on each side: 51 200 triangles
@@ -216,6 +217,8 @@ const TREE_VS = `varying vec3 vC; uniform float uK;
   void main() { vec4 p = modelMatrix * instanceMatrix * vec4(position, 1.0); p.y *= uK; vC = instanceColor * color.x; gl_Position = projectionMatrix * viewMatrix * p; }`;
 const rgb1 = c => rgbOf(c).map(v => v / 255);
 const ROAD_RGB = [0.83, 0.77, 0.65], TRACK_RGB = [0.76, 0.7, 0.58];   // (the roads' lines: roadlines.js)
+// (the edge of the village's land and of your plot: ui/landmask.js)
+const LAND_EDGE = LAND_RGB.map(v => v / 255), PLOT_EDGE = PLOT_RGB.map(v => v / 255);
 const LINE_VS = `attribute vec4 side; attribute vec4 tone; uniform float uPx, uK; varying vec4 vT; varying float vS, vD, vW;
   void main() { vT = tone; vS = side.z; vD = side.w; vW = tone.w > 4.5 ? 0.7 : tone.w > 3.5 ? 1.3 : tone.w > 2.5 ? ${(AREA_PX / 2).toFixed(1)} : ${(ROUTE_PX / 2 + 1).toFixed(1)}; vec3 p = vec3(position.x + side.x * side.z * vW * uPx, position.y * uK + ${LIFT} * (0.4 + uPx * 3.0), position.z + side.y * side.z * vW * uPx); gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(p, 1.0); }`;
 const LINE_FS = `uniform float uPx; uniform vec3 uOut; varying vec4 vT; varying float vS, vD, vW;
@@ -595,11 +598,16 @@ export class Map3D {
   }
   // The roads of the explored land (ui/roadlines.js), under the rest: made again only when there are others
   putWays(V) {
-    const L = this.view.roadLines, k = `${L.version(V.gen)}|${V.explored.size}|${this.gridV}`;
+    const L = this.view.roadLines, k = `${L.version(V.gen)}|${V.explored.size}|${this.gridV}|${landVersion()}`;
     if (k === this.wayKey) return;
     this.wayKey = k;
     const G = this.grid, r = (N - 1) / 2 * G.s;
-    this.ribbons(this.ways, line => { for (const q of L.runs(V.gen, [this.origin.x - r, this.origin.y - r, this.origin.x + r, this.origin.y + r])) line(q.pts, () => (q.cart ? 4 : 5), q.cart ? ROAD_RGB : TRACK_RGB); });
+    this.ribbons(this.ways, line => {
+      for (const q of L.runs(V.gen, [this.origin.x - r, this.origin.y - r, this.origin.x + r, this.origin.y + r])) line(q.pts, () => (q.cart ? 4 : 5), q.cart ? ROAD_RGB : TRACK_RGB);
+      const E = landEdges(), seen = s => V.explored.has(`${wrapIndex(Math.floor((s[0] + s[2]) / 2 / CHUNK), CHUNK)},${Math.floor((s[1] + s[3]) / 2 / CHUNK)}`);
+      for (const s of E.land) if (seen(s)) line(s, () => 3, LAND_EDGE);
+      for (const s of E.plot) if (seen(s)) line(s, () => 3, PLOT_EDGE);
+    });
   }
   // Ribbons on the land into a mesh: put(line) calls line for each
   ribbons(mesh, put) {

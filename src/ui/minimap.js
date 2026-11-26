@@ -23,6 +23,7 @@ import { Settings } from '../settings.js';
 import { TOWER } from '../world/tower.js';
 import { BIOMES } from '../world/biomes.js';
 import { BOUNDS, villagePaths, onVillageChange } from '../world/village.js';
+import { landPicture, drawLand } from './landmask.js';
 import { t, onLangChange } from '../i18n.js';
 import { blips, blipScale } from './blips.js';
 import { sprite } from './mapglyphs.js';
@@ -279,6 +280,10 @@ export class Minimap {
         }
       }
     }
+    // (the village's land washed, and your plot's edge: what is free to build is the rest. landmask.js)
+    const L = landPicture();
+    g.setTransform(k * a, 0, 0, k * a, k * (e + a * nearX(L.x0, p.x)), k * (f + a * L.y0));
+    drawLand(g, G.explored);
     g.setTransform(k * a, 0, 0, k * a, k * (e + a * (nearX(BOUNDS.x0, p.x) - BOUNDS.x0)), k * f);
     g.lineJoin = g.lineCap = 'round'; g.lineWidth = PATH_W; g.strokeStyle = PATH_COL; g.stroke(this.paths);
     g.setTransform(k, 0, 0, k, 0, 0);

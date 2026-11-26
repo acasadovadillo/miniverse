@@ -5,7 +5,7 @@
 // El relieve ya calculado se guarda en el navegador (groundcache.js): un bloque guardado no pasa por la cola, sale en
 // cuanto se lee (un par de milisegundos), y solo se calcula lo que nunca se ha visto.
 import { WorldGen, WORLD_SEED, CHUNK } from './gen.js';
-import { setProjects, setFamilyHouse } from './village.js';
+import { setVillage, setFamilyHouse } from './village.js';
 import { roadsFor } from './roads.js';
 import { blockHeights, blockNormals, blockShore, shoreBiome, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
 import { openGroundCache } from './groundcache.js';
@@ -39,11 +39,11 @@ useSeed(WORLD_SEED);
 onmessage = e => {
   const m = e.data;
   if (m.t === 'init') {
-    setProjects(m.projects); setFamilyHouse(m.family);
+    setVillage(m.village); setFamilyHouse(m.family);
     useSeed(m.seed); useRoads(m.roads);
     // (el primer hilo limpia lo guardado de otras versiones del relieve, una vez y pasados unos segundos: ver cleanLater)
     if (m.owner && !cleaned && cache) { cleaned = true; cache.then(c => c?.cleanLater()).catch(() => {}); }
-  } else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen?.fields.clear(); gen?.satTrees?.clear(); paints.clear(); }
+  } else if (m.t === 'village') { setVillage(m.village); setFamilyHouse(m.family); gen?.fields.clear(); gen?.satTrees?.clear(); paints.clear(); }
   else if (m.t === 'roads') useRoads(m.roads);
   else if (m.t === 'block') {
     if (cache) { waiting.set(m.id, m); if (!batching) { batching = true; setTimeout(readBatch, 0); } }

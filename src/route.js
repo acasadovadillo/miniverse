@@ -40,7 +40,7 @@ import { CHUNK } from './world/gen.js';
 import { apagada, opcion } from './opciones.js';
 import { KIND, LIMITS, maskWanted, chunkMask } from './world/routegrid.js';
 import { roadList } from './world/roads.js';
-import { getProjects, familyHouse, onVillageChange, HOUSES } from './world/village.js';
+import { getVillage, familyHouse, onVillageChange, HOUSES } from './world/village.js';
 import { GAME_VERSION } from './version.js';
 import { Music } from './music.js';
 import { RouteMark } from './ui/routemark.js';
@@ -109,7 +109,7 @@ export class Route {
     if (game.map) game.map.route = this;   // (the maps draw the route: ui/map.js)
     onVillageChange(() => {
       this.villageV++;
-      this.worker?.postMessage({ t: 'village', projects: getProjects(), family: familyHouse() });
+      this.worker?.postMessage({ t: 'village', village: getVillage(), family: familyHouse() });
     });
   }
   get active() { return !!this.target; }
@@ -424,7 +424,7 @@ export class Route {
       const w = new Worker(url, { type: 'module' });
       w.onmessage = e => { try { this.onWorker(e.data); } catch (err) { reportFault(err, 'Route.onWorker'); } };
       w.onerror = e => { console.warn('Route: the worker failed; straight lines meanwhile', e?.message || ''); e?.preventDefault?.(); this.workerFailed(); };
-      w.postMessage({ t: 'init', seed: this.game.world?.seed, projects: getProjects(), family: familyHouse(), roads: roadList(this.game.world?.gen) });
+      w.postMessage({ t: 'init', seed: this.game.world?.seed, village: getVillage(), family: familyHouse(), roads: roadList(this.game.world?.gen) });
       this.roadsV = this.game.world?.gen?.roadsV; this.linesOf = undefined;   // (a new worker knows no lines)
       this.worker = w;
     } catch (e) { console.warn('Route: no worker', e?.message || e); this.failures = 2; return null; }

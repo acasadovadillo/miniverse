@@ -48,6 +48,8 @@ export const STAT_GROUPS = [
   ['village', ['encargos', 'regalos', 'proyectos', 'jobs_done', 'games_played', 'games_won', 'games_coins', 'ganado', 'donados']],
   ['travel', ['lugares', 'profundidad', 'tesoros', 'cofres', 'templos', 'faros']],
 ];
+// (what no longer goes up: the village's projects, gone since the village is built from day one; shown only if a game has some)
+const GONE_STATS = new Set(['proyectos']);
 export function playedText(ms) { const m = Math.floor((ms || 0) / 60000); return t('gui.progress.played_for', { h: Math.floor(m / 60), m: m % 60 }); }
 
 // ---------- records ----------
@@ -94,7 +96,7 @@ function overviewHtml(game) {
 }
 function statsHtml(game) {
   const row = (name, v) => `<div class="j-row"><b>${name}</b><span class="lvl">${v}</span></div>`;
-  const groups = STAT_GROUPS.map(([g, ids]) => `<section><h3>${t(`gui.progress.group.${g}`)}</h3>${ids.map(k => row(t(`stat.${k}`), fmt.num(Math.round(game.stats.get(k))))).join('')}</section>`);
+  const groups = STAT_GROUPS.map(([g, ids]) => `<section><h3>${t(`gui.progress.group.${g}`)}</h3>${ids.filter(k => !GONE_STATS.has(k) || game.stats.get(k) > 0).map(k => row(t(`stat.${k}`), fmt.num(Math.round(game.stats.get(k))))).join('')}</section>`);
   return `<div class="pg-cols">${groups.join('')}</div><div class="pg-facts"><div><small>${t('gui.progress.days')}</small><b>${fmt.num(game.days.dayIndex + 1)}</b></div><div><small>${t('gui.progress.played')}</small><b>${playedText(game.playTime?.ms)}</b></div></div>`;
 }
 function recordsHtml(game) {

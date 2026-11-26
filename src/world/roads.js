@@ -17,7 +17,9 @@ import { CHUNK } from './gen.js';
 import { B, BIOMES } from './biomes.js';
 import { sitesFor, hamletSlots, SITE_TIERS } from './sites.js';
 import { hamletPlan } from './hamlets.js';
-import { inBounds, BOUNDS } from './village.js';
+// (BASE_BOUNDS: the village land of before, which never changes, so the roads of every world stay where they were; the sites
+// of the village keep off the roads: village.js SITES)
+import { inBounds, BASE_BOUNDS as BOUNDS } from './village.js';
 import { HOME_SEED, HOME_ROADS } from './homeroads.js';
 import { wrapIndex, wrapX, dxOf, nearX, inPlanet } from './planet.js';
 

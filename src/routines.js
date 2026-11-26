@@ -19,7 +19,7 @@
 //   @patrol   the constable's round, from point to point; @desk, at his desk in the law office (the project 'law_office')
 //   @away     out of the village (those of the tavern: they come and go down the road); seat, their place in the tavern
 // A neighbour with only `schedule` (or only `seat` and `hours`) gets a day out of it: nothing else has to be written
-import { HOUSES, TAVERN, FOUNTAIN, CHAPEL, LAW_OFFICE, WALK_NODES, WALK_EDGES, hasProject, onVillageChange } from './world/village.js';
+import { HOUSES, TAVERN, FOUNTAIN, CHAPEL, LAW_OFFICE, WALK_NODES, WALK_EDGES, hasBuilding, onVillageChange } from './world/village.js';
 import { chapelPews, lawOfficePlan } from './world/blueprints.js';
 import { SHOPS } from './economy.js';
 import { PEOPLE } from './neighbors.js';   // (a cycle, read only inside functions)
@@ -65,7 +65,7 @@ onVillageChange(forget);
 export const idNum = id => { let h = 7; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 9973; return h; };
 const roll = (id, realDay, k) => ihash(realDay, idNum(id), 2600 + k);
 const wetDay = (id, realDay) => { const w = env.weather?.(realDay); return WET.has(w) && !PEOPLE[id]?.weather?.likes?.includes(w); };
-const here = id => { const d = PEOPLE[id]; return !!d && (!d.project || hasProject(d.project)); };
+const here = id => { const d = PEOPLE[id]; return !!d && (!d.site || hasBuilding(d.site)); };
 const housed = () => Object.keys(PEOPLE).filter(id => PEOPLE[id].home && here(id));
 
 // ---------- the walk ----------
@@ -73,7 +73,7 @@ let graph = null;
 function links() {
   if (graph) return graph;
   graph = {};
-  for (const [a, b, need] of WALK_EDGES) if (!need || hasProject(need)) { (graph[a] ||= []).push(b); (graph[b] ||= []).push(a); }
+  for (const [a, b, need] of WALK_EDGES) if ((!need || hasBuilding(need)) && WALK_NODES[a] && WALK_NODES[b]) { (graph[a] ||= []).push(b); (graph[b] ||= []).push(a); }
   return graph;
 }
 const gap = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
@@ -136,7 +136,11 @@ const residents = house => Object.keys(PEOPLE).filter(id => PEOPLE[id].home === 
 // Inside a house: from its door to the room (the same for the whole house: road() takes the first two off indoors)
 const enter = H => [[H.x0 + 6.5, H.y1 - 0.5], [H.x0 + 6.5, H.y1 - 1.9]];
 // The law office: at the desk, and the bed of the back room (world/blueprints.js lawOfficePlan)
-const LAW = lawOfficePlan(LAW_OFFICE), LX = LAW_OFFICE.x0, LY = LAW_OFFICE.y0, LAW_IN = [[LX + 4.5, LY + 8.5], [LX + 4.5, LY + 7.3], [LX + 4.6, LY + 5.6]];
+// (where the law office stands in this world: villagesites.js; again whenever the village changes)
+let LAW, LX, LY, LAW_IN;
+const placeLaw = () => { LAW = lawOfficePlan(LAW_OFFICE); LX = LAW_OFFICE.x0; LY = LAW_OFFICE.y0; LAW_IN = [[LX + 4.5, LY + 8.5], [LX + 4.5, LY + 7.3], [LX + 4.6, LY + 5.6]]; };
+placeLaw();
+onVillageChange(placeLaw);
 const deskSpot = (kind = 'home') => spot(`law:${kind}`, () => ({ kind, goal: kind, node: 'door_law', via: [...LAW_IN, [LX + 5.7, LY + 5.4], [LAW.chair[0] + 0.5, LAW.chair[1] + 0.44]], yaw: S, pose: sit(S, STOOL), tile: LAW.chair, room: 'law_office', home: 'law_office', work: kind === 'law_desk' }));
 const lawBed = () => spot('bed:law', () => ({ kind: 'asleep', goal: 'home', node: 'door_law', via: [...LAW_IN, [LX + 5.5, LY + 4.5], [LX + 5.5, LY + 3.2], [LX + 5.9, LY + 2.6]], pose: { kind: 'lie', yaw: S, h: BED }, tile: LAW.bed, room: 'law_office', home: 'law_office' }));
 const ROUNDS = ['plaza', 'board', 'p29', 'p34', 'p37', 'p41', 'p43', 'p46', 'p52', 'p55', 'p57', 'p46', 'p37', 'p29', 'easel'];
@@ -178,7 +182,7 @@ function seatIndex(id, realDay) { const i = housed().indexOf(id); return (Math.m
 // The pews, or a place by the fountain, in the order of PEOPLE
 function chapelSpot(id) {
   const i = Object.keys(PEOPLE).filter(q => !PEOPLE[q].fixed).indexOf(id);
-  if (!hasProject('chapel')) return spot(`fountain:${i}`, () => {
+  if (!hasBuilding('chapel')) return spot(`fountain:${i}`, () => {
     const a = (100 + (i % 5) * 40) * Math.PI / 180, r = i < 5 ? 2.3 : 3.1, x = FOUNTAIN.x + Math.cos(a) * r, y = FOUNTAIN.y + Math.sin(a) * r;
     return { kind: 'plaza', goal: 'plaza', node: 'p29', via: [[x, y]], yaw: Math.atan2(FOUNTAIN.x - x, FOUNTAIN.y - y), gather: true };
   });
@@ -222,8 +226,8 @@ function resolve(id, token, realDay, i) {
       if (!d.home) return d.seat ? seatSpot(id) : awaySpot();
       return eatsOut(id, realDay, token.slice(1)) ? tavernSpot(seatIndex(id, realDay)) : mealAt(id);
     }
-    case '@market': return hasProject('mercado') && MARKET_OF[id] ? nodeSpot(id, MARKET_OF[id], { work: true }) : d.work && WALK_NODES[d.work] ? nodeSpot(id, d.work, { work: true }) : nodeSpot(id, 'plaza');
-    case '@browse': return nodeSpot(id, hasProject('mercado') ? ['browse_a', 'shop_front', 'browse_b'][(i + idNum(id)) % 3] : ['plaza', 'shop_front'][i % 2]);
+    case '@market': return MARKET_OF[id] && hasBuilding(MARKET_OF[id]) ? nodeSpot(id, MARKET_OF[id], { work: true }) : d.work && WALK_NODES[d.work] ? nodeSpot(id, d.work, { work: true }) : nodeSpot(id, 'plaza');
+    case '@browse': return nodeSpot(id, ((q => (q !== 'shop_front' && !hasBuilding(q === 'browse_a' ? 'market_a' : 'market_b') ? 'shop_front' : q))(['browse_a', 'shop_front', 'browse_b'][(i + idNum(id)) % 3])));
     case '@chapel': return chapelSpot(id);
     case '@desk': return deskSpot('law_desk');
     case '@patrol': return roundSpot(ROUNDS[(i + Math.floor(roll(id, realDay, 9) * ROUNDS.length)) % ROUNDS.length]);
@@ -385,7 +389,7 @@ export function shopState(id, shop, nowMs) {
 export const BELL_S = 26;
 export function bellAt(nowMs) {
   const day = Math.floor(nowMs / DAY);
-  if (!ROUTINES || !hasProject('chapel') || !isBellDay(day)) return -1;
+  if (!ROUTINES || !hasBuilding('chapel') || !isBellDay(day)) return -1;
   const s = (nowMs - day * DAY - BELL_HOUR * HOUR) / 1000;
   return s >= 0 && s < BELL_S ? s : -1;
 }

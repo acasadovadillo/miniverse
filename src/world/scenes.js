@@ -5,7 +5,11 @@
 import { clamp, ihash } from '../util.js';
 import { groundSmooth, grassKeep, groundOf } from './ground.js';
 import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
-import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse, townDigWhy, pondDist } from './village.js';
+import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse, townDigWhy, villageLand, pondDist } from './village.js';
+// Why the village says no there, said: «Es terreno del pueblo: …» (townDigWhy's key, with '|name' when it has one)
+export const villageWhy = why => { const [k, name] = why.split('|'); return tr('why.village_land', { why: tr(k, { name }) }); };
+// (the village's land, but your house and the inside of the village's: tile tx, ty)
+const townLand = (tx, ty) => villageLand(tx, ty) && !inOwnHouse(tx + 0.5, ty + 0.5) && !inVillageHouse(tx + 0.5, ty + 0.5);
 import { B, BIOMES, WATER_Y, stoneOf } from './biomes.js';
 import { ITEMS, CHESTS, FIRE_MS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
@@ -443,7 +447,7 @@ export class Overworld {
     const cur = this.digH(tx, ty), undo = cur !== null && (up ? cur < this.digBase(tx, ty) : cur > this.digBase(tx, ty));
     if (town && !undo) {
       const why = townDigWhy(tx, ty);
-      if (why) return why.startsWith('why.') ? tr(why) : why;
+      if (why) return villageWhy(why);
       if (this.at('floor', tx, ty) || this.at('roof', tx, ty) || ['wall', 'door'].includes(this.pieceAt(tx, ty)?.kind)) return inOwnHouse(x, y) ? 'Es tu casa' : 'Hay algo encima';
       for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) if (['door', 'gate'].includes(this.pieceAt(nx, ny)?.kind)) return 'Delante de la puerta no';
       if (this.animalDoorOn(tx, ty)) return 'Delante de la puerta no';
@@ -799,7 +803,7 @@ export class Overworld {
       const x = tx + 0.5, y = ty + 0.5;
       if (this.water(x, y) || this.pieceAt(tx, ty) || this.rugAt(tx, ty)) return false;
       if (this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.tilled[`${tx},${ty}`] !== undefined) return false;
-      if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return false;
+      if (inBounds(x, y) && ((!isGrass(x, y) && !inOwnHouse(x, y)) || townLand(tx, ty)) && !this.buildAnywhere) return false;
     }
     return true;
   }
@@ -1088,7 +1092,7 @@ export class Overworld {
     const x = tx + 0.5, y = ty + 0.5, b = this.gen.biomeAt(x, y);
     if (!inPlanet(x, y)) return false;
     if (![B.MEADOW, B.FOREST, B.PINES, B.SWAMP].includes(b) || this.water(x, y)) return false;   // (ni en lo cavado que tiene agua)
-    if (inBounds(x, y) && !isGrass(x, y)) return false;
+    if (inBounds(x, y) && (!isGrass(x, y) || villageLand(tx, ty))) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     if (d && d.tilled[`${tx},${ty}`] !== undefined) return false;
     if (this.at('placed', tx, ty) || this.at('floor', tx, ty) || this.towerOf(tx, ty)) return false;
@@ -1115,7 +1119,7 @@ export class Overworld {
     if (this.towerOf(tx, ty) || this.deckAt(x, y) !== null) return false;   // (nor on a watchtower's base, nor on a jetty or a bridge)
     if (this.water(x, y)) return false;
     // (en el pueblo, en la hierba y en las casas; las vallas y sus puertas, además, en todo tu jardín, también en el hueco del camino; en modo admin, donde sea)
-    if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
+    if (inBounds(x, y) && ((!isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y)) || townLand(tx, ty)) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
     // (en el pueblo, una puerta o una puerta de valla no se pone junto a un hoyo o un montón: delante de una puerta no se
     // cava, ver digWhy, y la entrada quedaría tapada)
     if (['door', 'gate'].includes(PIECES[id]?.kind) && this.holeBeside(tx, ty)) return false;
@@ -1399,7 +1403,7 @@ export class Overworld {
     }
     for (const [x, y] of [[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]]) {
       if (this.water(x, y) && id !== 'noria' && !(id === 'rod_rest' && this.levelAt(x, y) !== null)) return res(false, 'Ahí no se puede poner');
-      if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere) return res(false, 'En el camino y en la plaza no se puede');
+      if (inBounds(x, y) && ((!isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y)) || townLand(Math.floor(x), Math.floor(y))) && !this.buildAnywhere) return res(false, villageWhy(townDigWhy(Math.floor(x), Math.floor(y)) || 'why.dig.path'));
     }
     // (nor inside a well's mouth, where its boxes leave room: it would float over the water, and over the hole once it goes)
     if ([[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]].some(([x, y]) => this.wellAt(x, y))) return res(false, 'Ahí está el pozo');

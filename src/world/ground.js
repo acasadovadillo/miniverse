@@ -213,7 +213,8 @@ export function blockNormals(H, edge, n, out = new Float32Array(n * n * 3)) {
 // de verdad en el hilo (un genworker.js viejo de la caché del navegador da otra huella). Sube RELIEF_V a mano si cambia
 // algo que esto no vea
 // (2: the deep sea and the big lakes for diving, deepOf; its noise is a constant outside any function text)
-export const RELIEF_V = 2;
+// (3: the village built from day one, its land with the annexes of its sites: village.js inBounds)
+export const RELIEF_V = 3;
 export function groundTag(gen) {
   let h = 2166136261;
   const f = new Float32Array(1), u = new Uint32Array(f.buffer), mix = v => { h = Math.imul(h ^ v, 16777619); };

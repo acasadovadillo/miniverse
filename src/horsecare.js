@@ -24,7 +24,7 @@ import { Audio } from './audio.js';
 import { CHUNK } from './world/gen.js';
 import { B } from './world/biomes.js';
 import { distOf, nearX } from './world/planet.js';
-import { WALK_NODES, FOUNTAIN } from './world/village.js';
+import { WALK_NODES, FOUNTAIN, hasBuilding } from './world/village.js';
 import { TROUGH_MAX, troughModel } from './troughs.js';
 import * as FW from './fishwater.js';
 import { CAN_MAX } from './farm.js';
@@ -306,7 +306,7 @@ export class HorseCare {
       else if (o.placed === 'pozo' || o.placed === 'big_well') return { x: o.x, y: o.y };
     }
     if (w.wellAt?.(x, y)) return { x, y };
-    if (g.board?.projects?.fuente && distOf(x, y, FOUNTAIN.x, FOUNTAIN.y) < reach + 1) return { x: FOUNTAIN.x, y: FOUNTAIN.y };
+    if (hasBuilding('fountain') && distOf(x, y, FOUNTAIN.x, FOUNTAIN.y) < reach + 1) return { x: FOUNTAIN.x, y: FOUNTAIN.y };
     for (const [dx, dy] of RING) if (this.freshAt(x + dx, y + dy)) return { x: x + dx, y: y + dy };
     return null;
   }

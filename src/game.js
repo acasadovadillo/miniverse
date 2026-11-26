@@ -7,7 +7,7 @@ import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, dxOf, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK, wellSpec, barrowSolids } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from './world/blueprints.js';
-import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, inChapel, inLawOffice, hasProject, setFamilyHouse } from './world/village.js';
+import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, inChapel, inLawOffice, houseStands, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { BUILDABLE } from './buildables.js';
 import { Profile } from './accounts.js';
@@ -55,6 +55,7 @@ import { Reputation } from './reputation.js';
 import { Social } from './social.js';
 import { Talk } from './talk.js';
 import { Board } from './board.js';
+import { VillageSites } from './villagesites.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
 import { Hunt, bodyBox, kindName } from './hunt.js';
 import { Code } from './huntcode.js';
@@ -205,6 +206,7 @@ export class Game {
     this.wear = this.addSystem(new Wear(this));   // what is built ages, and the hammer repairs it (src/wear.js)
     this.carry = this.addSystem(new Carry(this));   // weight and things in the arms (the default; ?inventario=casillas: the slots. Before the bow, so its hint wins)
     this.archery = this.addSystem(new Archery(this));   // el arco (antes que lo que se haga con E o con la herramienta)
+    this.villageSites = this.addSystem(new VillageSites(this));   // where the village's buildings stand in this world, chosen once (src/villagesites.js)
     this.board = this.addSystem(new Board(this));
     this.farm = this.addSystem(new Farm(this));
     this.ranch = this.addSystem(new Ranch(this));
@@ -837,7 +839,7 @@ export class Game {
     if (this.vecinoAt(door)) return true;
     return [...(this.live.peers?.values() || [])].some(q => q.entity && q.sc === 'world' && Math.hypot(q.entity.x - door[0], q.entity.y - door[1]) < 10);
   }
-  vecinoAt([tx, ty]) { return Object.entries(HOUSES).find(([, h]) => (!h.project || hasProject(h.project)) && tx === h.x0 + 6 && ty === h.y1 - 1)?.[0] || null; }   // (la puerta: en x0+6, en la fila de abajo)
+  vecinoAt([tx, ty]) { return Object.entries(HOUSES).find(([, h]) => houseStands(h) && tx === h.x0 + 6 && ty === h.y1 - 1)?.[0] || null; }   // (la puerta: en x0+6, en la fila de abajo)
   knock(door) {
     const g = this, house = this.vecinoAt(door), h = this.days.hour;
     this.knocked = { k: String(door), until: this.time + 8 };
@@ -1000,7 +1002,7 @@ export class Game {
     const p = this.player, own = inOwnHouse(p.x, p.y), room = this.roomName(own);
     if (room) return room;
     if (own) return t('place.your_house');
-    for (const h of Object.values(HOUSES)) if ((!h.project || hasProject(h.project)) && p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1) return `Casa de ${h.name}`;
+    for (const h of Object.values(HOUSES)) if (houseStands(h) && p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1) return `Casa de ${h.name}`;
     if (inTavern(p.x, p.y)) return 'La taberna';
     if (inChapel(p.x, p.y)) return t('place.chapel');
     if (inLawOffice(p.x, p.y)) return t('place.law_office');

@@ -131,8 +131,9 @@ import * as SBOX from './missions/strongbox.js';
 import { Missions as MissionsCls } from './missions.js';
 const TG_CAPS = { games: GAMES_A_DAY, lost: LOST_A_DAY };
 import { wayRound } from './world/walkways.js';
-import { CHAPEL, LOTS, WALK_NODES, setProjects, keepClear, townDigWhy as townWhy } from './world/village.js';
-import { PROJECTS } from './board.js';
+import { CHAPEL, LAW_OFFICE as LAWO, LOTS, WALK_NODES, setVillage, getVillage, keepClear, townDigWhy as townWhy, SITES, SITE_ORDER, PLOT, inPlot, villageLand, hasBuilding, buildVillage, BASE_BOUNDS } from './world/village.js';
+import { chooseSites, siteBusy, siteArea, readVillage, VillageSites } from './villagesites.js';
+import { landPicture, landEdges } from './ui/landmask.js';
 import { Law, STALLS, OFFICE } from './law.js';
 import { canWheel } from './ui/wheel.js';
 import * as LR from './lawrules.js';
@@ -193,7 +194,7 @@ import * as ANIMALS3D from './three/animals.js';
 import * as HUNT_DANGER from './wildlife.js';
 import { cleanLoads } from './barrow.js';
 import { SPECIES, SPECIES_IDS, GROUPS, REWARDS } from './nature.js';
-import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
+import { DOOR, PLAZA, distToPath, doorOf, familyHouse } from './world/village.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
@@ -318,6 +319,15 @@ function dismantle(game, t) {
 function freeTile(game, from) {
   const w = game.world, p = game.player;
   for (const [tx, ty] of from) if (w.canPlace(tx, ty, 'cofre', p)) return [tx, ty];
+  // (none of those: the nearest free one, within 3 tiles; the village's land, from day one, takes more of the plaza)
+  // (and if there is none, the player is taken to their own plot, by the west strip, where there is room)
+  for (const at of [null, [5.5, 24.5]]) {
+    if (at) { p.x = at[0]; p.y = at[1]; p.vx = p.vy = 0; }
+    const px = Math.floor(p.x), py = Math.floor(p.y), near = [];
+    for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) if (i || j) near.push([px + i, py + j]);
+    near.sort((a, b) => Math.hypot(a[0] - px, a[1] - py) - Math.hypot(b[0] - px, b[1] - py));
+    for (const [tx, ty] of near) if (Math.hypot(tx - px, ty - py) >= 1.5 && w.canPlace(tx, ty, 'cofre', p)) return [tx, ty];
+  }
   throw new Error('no hay casilla libre para colocar');
 }
 
@@ -2260,7 +2270,7 @@ async function soloTests(game) {
       $('ps-progress-body').querySelector('[data-part="collections"]').click(); check(H.tab === 'journal' && document.querySelector('#j-tabs .sel').dataset.jtab === 'colecciones', 'a part does not open its page');
     } finally { progressParts.splice(-3); }
     try {
-      for (const l of ['en', 'es']) { await setLang(l); H.goTo('progress', 'stats'); const text = $('ps-progress-body').textContent; check(STAT_GROUPS.every(([, ids]) => ids.every(k => text.includes(t(`stat.${k}`)))) && !/stat\.|gui\./.test(text) && text.includes(l === 'en' ? 'Trees felled' : 'Árboles talados') && text.includes(t('gui.progress.played')), `${l}: ${text.slice(0, 120)}`); }
+      for (const l of ['en', 'es']) { await setLang(l); H.goTo('progress', 'stats'); const text = $('ps-progress-body').textContent; check(STAT_GROUPS.every(([, ids]) => ids.every(k => (k === 'proyectos' && !game.stats.get(k)) || text.includes(t(`stat.${k}`)))) && !/stat\.|gui\./.test(text) && text.includes(l === 'en' ? 'Trees felled' : 'Árboles talados') && text.includes(t('gui.progress.played')), `${l}: ${text.slice(0, 120)}`); }
       game.fishing.records.carpa = 51; recordSources.push(() => [{ group: 'gui.progress.record.more', label: 'a record', value: '7' }]);
       try { H.goTo('progress', 'records'); const text = $('ps-progress-body').textContent; check(text.includes('51 cm') && text.includes('a record'), text.slice(0, 120)); } finally { recordSources.pop(); }
       H.goTo('progress', 'achievements'); check($('ps-progress-body').querySelectorAll('.j-row.ach').length === ACH.length, 'the achievements'); const done = [...$('ps-progress-body').querySelectorAll('.j-row.ach')].map(x => x.classList.contains('done')); check(done.indexOf(false) < 0 || !done.slice(done.indexOf(false)).includes(true), 'the ones done are not first');
@@ -3394,7 +3404,7 @@ async function soloTests(game) {
       dismantle(game, t1); check(!w().at('placed', ...t1), 'the wall stays');
       check(Rp().pts === -37 && Rp().v.log.at(-1)[2] === 'take_seen' && Nb().friend('rosa').pts === 190, `Rosa at home: ${Rp().pts}, friendship ${Nb().friend('rosa').pts}`);
       const said = So().bubbles.find(b => b.name === t('npc.witness.inside', { name: 'Rosa' }));
-      check(said && tList('npc.witness.take.own').includes(said.text), `what she says: ${JSON.stringify(So().bubbles.map(b => [b.name, b.text]))}`);
+      check(said && (tList('npc.witness.take.own').includes(said.text) || ['', '.kind', '.cheerful', '.shy', '.gruff', '.wry'].some(q => tList(`law.witness${q}`).includes(said.text))), `what she says: ${JSON.stringify(So().bubbles.map(b => [b.name, b.text]))}`);
     } finally { B.toggle(false); }
   }));
   await test('reputacion: devolver una pieza recupera la mitad una vez; poner y quitar la misma pared suma 0; en creativo no cambia', social(async () => {
@@ -5744,7 +5754,7 @@ async function soloTests(game) {
       for (const l of ['en', 'es']) { await setLang(l); const html = placesHtml(game); for (const q of [cave, camp, ham]) check(html.includes(P.title(q)) && html.includes(P.describe(q).story.replace(/'/g, "'").slice(0, 20)), `${l}: ${P.title(q)} is not on the page`); check((html.match(/data-place=/g) || []).length === 3 && html.includes(t('place.state.lived')) && html.includes(t('journal.places.count', { n: 3 })), `${l}: the page`); }
       P.found.add('777,777'); check(placesHtml(game).includes(t('journal.places.gone', { n: 1 })), 'nothing about those that are gone');
       game.openJournal('places'); check(document.querySelectorAll('#j-body .j-place').length === 3, 'the journal does not open its page'); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); game.setMode?.('play');
-      const B2 = new Blips(); for (const [k, fn] of blips.sources) B2.source(k, fn); B2.refresh(game, 0, true); const mine = B2.list.filter(b => b.kind === 'place' && b.glyph !== 'question'); check(mine.length === 3 && mine.some(b => b.name === P.title(cave) && b.legend === 'poi:' + t('place.kind.cueva') && b.to.id === `poi:${cave.key}`), JSON.stringify(mine.map(b => [b.name, b.legend])));
+      const B2 = new Blips(); for (const [k, fn] of blips.sources) B2.source(k, fn); B2.refresh(game, 0, true); const mine = B2.list.filter(b => b.kind === 'place' && b.glyph !== 'question' && b.to?.id !== 'chapel' && b.to?.id !== 'law_office');   // (the village's own, there from day one) check(mine.length === 3 && mine.some(b => b.name === P.title(cave) && b.legend === 'poi:' + t('place.kind.cueva') && b.to.id === `poi:${cave.key}`), JSON.stringify(mine.map(b => [b.name, b.legend])));
       check(!P.markers().some(m => m.kind === 'ruinas') && (() => { try { modelNamed('poi:ruinas'); return false; } catch { return true; } })(), 'ruins are still there'); let n = 0; for (let cy = -60; cy <= 60; cy++) for (let cx = -60; cx <= 60; cx++) { const q = P.poi(cx, cy); if (q) { n++; check(q.kind !== 'ruinas', 'ruins in the world'); } } check(n < 170, `${n} places in 3.7 km²: too many`);
       const out = [], op = game.live.isOp; runCommand(game, '/locate tower', (m, k) => out.push([m, k])); check(out[0] && /\d/.test(out[0][0]), JSON.stringify(out)); const tw = P.nearest(p().x, p().y, ['torre'], 6000); if (out[0][1] === 'ok') check(out[0][0].includes(P.title(tw)), out[0][0]); const o2 = []; runCommand(game, '/locate ruins', (m, k) => o2.push(k)); check(o2[0] === 'err', 'it still finds ruins');
       check(P.nearest(...V4, ['cueva'], 2000, new Set([cave.key])) !== cave && P.sites.nearest(...V4, ['aldea', 'torre'], 4000)?.key, 'nearest with skip');
@@ -8115,7 +8125,7 @@ async function soloTests(game) {
       if (m.t === 'need') wk.postMessage({ t: 'masks', id: m.id, masks: maskOf ? m.chunks.map(k => { const v = maskOf(k); return v ? [k, 0, v] : [k, -1, null]; }) : [] });
       else if (m.t === 'path') waiting.get(m.id)?.(m);
     };
-    wk.postMessage({ t: 'init', seed: w().seed, projects: getProjects(), family: familyHouse() });
+    wk.postMessage({ t: 'init', seed: w().seed, village: getVillage(), family: familyHouse() });
     return {
       ask: msg => new Promise((res, rej) => { const i = ++id; const tm = setTimeout(() => rej(new Error('the route worker does not answer')), 30000); waiting.set(i, m => { clearTimeout(tm); res(m); }); wk.postMessage({ t: 'route', id: i, mode: 'walk', explored: [], ...msg }); }),
       end: () => wk.terminate(),
@@ -10387,10 +10397,12 @@ async function soloTests(game) {
   // ---------- H1: the neighbours' routines and the chapel (docs/planes/gta/PLAN-H-pueblo-vivo.md §2, §12: src/routines.js) ----------
   const WORKDAY = 20783;   // (Thursday 2026-11-26)
   const dayMs = (day, h = 0) => day * 864e5 + h * 36e5, MON = 20780;   // (Monday 2026-11-23)
-  // With these projects of the village and this clock (ms), everything put back after
+  // With these buildings of the village (as the board's projects of before: { mercado: true, chapel: true… }, or a village
+  // record) and this clock (ms), everything put back after
+  const villageOf = o => (o?.sites ? o : { sites: { chapel: o.chapel ? 0 : null, law_office: o.law_office ? 0 : null, dani: o.casa ? 0 : null, fountain: o.fuente ? 0 : null, market_a: o.mercado ? 0 : null, market_b: o.mercado ? 0 : null, dock: o.muelle ? 0 : null } });
   const routine = fn => async () => {
-    const keep = { p: game.board.projects, now: Object.getOwnPropertyDescriptor(game.days, 'now'), people: Nb().people.map(n => [n, n.hold]), ppl: Nb().people };
-    const projects = o => { game.board.projects = o; setProjects(o); w().rebuildVillage(); RT.forget(); };
+    const keep = { p: getVillage(), now: Object.getOwnPropertyDescriptor(game.days, 'now'), people: Nb().people.map(n => [n, n.hold]), ppl: Nb().people };
+    const projects = o => { setVillage(villageOf(o)); w().rebuildVillage(); RT.forget(); };
     const clock = ms => { Object.defineProperty(game.days, 'now', { configurable: true, get: () => ms }); for (const n of Nb().people) { n.hold = 0; n.lag = 0; n.now = null; } };
     RT.testDay.kind = null; RT.forget();
     try { await fn({ projects, clock }); }
@@ -10414,7 +10426,7 @@ async function soloTests(game) {
     const ids = Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed), bad = [];
     for (const P of [{}, { mercado: true, casa: true, chapel: true, fuente: true, muelle: true, law_office: true }]) {
       projects(P);
-      const here = ids.filter(id => !PEOPLE[id].project || P[PEOPLE[id].project]), kinds = new Set();
+      const here = ids.filter(id => !PEOPLE[id].site || hasBuilding(PEOPLE[id].site)), kinds = new Set();
       for (let day = MON; day < MON + 7; day++) {
         for (const id of here) {
           const plan = RT.planFor(id, day);
@@ -10541,16 +10553,16 @@ async function soloTests(game) {
   }));
   await test('routines (english): market and chapel', routine(async ({ projects, clock }) => {
     const N = Nb(), SAT = MON + 5, SUN = MON + 6, at = (id, ms) => RT.placeAt(id, ms).spot;
-    projects({}); check(at('bruno', dayMs(SAT, 10)).key.startsWith('forge'), 'a market without stalls'); check(at('rosa', dayMs(SUN, 12.2)).kind === 'plaza', 'no chapel: the square');
+    projects({}); check(at('bruno', dayMs(SAT, 10)).key.startsWith('forge'), `a market without stalls: ${at('bruno', dayMs(SAT, 10)).key}`); check(at('rosa', dayMs(SUN, 12.2)).kind === 'plaza', 'no chapel: the square');
     projects({ mercado: true, chapel: true });
     check(at('bruno', dayMs(SAT, 10)).node === 'market_a' && at('bruno', dayMs(SAT, 10)).work && at('lia', dayMs(SAT, 10)).node === 'market_b', 'the market');
     clock(dayMs(SAT, 10)); N.update(0); check(N.isWorking('bruno') && N.isOpen('bruno') && N.isOpen('rosa'), 'Bruno does not sell at the market');
     const ids = ['rosa', 'lia', 'bruno', 'eusebio', 'ines', 'marta'], pews = ids.map(id => at(id, dayMs(SUN, 12.2)));
     check(pews.every(s => s.kind === 'chapel') && new Set(pews.map(s => s.key)).size === ids.length, 'pews');
-    await goTo(game, 5.5, 23.5); clock(dayMs(SUN, 12.2)); N.update(0); N.update(0.1);
+    await goTo(game, CHAPEL.x0 + 3.5, CHAPEL.y0 + 8.5); clock(dayMs(SUN, 12.2)); N.update(0); N.update(0.1);
     check(ids.every(id => nb(id).pose?.kind === 'sit' && !nb(id).hidden), `seated: ${ids.map(id => `${id} ${nb(id).pose?.kind} ${nb(id).hidden}`)}`);
     for (const id of ids) { const o = w().placedObjectAt(...nb(id).spot.tile); check(o?.placed === 'pew', `${id} on ${o?.placed}`); }
-    check(game.houseName() === t('place.chapel'), game.houseName()); check(Rp().houseAt(3, 18) === 'chapel', 'houseAt');
+    check(game.houseName() === t('place.chapel'), game.houseName()); check(Rp().houseAt(CHAPEL.x0 + 1, CHAPEL.y0 + 3) === 'chapel', 'houseAt');
     // The bell: Sundays and holidays at 11:50, only with the chapel
     check(RT.bellAt(dayMs(SUN, RT.BELL_HOUR) + 5000) > 4 && RT.bellAt(dayMs(SUN, 12)) < 0 && RT.bellAt(dayMs(SAT, RT.BELL_HOUR) + 5000) < 0 && RT.bellAt(dayMs(20795, RT.BELL_HOUR) + 5000) > 4, 'bell');
     projects({}); check(RT.bellAt(dayMs(SUN, RT.BELL_HOUR) + 5000) < 0, 'a bell without a chapel');
@@ -10559,30 +10571,120 @@ async function soloTests(game) {
     clock(dayMs(SUN, 15)); N.update(0); check(!N.isOpen('rosa') && N.awayText('rosa').includes('9:00'), N.awayText('rosa'));
     const st = RT.shopState('rosa', 'rosa', dayMs(MON, 13)); check(st.open && Math.abs(st.change - dayMs(MON, 14)) < 12e4, `state ${JSON.stringify(st)}`); RT.forget(); const s2 = RT.shopState('rosa', 'rosa', dayMs(MON, 14.2)); check(!s2.open && Math.abs(s2.change - dayMs(MON, 14.75)) < 3e5, `state ${(s2.change - dayMs(MON)) / 36e5}`);
   }));
-  await test('routines (english): lots', routine(async ({ projects }) => {
-    const L = LOTS.chapel, hits = (a, b, m = 0) => a.x0 - m < b.x1 && a.x1 + m > b.x0 && a.y0 - m < b.y1 && a.y1 + m > b.y0;
-    check(L.x0 > 0 && L.x1 < 40 && L.y0 > 1 && L.y1 < 62, 'out of bounds'); for (const h of [...Object.values(HOUSES), { x0: 1, y0: 32, x1: 11, y1: 40 }, { x0: 11, y0: 3, x1: 31, y1: 20 }, { x0: 25, y0: 23, x1: 27, y1: 24 }, { x0: 12, y0: 31, x1: 14, y1: 32 }]) check(!hits(L, h), `the lot hits ${JSON.stringify(h)}`);
-    projects({});
-    for (let y = L.y0; y < L.y1; y++) for (let x = L.x0; x < L.x1; x++) { check(keepClear(x + 0.5, y + 0.5), `trees at ${x},${y}`); check(w().natureAt?.(x, y) === undefined || !w().natureAt(x, y), 'a tree'); check(townWhy(x, y) === 'why.dig.chapel.soon', townWhy(x, y)); }
-    check(w().objectsNear === undefined || true, '');
-    // A player's piece on it: the project waits, nothing is taken
-    const B = game.board, say = hud.say, ask = hud.ask, money = game.money, said = []; const list = Object.keys(PROJECTS).filter(id => !PROJECTS[id].needs);
-    check(B.lotBusy('chapel') === 0 && PROJECTS.chapel.money === 2500, 'busy');
-    w().place(4, 18, 'muro_madera');
+  // ---------- the village, built from day one (villagesites.js; docs/planes/PLAN-pueblo-construido.md) ----------
+  // A world of its own for the choice: only its deltas (a chunk's layers by tile), as world.delta gives them
+  const fakeWorld = (put = []) => {
+    const deltas = new Map(), delta = (cx, cy) => deltas.get(`${cx},${cy}`);
+    for (const [layer, k, v, x, y] of put) { const ck = `${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`; const d = deltas.get(ck) || { v: 1 }; (d[layer] ||= {})[k] = v; deltas.set(ck, d); }
+    return { deltas, delta, rebuildVillage() {} };
+  };
+  const tileOf = (id, i = 0) => { const R = SITES[id][i].rect; return [Math.floor((R.x0 + R.x1) / 2), Math.floor((R.y0 + R.y1) / 2)]; };
+  await test('village (english): every building stands on day one, the plot is never the village\'s', routine(async ({ projects }) => {
+    const fresh = chooseSites(fakeWorld());
+    check(SITE_ORDER.every(id => fresh.sites[id] === 0) && !fresh.moved, JSON.stringify(fresh));
+    projects(fresh);
+    check(SITE_ORDER.every(hasBuilding), 'all of them');
+    const V = buildVillage(), models = new Set(V.objects.map(o => o.model));
+    for (const m of ['fountain', 'stall', 'stall2', 'stall3', 'dock', 'board', 'mailbox']) check(models.has(m), `no ${m}`);
+    check(w().at('placed', CHAPEL.x0 + 3, CHAPEL.y1 - 1) === 'bell_gable' && w().pieceAt(...OFFICE.cellDoor)?.bars && w().pieceAt(HOUSES.dani.x0 + 6, HOUSES.dani.y1 - 1)?.kind === 'door', 'the chapel, the law office and Dani\'s house');
+    check(CHAPEL.y0 > 55 && LAWO.y0 > 55, 'at the south entrance');
+    check(game.board.requests && PEOPLE.dani.site === 'dani' && PEOPLE.ramiro.site === 'law_office', 'Dani and Ramiro');
+    // The plot: no tile of it is village land, no site touches it, and it is 12 tiles round the garden fence
+    for (const r of PLOT) for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) check(!villageLand(x, y), `the plot at ${x},${y}`);
+    for (const id of SITE_ORDER) SITES[id].forEach((c, i) => { for (const k of siteArea(c)) check(!inPlot(...k.split(',').map(Number)), `${id} ${i} on the plot at ${k}`); });
+    check(inPlot(YARD.x0 - 12, 10) && inPlot(YARD.x1 + 11, 10) && inPlot(20, YARD.y0 - 12) && !inPlot(YARD.x0 - 13, 10) && inPlot(4, 20) && inPlot(4, 8), 'its size, and the west strip');
+    // Where the chapel and the law office stood before: no tree, no village
+    for (const [x, y] of [[5, 20], [4, 8]]) check(keepClear(x + 0.5, y + 0.5) && !townWhy(x, y) && !w().at('roof', x, y), `the old lot at ${x},${y}`);
+    // Every candidate's paths and lots, inside the village land; the roads never change (BASE_BOUNDS)
+    check(BASE_BOUNDS.x0 === 0 && BASE_BOUNDS.y1 === 62 && inBounds(8, 66) && inBounds(25, 66) && !inBounds(8, 90), 'the land');
+  }));
+  await test('village (english): a site with anything of a player is skipped, and nothing of theirs is touched', async () => {
+    const [cx, cy] = tileOf('chapel'), K = `${cx},${cy}`;
+    // (each kind of thing a player leaves: built, a field, a crop, dug, a fence, a moored boat, the wheelbarrow, a trap, an
+    // animal house, a floor)
+    const things = [['placed', K, 'muro_madera'], ['tilled', K, 1], ['crops', K, { id: 'trigo', grow: 1 }], ['dig', K, -1], ['placed', K, 'valla'], ['boats', 'b1', [cx + 0.5, cy + 0.5, 0, 0, 'me']],
+      ['pushed', 'w1', { by: 'me', x: cx + 0.5, y: cy + 0.5 }], ['traps', K, ['me', '', 1, 1]], ['placed', K, 'gallinero'], ['floor', K, 'suelo_madera'], ['lvl', K, 1], ['trees', K, { id: 'manzano' }]];
+    for (const [layer, k, v] of things) {
+      const W = fakeWorld([[layer, k, v, cx, cy]]), before = JSON.stringify([...W.deltas]);
+      check(siteBusy(W, SITES.chapel[0]) === 1, `${layer} not seen`);
+      const r = chooseSites(W);
+      check(r.sites.chapel === 1 && r.sites.law_office === 0, `${layer}: ${JSON.stringify(r.sites)}`);
+      check(JSON.stringify([...W.deltas]) === before, `${layer}: the deltas changed`);
+    }
+    // What is no thing of a player's (mown grass, a felled tree, the rain) does not count
+    const nat = fakeWorld([['mown', K, 3, cx, cy], ['removed', K, 1, cx, cy], ['moist', K, 0.5, cx, cy], ['picked', K, 1, cx, cy]]);
+    check(siteBusy(nat, SITES.chapel[0]) === 0 && chooseSites(nat).sites.chapel === 0, 'the wild counts');
+    // Every candidate taken: it waits (null), and the morning after it is free, it comes; whoever does not decide never chooses
+    const all = SITES.chapel.map((c, i) => { const [x, y] = tileOf('chapel', i); return ['placed', `${x},${y}`, 'muro_madera', x, y]; }), W = fakeWorld(all);
+    check(chooseSites(W).sites.chapel === null, 'no site, no chapel');
+    const keepV = getVillage(), moved = [];
+    const G = { world: W, days: { hour: 7, dayIndex: 3 }, barrow: { decides: () => true }, neighbors: { moveIn: id => moved.push(id) }, onSave() {} }, S = new VillageSites(G);
     try {
-      check(B.lotBusy('chapel') === 1, `busy ${B.lotBusy('chapel')}`); game.money = 99999; hud.say = (n, l) => { said.push(...l); return Promise.resolve(); }; hud.ask = (a, b, o) => Promise.resolve(list.indexOf('chapel'));
-      await B.projectsMenu(); check(said[0] === t('project.lot_busy', { n: 1 }) && !B.projects.chapel && game.money === 99999 && w().ownAt('placed', 4, 18) === 'muro_madera' && B.lotShown, `said ${said}`);
-    } finally { w().unplace({ tile: [4, 18], layer: 'placed', placed: 'muro_madera' }); hud.say = say; hud.ask = ask; game.money = money; }
-    check(B.lotBusy('chapel') === 0, 'still busy');
-    // Paid: it stands, with its pieces and its way, and nothing of the village under it
-    inv().add('piedra', 80); inv().add('tablas', 30); game.money = 2500; hud.say = () => Promise.resolve(); hud.ask = () => Promise.resolve(Object.keys(PROJECTS).filter(id => !PROJECTS[id].needs).indexOf('chapel'));
-    const remember = Nb().remember; Nb().remember = () => {};
-    try { await B.projectsMenu(); } finally { hud.say = say; hud.ask = ask; Nb().remember = remember; }
-    check(B.projects.chapel && game.money === 0, `not built: ${JSON.stringify(B.projects)} ${game.money}`); game.money = money;
-    check(w().at('placed', CHAPEL.x0 + 3, CHAPEL.y1 - 1) === 'bell_gable' && w().pieceAt(CHAPEL.x0 + 3, CHAPEL.y1 - 1)?.kind === 'door' && w().roofAt(4, 20) && townWhy(4, 20) === 'why.dig.chapel', 'the chapel');
-    // Every piece of it can be built by the player
-    for (const l of ['placed', 'floor', 'roof']) for (let y = L.y0; y < L.y1; y++) for (let x = L.x0; x < L.x1; x++) { const raw = w().at(l, x, y); if (raw) { const id = raw.split('@')[0]; check(PIECES[id] || BUILDABLE[id] || ITEMS[id], `${id} cannot be built`); } }
-    check(BUILDABLE.pew && PLANS.has('pew') && PLAN_BORN.has('pew') && SHOPS.nilo.stock.some(q => q.plan === 'pew') && PIECES.bell_gable.cost.length, 'the pew or the bell');
+      S.reset({});
+      check(S.v.sites.chapel === null && !hasBuilding('chapel') && S.v.sites.law_office === 0, JSON.stringify(S.v));
+      W.deltas.clear(); S.update(); check(S.v.sites.chapel === 0 && hasBuilding('chapel'), 'it comes in the morning');
+      // A guest never chooses nor takes a guest's: only the record of whoever runs the world
+      const H = new VillageSites({ ...G, world: fakeWorld(), barrow: { decides: () => false } });
+      H.reset({ sharedWorld: true }); H.update(); check(H.v === null && SITE_ORDER.every(id => !hasBuilding(id)), 'a guest waits');
+      H.share(S.v); check(JSON.stringify(H.v) === JSON.stringify(S.v) && moved.includes('dani') && moved.includes('ramiro'), 'the host\'s');
+      const B = LS.BLOBS.village, role = Object.getOwnPropertyDescriptor(game.live, 'role'), had = game.villageSites.v;
+      Object.defineProperty(game.live, 'role', { configurable: true, get: () => 'host' });
+      try { B.set(game, { v: 2, sites: { chapel: 2 } }); check(JSON.stringify(game.villageSites.v) === JSON.stringify(had), 'the host takes none') } finally { if (role) Object.defineProperty(game.live, 'role', role); else delete game.live.role; }
+      check(LS.SHARED.includes('village') && JSON.stringify(B.get(game)) === JSON.stringify(had), 'shared');
+      // The same answer on two clients and on the world server: the same deltas, the same record
+      const two = [chooseSites(fakeWorld(all.slice(0, 1))), chooseSites(fakeWorld(all.slice(0, 1)))];
+      check(JSON.stringify(two[0]) === JSON.stringify(two[1]) && JSON.stringify(readVillage(JSON.parse(JSON.stringify(two[0])))) === JSON.stringify(two[0]), 'deterministic');
+    } finally { setVillage(keepV); w().rebuildVillage(); RT.forget(); }
+  });
+  await test('village (english): an old game: the chapel and the law office move, what was the player\'s stays', async () => {
+    const keepV = getVillage();
+    // A chest and a lamp the player put inside the old chapel, and something of theirs on Dani's lot (built before: it stays)
+    const [dx, dy] = tileOf('dani'), W = fakeWorld([['placed', '4,18', 'cofre', 4, 18], ['hang', '5,20', 'lampara', 5, 20], ['placed', `${dx},${dy}`, 'silla', dx, dy]]);
+    const before = JSON.stringify([...W.deltas]), S = new VillageSites({ world: W, days: { hour: 3, dayIndex: 1 }, barrow: { decides: () => true }, neighbors: { moveIn() {} }, onSave() {} });
+    try {
+      S.reset({ projects: { chapel: true, law_office: true, fuente: true, casa: true, mercado: true } });
+      check(S.v.sites.chapel === 0 && S.v.sites.law_office === 0 && S.v.moved?.join() === 'chapel,law_office', JSON.stringify(S.v));
+      check(S.v.sites.dani === 0 && S.v.sites.fountain === 0 && S.v.sites.market_a === 0 && S.v.sites.dock === 0, 'what stood stays (the dock was never built: its site was free)');
+      check(JSON.stringify([...W.deltas]) === before, 'the deltas changed');
+      const out = {}; S.save(out); check(out.village === S.v && !out.projects, 'saved');
+      // Not chosen yet (a guest of an old shared world): what it was made from is kept
+      const H = new VillageSites({ world: W, barrow: { decides: () => false } }), o2 = {}; H.reset({ sharedWorld: true, projects: { chapel: true } }); H.save(o2); check(!o2.village && o2.projects?.chapel, 'kept');
+    } finally { setVillage(keepV); w().rebuildVillage(); RT.forget(); }
+  });
+  await test('village (english): the free land, tinted, and the refusal', async () => {
+    const was = getLang();
+    try {
+      await setLang('es');
+      // In Rosa's garden: the village's, said so; on the plot, and out of the village: free
+      const why = w().digWhy(HOUSES.rosa.x1 + 1, HOUSES.rosa.y0 + 3, false);
+      check(why.startsWith('Es terreno del pueblo:') && why.includes('Rosa'), why);
+      check(!w().canPlace(HOUSES.rosa.x1 + 1, HOUSES.rosa.y0 + 3, 'muro_madera') && !villageLand(4, 20) && villageLand(HOUSES.rosa.x1 + 1, HOUSES.rosa.y0 + 3), 'build there');
+      await setLang('en'); check(w().digWhy(HOUSES.rosa.x1 + 1, HOUSES.rosa.y0 + 3, false).startsWith('Village land:'), 'in English');
+    } finally { await setLang(was); }
+    // The maps' picture: the village washed, the plot's edge green; the 3D map's edges
+    const L = landPicture(), px = (x, y) => L.canvas.getContext('2d').getImageData(x - L.x0, y - L.y0, 1, 1).data;
+    check(px(HOUSES.rosa.x1 + 1, HOUSES.rosa.y0 + 3)[3] > 60 && px(-1, 5)[1] > 150 && px(5, 5)[3] < 60 && px(5, 5)[1] > 150, 'the picture');
+    check(landEdges().plot.length >= 4 && landEdges().land.length > 10, 'the edges');
+    // On the ground with B: the tint by the village, nothing far from it
+    const T = game.view3d?.landTint;
+    if (T) {
+      const keep = [p().x, p().y], b = game.build.on, cur = game.build.cursor;
+      try {
+        game.build.on = true; game.build.pointTo([14, 30]); T.key = ''; T.update(game, w());
+        check(T.land.visible && T.land.count > 20 && T.plot.count > 4, `tint ${T.land.count} ${T.plot.count}`);
+        game.build.pointTo([300, 300]); T.update(game, w()); check(!T.land.visible, 'far off');
+      } finally { game.build.on = b; game.build.cursor = cur; T.update(game, w()); p().x = keep[0]; p().y = keep[1]; }
+    }
+  });
+  await test('village (english): the law from day one, and the Alcalde', routine(async ({ projects }) => {
+    projects(chooseSites(fakeWorld()));
+    const g = game, dif = g.difficulty, rules = g.rules;
+    try { g.difficulty = 'normal'; g.rules = { ...rules, doLaw: true }; check(g.law.active, 'no law'); } finally { g.difficulty = dif; g.rules = rules; }
+    const A = ACH.find(a => a[0] === 'alcalde'), st = g.stats.get('encargos');
+    check(A && t('ach.alcalde.desc').includes('25'), 'the text');
+    const keep = g.stats.v.encargos;
+    try { g.stats.v.encargos = 24; check(!A[3](g), '24'); g.stats.v.encargos = 25; check(A[3](g), '25'); } finally { g.stats.v.encargos = keep; }
+    check(st === g.stats.get('encargos'), 'put back');
   }));
   await test('routines (english): round what players build', routine(async ({ projects }) => {
     projects({});
@@ -11768,12 +11870,8 @@ async function soloTests(game) {
     N.friends.paco.wish = ['filete', game.days.realDay]; await give('paco', 'filete'); check(kinds()[1] === 'wish_kept:paco:filete' && newsList().length === 2, kinds().join());
     // The board
     const B = game.board, was = JSON.stringify(B.done), keepMoney = game.money, r = B.requests()[0]; B.done = { day: today(), ids: [] }; I.add(r.item, r.n); check(B.deliver(r) && kinds()[2] === `helped:${r.who}:${r.item}`, kinds().join()); B.done = JSON.parse(was); game.money = keepMoney; game.addMoney(0);
-    // Another player finishes a work: news, not yours; a guest's first copy of the board is not
-    const live = Object.getOwnPropertyDescriptor(game.live, 'guest'); projects({});
-    try {
-      B.share({ projects: { fuente: true }, done: B.done }); check(newsList().at(-1).slice(2, 6).join() === 'project,*,fuente,0', kinds().join());
-      Object.defineProperty(game.live, 'guest', { configurable: true, get: () => true }); B.shared = false; B.share({ projects: { fuente: true, muelle: true }, done: B.done }); check(newsList().length === 4, 'the village as it was'); B.share({ projects: { fuente: true, muelle: true, mercado: true }, done: B.done }); check(newsList().at(-1)[4] === 'mercado', 'a guest does not hear of it');
-    } finally { if (live) Object.defineProperty(game.live, 'guest', live); else delete game.live.guest; }
+    // (an old game's peer may still send the board with its projects: no news, nothing changes)
+    const nOld = newsList().length; B.share({ projects: { fuente: true }, done: B.done }); check(newsList().length === nOld && B.done, 'no project news');
     // What is bad: an insult, something taken with a witness, a knock by night
     So().act(1, { kind: 'npc', id: 'nilo', e: w().nilo, name: 'Nilo' }); check(newsList().at(-1).slice(2, 4).join() === 'insult,nilo', kinds().join());
     const wit = Rp().witness; try { Rp().witness = () => null; Rp().taken('placed', 25, 35, false, 'cama'); check(newsList().at(-1)[2] === 'insult', 'with no witness'); Rp().witness = () => ({ n: nb('dani') || nb('lia'), inside: false }); Rp().taken('placed', 26, 35, false, 'cama'); check(newsList().at(-1)[2] === 'take_seen' && newsList().at(-1)[4] === 'rosa/cama', kinds().join()); } finally { Rp().witness = wit; }
@@ -12039,7 +12137,7 @@ async function soloTests(game) {
       const C = OFFICE.cell, inC = () => p().x > C.x0 && p().x < C.x1 && p().y > C.y0 && p().y < C.y1; check(L.cell && inC() && L.jailed && w().doorClosed(...OFFICE.cellDoor), `${p().x}, ${p().y}`);
       check(JSON.stringify(inv().slots) === had && game.money === 50 && L.bounty() === 130, 'something was taken');
       // Kept inside: building, the wheel, sprinting, the door; nobody takes it apart
-      check(game.build.toggle(true) === false && !canWheel(game) && game.doorAction(OFFICE.cellDoor).text === t('law.locked') && L.protects([2, 7]) && !L.protects([20, 20]) && game.build.lived([2, 7]), 'what cannot be done');
+      check(game.build.toggle(true) === false && !canWheel(game) && game.doorAction(OFFICE.cellDoor).text === t('law.locked') && L.protects([LAWO.x0 + 1, LAWO.y0 + 4]) && !L.protects([20, 20]) && game.build.lived([LAWO.x0 + 1, LAWO.y0 + 4]), 'what cannot be done');
       at(30, 40); run(0.6); check(inC(), 'the leash'); check(L.deskAction().text === t('law.desk') && !L.counts && L.crime('theft_house', { n: 90 }) === false, 'a crime in there'); check(!L.refuses() && !L.posters().length, 'no poster of who is inside');
       check(L.bunk()?.placed === 'cama', 'the bunk'); check(L.left() === 18e4, `left ${L.left()}`);
       // Leaving the game and coming back before: in the cell; a save keeps it
@@ -12103,7 +12201,7 @@ async function soloTests(game) {
       L.con = { st: 'chase', tg: 'bea', x: 1, y: 1 }; G.joined = true; G.peers.set(7, peer); G.peers.set(8, { id: 'old', name: 'Old', playing: true }); sent.length = 0; L.send(); check(sent.length === 1 && sent[0][1] === 7 && sent[0][0].tg === 'bea', JSON.stringify(sent)); check(L.targets().find(q => q.id === 'bea')?.ok && !L.targets().some(q => q.id === 'old'), 'targets');
     } finally { G.net = net; G.joined = false; G.peers.delete(7); G.peers.delete(8); L.con = { st: 'routine' }; }
     // The chunk's: the stalls and, with somebody in the cell, the office
-    const k = '0,0'; check(L.arbitrate(k, [['pilfer', 'rosa', 1], ['placed', '2,7', 'air']]).ok.length === 1, 'the stalls'); check(L.arbitrate(k, [['placed', '2,7']]) === null, 'nobody inside'); L.act(MID(), 'serve'); const A = L.arbitrate(k, [['gone', '2,7', true], ['closed', '3,7'], ['gone', 'floor:2,5', true], ['placed', '20,20', 'x']]); check(A.ok.length === 1 && A.back.length === 3, JSON.stringify(A));
+    const ox = LAWO.x0, oy = LAWO.y0, T = (i, j) => `${ox + i},${oy + j}`, k = `${Math.floor((ox + 1) / CHUNK)},${Math.floor((oy + 4) / CHUNK)}`; check(L.arbitrate(k, [['pilfer', 'rosa', 1], ['placed', T(1, 4), 'air']]).ok.length === 1, 'the stalls'); check(L.arbitrate(k, [['placed', T(1, 4)]]) === null, 'nobody inside'); L.act(MID(), 'serve'); const A = L.arbitrate(k, [['gone', T(1, 4), true], ['closed', T(2, 4)], ['gone', `floor:${T(1, 2)}`, true], ['placed', '20,20', 'x']]); check(A.ok.length === 1 && A.back.length === 3, JSON.stringify(A));
   }));
   await test('law (english): two games compared (simulated messages)', lawful(async ({ L, ram, stand, owe, clock }) => {
     // The host: another law with the same world, its own Ramiro; this game is the guest
@@ -12132,16 +12230,16 @@ async function soloTests(game) {
   }));
   await test('law (english): Ramiro, his day, his office and what can be built', lawful(async ({ L, P, ram, clock, projects }) => {
     const { LAW_OFFICE, LOTS, townDigWhy: why2 } = await import('./world/village.js'), O = LAW_OFFICE;
-    check(O.x0 >= BOUNDS.x0 + 1 && O.x1 <= BOUNDS.x1 && O.y0 >= BOUNDS.y0 && O.y1 <= BOUNDS.y1 && O.x1 < YARD.x0 && O.y1 < CHAPEL.y0 && LOTS.law_office, 'the lot');
+    check(inBounds(O.x0 + 0.5, O.y0 + 0.5) && inBounds(O.x1 - 0.5, O.y1 - 0.5) && O.y0 > YARD.y1 + 30 && LOTS.law_office, 'the lot');
     for (let y = O.y0; y < O.y1; y++) for (let x = O.x0; x < O.x1; x++) { check(!w().gen.objectAt?.(x, y), `a tree at ${x},${y}`); check(why2(x, y) === 'why.dig.law_office', 'dug'); }
     for (const l of ['placed', 'floor', 'roof']) for (let y = O.y0; y < O.y1; y++) for (let x = O.x0; x < O.x1; x++) { const raw = w().at(l, x, y); if (raw) { const id = raw.split('@')[0]; check(PIECES[id] || BUILDABLE[id] || ITEMS[id], `${id} cannot be built`); } }
-    check(w().pieceAt(...OFFICE.cellDoor)?.bars && w().pieceAt(2, 7)?.bars && PIECES.iron_bars.needs === 'yunque' && BUILDABLE.desk && PLANS.has('desk') && PLAN_BORN.has('desk') && SHOPS.dani.stock.some(q => q.plan === 'desk') && PROJECTS.law_office.needs === 'mercado', 'the pieces');
-    check(Rp().houseAt(3, 5) === 'law_office' && game.houseName && inBounds(3, 5), 'whose it is'); projects({ ...P, law_office: false }); check(Rp().houseAt(3, 5) === null && !L.active && !w().at('placed', 2, 7), 'before it'); projects(P);
+    check(w().pieceAt(...OFFICE.cellDoor)?.bars && w().pieceAt(O.x0 + 1, O.y0 + 4)?.bars && PIECES.iron_bars.needs === 'yunque' && BUILDABLE.desk && PLANS.has('desk') && PLAN_BORN.has('desk') && SHOPS.dani.stock.some(q => q.plan === 'desk'), 'the pieces');
+    check(Rp().houseAt(O.x0 + 2, O.y0 + 2) === 'law_office' && game.houseName && inBounds(O.x0 + 2, O.y0 + 2), 'whose it is'); projects({ ...P, law_office: false }); check(Rp().houseAt(O.x0 + 2, O.y0 + 2) === null && !L.active && !w().at('placed', O.x0 + 1, O.y0 + 4), 'before it'); projects(P);
     // His day: at his desk in the morning, on his round, in bed at night; in the rain too. The same for everybody
     const where = h => { const a = RT.placeAt('ramiro', dayMs(WORKDAY, h)); return a.spot.kind; }; check(where(10) === 'law_desk' && where(17.1) === 'patrol' && where(3) === 'asleep' && where(23.9) === 'asleep', `${where(10)} ${where(17.1)} ${where(3)}`);
     const stops = new Set(); for (let h = 16; h < 21; h += 0.1) stops.add(RT.placeAt('ramiro', dayMs(WORKDAY, h)).spot.node); check(stops.size >= 8, `${stops.size} stops`);
     check(RT.visitOf(WORKDAY) === null || RT.visitOf(WORKDAY).who !== 'ramiro' && RT.visitOf(WORKDAY).host !== 'ramiro', 'visits'); check(!Bz().people().includes('ramiro'), 'goes shopping');
-    for (const l of ['es', 'en']) { const was = getLang(); await setLang(l); for (const k of ['npc.chat.ramiro.misc', 'npc.chat.ramiro.personal', 'npc.intro.ramiro', 'law.say.chase', 'law.say.lost', 'law.say.ask', 'law.say.busy', 'law.witness', ...['kind', 'cheerful', 'shy', 'gruff', 'wry'].map(q => `law.witness.${q}`)]) check(tList(k).length, `${l} ${k}`); for (const k of ['law.level.fined', 'law.level.wanted', 'law.level.hunted', 'place.law_office', 'project.law_office', 'board.nilo.law_office', 'rep.why.stall', 'rep.why.fine_paid', 'rep.why.jail', 'rep.why.crime', 'piece.iron_bars', 'piece.cell_door', 'item.desk', 'map.legend.constable', 'hud.tip.wanted']) check(has(k), `${l} ${k}`); await setLang(was); }
+    for (const l of ['es', 'en']) { const was = getLang(); await setLang(l); for (const k of ['npc.chat.ramiro.misc', 'npc.chat.ramiro.personal', 'npc.intro.ramiro', 'law.say.chase', 'law.say.lost', 'law.say.ask', 'law.say.busy', 'law.witness', ...['kind', 'cheerful', 'shy', 'gruff', 'wry'].map(q => `law.witness.${q}`)]) check(tList(k).length, `${l} ${k}`); for (const k of ['law.level.fined', 'law.level.wanted', 'law.level.hunted', 'place.law_office', 'rep.why.stall', 'rep.why.fine_paid', 'rep.why.jail', 'rep.why.crime', 'piece.iron_bars', 'piece.cell_door', 'item.desk', 'map.legend.constable', 'hud.tip.wanted']) check(has(k), `${l} ${k}`); await setLang(was); }
     // An old save has no law in it; what it keeps is kept
     L.reset({}); check(!Object.keys(L.v).length, 'an old save'); L.reset({ law: 'x' }); L.reset({ law: { a: 5, b: { bounty: 20, clean: 3, name: 'B' } } }); check(Object.keys(L.v).join() === 'b' && L.record('b').bounty === 20, JSON.stringify(L.v)); const o = {}; L.save(o); check(o.law === L.v && 'law' in game.snapshot(), 'saved');
   }));
@@ -12162,7 +12260,7 @@ async function soloTests(game) {
       await setLang(l);
       const P = { name: 'Alberto', sex: 'boy', who: 'Rosa', kid: 'Sara', ksex: 'girl', animal: 'Trueno', other: 'Bruno' }, en = l === 'en', show = (k, src, more) => { const s = formatMessage(src, { ...P, ...more }); if (!s || /[{}]|undefined|npc\.|gossip\./.test(s) || (en && /[ñ¿¡áéíóúÁÉÍÓÚ]/.test(s.replace(/Lía|Inés/g, '')))) bad.push(`${l} ${k}: ${s}`); };
       for (const kind of NEWS_KINDS) {
-        if (kind === 'rumour_found' || kind === 'wedding') continue;
+        if (kind === 'rumour_found' || kind === 'wedding' || kind === 'project') continue;   // (project: the village's projects are gone; old news of them is not told)
         const item = { take_seen: 'rosa/cama', knock_night: 'bruno', project: 'fuente', big_catch: 'carpa', big_game: 'ciervo', new_horse: 'Trueno', kid_born: 'Sara', looked_for: 'rosa', hunt_code: 'young' }[kind] || 'fresa', e = E_(dayMs(WORKDAY), kind, ['project', 'kid_born', 'new_horse'].includes(kind) ? '*' : 'rosa', item), Q = Go().params(e);
         check(Q, `${l} ${kind}: no params`);
         for (const key of kind === 'project' || kind === 'kid_born' ? [kind, `${kind}_other`] : [kind]) {

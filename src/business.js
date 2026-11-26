@@ -20,7 +20,7 @@ import { CHUNK } from './world/gen.js';
 import { wrapIndex, distOf } from './world/planet.js';
 import { ITEMS, itemNoun } from './items.js';
 import { PIECES, parsePlaced } from './pieces.js';
-import { WALK_NODES, hasProject } from './world/village.js';
+import { WALK_NODES, hasBuilding } from './world/village.js';
 import { wayRound, canWalk } from './world/walkways.js';
 import { ROUTINES, SPEED, dayKind, slotAt, roadBetween, roadOf, makeSpot, along, nodesBetween } from './routines.js';
 import { PEOPLE } from './neighbors.js';   // (a cycle, read only inside functions)
@@ -321,7 +321,7 @@ export class Business {
     return b;
   }
   // ---------- the visits ----------
-  people() { return Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed && !PEOPLE[id].law && (!PEOPLE[id].project || hasProject(PEOPLE[id].project))); }
+  people() { return Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed && !PEOPLE[id].law && (!PEOPLE[id].site || hasBuilding(PEOPLE[id].site))); }
   visitsOf(day) {
     const L = this.list().map(e => ({ ...e, d: this.far(e.key) })), T = this.game.days;
     const sig = L.map(e => `${e.key}${e.rec.kind}${e.rec.hours}${e.rec.sun}${Math.round(e.d)}`).sort().join('|') + `|${T?.base}|${this.people().length}`;

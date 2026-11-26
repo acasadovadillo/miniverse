@@ -25,7 +25,6 @@
 // ?gossip=0: nothing is written or told; what is saved stays as it is.
 import { PEOPLE } from './neighbors.js';   // (a cycle, read only inside functions)
 import { ITEMS } from './items.js';
-import { PROJECTS } from './board.js';
 import { Profile } from './accounts.js';
 import { DAY_MS } from './time.js';
 import { nearX } from './world/planet.js';
@@ -181,7 +180,7 @@ export class Gossip {
         return { ...P, item: thing(item), some: someOf(item) };
       case 'big_game': return has(`nature.name.${item}`) ? { ...P, item: noun('nature.name', item) } : null;
       case 'hunt_code': return has(`gossip.hunt.${item}`) ? { ...P, deed: t(`gossip.hunt.${item}`) } : null;
-      case 'project': return own(PROJECTS, item) ? { ...P, project: has(`gossip.project.${item}`) ? t(`gossip.project.${item}`) : PROJECTS[item].name } : null;
+      case 'project': return null;   // (the village's projects are gone: old news of them is not told)
       case 'kid_born': return { ...P, kid: item, ksex: e[7] === 'chica' ? 'girl' : 'boy' };
       case 'new_horse': return { ...P, animal: item };
       case 'rumour_found': return (place => place && { ...P, place })(this.game.rumours?.called(item));

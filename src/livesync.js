@@ -1,6 +1,6 @@
 // Jugar juntos en directo: el mundo compartido. Lo lleva el juego del anfitrión (el primero que entra). Al
 // entrar, los demás reciben sus trozos con todos sus cambios y lo que es de todos (la hora y el calendario, la
-// casa, los proyectos y los encargos del pueblo y los animales). Lo de cada uno (su personaje, lo que lleva, su dinero, sus habilidades,
+// casa, dónde está cada edificio del pueblo, los encargos y los animales). Lo de cada uno (su personaje, lo que lleva, su dinero, sus habilidades,
 // la amistad con los vecinos, lo que ha descubierto…) sigue siendo suyo y se guarda en su partida.
 //
 // Mientras se juega, cada cambio en un trozo del mundo (talar, picar, construir, el huerto, las puertas, los
@@ -15,7 +15,7 @@ import { setFamilyHouse } from './world/village.js';
 // (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
 // (rules, worldSpawn, weatherLock y difficulty: las reglas del mundo, dónde aparecen los nuevos, el tiempo que ha
 // puesto un op y la dificultad)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'wear', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'places1', 'law', 'missions'];
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'wear', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'places1', 'law', 'missions', 'village'];
 
 // Lo del mundo guardado que este juego no conoce: de una versión más nueva (una clave que se añadió después). Quien lleva
 // el mundo lo vuelve a guardar tal cual (ver worldOf en live.js), para no perderlo. RETIRED: lo que se quitó del juego
@@ -69,7 +69,7 @@ export const BLOBS = {
     },
   },
   family: { get: g => g.family.v, set: (g, v) => g.family.share(v) },
-  board: { get: g => ({ projects: g.board.projects, done: g.board.done }), set: (g, v) => g.board.share(v) },
+  board: { get: g => ({ done: g.board.done }), set: (g, v) => g.board.share(v) },
   animals: { get: g => [...g.ranch.animals.map(a => { const { x, y, ...s } = a.toSave(); return s; }), ...g.ranch.unknown], set: (g, v) => g.ranch.share(v) },   // (unknown: los de una versión más nueva, tal cual)
   farm: { get: g => g.ranch.farm, set: (g, v) => g.ranch.shareFarm(v) },
   rules: { get: g => g.rules, set: (g, v) => { g.rules = { ...g.rules, ...v }; } },
@@ -78,6 +78,8 @@ export const BLOBS = {
   difficulty: { get: g => g.difficulty, set: (g, v) => { g.difficulty = v; } },
   // (the places an old world keeps, explore.js: only whoever runs the world writes it, a guest's is never taken)
   places1: { get: g => g.places.places1, set: (g, v) => { if (g.live.role !== 'host') g.places.share(v); } },
+  // (where the village's sited buildings stand, villagesites.js: only whoever runs the world chooses it, a guest's is never taken)
+  village: { get: g => g.villageSites.v, set: (g, v) => { if (g.live.role !== 'host') g.villageSites.share(v); } },
   // (the clock of the wear of what is built, wear.js: only whoever runs the world writes it)
   wear: { get: g => ({ d: g.wear.v.d }), set: (g, v) => { if (g.live.role !== 'host') g.wear.share(v); } },
   // (who owes what to the law, law.js: only whoever runs the world writes it; as a list of elements, below)

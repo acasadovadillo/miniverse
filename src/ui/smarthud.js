@@ -31,7 +31,7 @@ import { apagada } from '../opciones.js';
 import { LOW } from './needsbar.js';
 import { STAM_MAX, levelOf } from '../horse.js';
 import { shopHours } from '../routines.js';
-import { inBounds, CENTER, TAVERN, HOUSE, HOUSE_FAMILY } from '../world/village.js';
+import { inBounds, CENTER, TAVERN, HOUSE, HOUSE_FAMILY, WALK_NODES } from '../world/village.js';
 import { doorTile } from '../world/blueprints.js';
 import { nearX, dxOf } from '../world/planet.js';
 import { parsePlaced } from '../pieces.js';
@@ -87,8 +87,10 @@ const TIPS = {
   bulky: { key: 'E' }, arms: { key: 'Q' },
   // (your first shop counter, with no business yet: business.js)
   biz: { key: 'E' },
-  // (the first time you owe the law something: law.js)
-  wanted: { key: null },
+  // (the first time you owe the law something: law.js; the first time you pass by the law office, there being law from day one)
+  wanted: { key: null }, law: { key: null },
+  // (the first time build mode is on in or by the village: what its tinted ground means, three/landtint3d.js)
+  land: { key: null },
   // (the first time you sit at a table with something to play, and the first job you are in: tablegames.js, missions.js)
   table: { key: 'E' }, job: { code: 'KeyJ', key: 'J' },
   // (the wheelbarrow, barrow.js: parked within reach, then pushing it; a big thing on the horse or in the bow, carry.js)
@@ -594,6 +596,8 @@ export class SmartHud {
       else if (!this.seen.has('barrow') && !C?.held && (g.scene?.placedNear?.(p.x, p.y, 2.2) || []).some(o => o.placed === 'wheelbarrow')) this.want('barrow');
     }
     if (!this.seen.has('wanted') && g.law?.level() && !g.law.cell && !apagada('law')) this.want('wanted');
+    if (!this.seen.has('law') && T - this.started > 20 && g.law?.active && !apagada('law') && g.scene === g.world && WALK_NODES.door_law && Math.hypot(WALK_NODES.door_law[0] - p.x, WALK_NODES.door_law[1] - p.y) < 10) this.want('law');   // (passing by the law office)
+    if (!this.seen.has('land') && g.build?.on && g.scene === g.world && g.view3d?.landTint?.land.visible) this.want('land');
     // The posture key, once: the first crouch or sitting on the floor, or after a while on foot
     if (!this.seen.has('biz') && g.scene === g.world && !apagada('shops') && (g.scene.placedNear?.(p.x, p.y, 2.2) || []).some(o => o.placed === 'shop_counter' && !g.business?.at(String(o.tile)))) this.want('biz');
     if (T - this.started > 8 && !p.swim && !p.mount && !p.boat && !p.aboard && (p.crouch || p.pose?.kind === 'floorSit' || p.pose?.kind === 'floorLie' || T - this.started > POSTURE_TIP)) this.want('posture');

@@ -153,7 +153,7 @@ export const ACH = [
   tAch('amigo', g => ['nilo', 'rosa', 'lia', 'bruno', 'dani'].some(id => g.neighbors.hearts(id) >= 5)),
   tAch('mejor_amigo', g => ['nilo', 'rosa', 'lia', 'bruno', 'dani'].some(id => g.neighbors.hearts(id) >= 10)),
   tAch('rico', g => g.money >= 10000),
-  tAch('alcalde', S('proyectos', 4)),
+  tAch('alcalde', S('encargos', 25)),   // (the village's projects are gone: villagesites.js)
   tAch('explorador', S('lugares', 10)),
   tAch('templo', S('templos', 1)),
   tAch('coleccionista', g => g.collection.got.size >= 25),

@@ -3,7 +3,7 @@
 // pequeños eventos y regalos. Nilo es el vecino de siempre: no se mueve de la plaza.
 import { Person } from './entities.js';
 import { ITEMS, CROPS, itemNoun } from './items.js';
-import { NILO, STALL, hasProject, WALK_NODES, WALK_EDGES } from './world/village.js';
+import { NILO, STALL, hasBuilding, WALK_NODES, WALK_EDGES } from './world/village.js';
 import { mendPrice, SHOPS } from './economy.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -84,7 +84,7 @@ const PEOPLE = {
     },
   },
   dani: {
-    name: 'Dani', temper: 'cheerful', weather: { likes: ['sol'], hates: ['lluvia'] }, home: 'dani', project: 'casa', look: { sex: 'chico', skin: '#c98a5a', hair: '#e86aa0', eyes: '#3a8a4a', cloth: '#6a4ab8', pants: '#2a2a3a', hairStyle: 'rizado', outfit: 'larga' },
+    name: 'Dani', temper: 'cheerful', weather: { likes: ['sol'], hates: ['lluvia'] }, home: 'dani', site: 'dani', look: { sex: 'chico', skin: '#c98a5a', hair: '#e86aa0', eyes: '#3a8a4a', cloth: '#6a4ab8', pants: '#2a2a3a', hairStyle: 'rizado', outfit: 'larga' },
     schedule: [[0, 'door_dani'], [10, 'easel'], [15, 'plaza'], [19, 'door_dani']], work: 'easel', shop: 'dani', eatOut: 0.4, evening: 'plaza', bed: 23.5,
     routine: {
       work: [[0, '@home'], [9.75, 'easel'], [14, '@lunch'], [14.75, 'easel'], [17, 'plaza'], [18.5, '@errand'], [20, '@evening'], [21, '@dinner'], [23, '@home']],
@@ -145,7 +145,7 @@ Object.assign(PEOPLE, {
 // Ramiro, the constable (the project 'law_office'; law.js): his rounds, his desk and a night's sleep in the office's back room
 Object.assign(PEOPLE, {
   ramiro: {
-    name: 'Ramiro', temper: 'gruff', law: true, weather: { hates: ['niebla'] }, home: 'law_office', project: 'law_office', work: 'law_desk',
+    name: 'Ramiro', temper: 'gruff', law: true, weather: { hates: ['niebla'] }, home: 'law_office', site: 'law_office', work: 'law_desk',
     look: { sex: 'chico', skin: '#d9a074', hair: '#4a4038', eyes: '#3a2a1e', cloth: '#26324a', pants: '#2e2a2a', hairStyle: 'corto', outfit: 'larga', beard: 'bigote', armband: true,
       wear: { interiorAbajo: { id: 'calzoncillos', color: '#f2efe8' }, torso: { id: 'camisa', color: '#d8d2c4' }, outer: { id: 'wool_coat', color: '#26324a' }, piernas: { id: 'pantalon', color: '#2e2c30' }, calcetines: { id: 'calcetines', color: '#ece6da' }, pies: { id: 'botas', color: '#2c2420' } } },
     schedule: [[0, 'door_law'], [7.5, 'plaza'], [11, 'p37'], [14, 'plaza'], [17, 'p46'], [20, 'plaza'], [23, 'door_law']], eatOut: 0.5, bed: 23,
@@ -332,7 +332,7 @@ export class Neighbors {
     // (a game from before the introductions: whoever you already get along with knows you)
     if (!this.flags.met) { for (const f of Object.values(this.friends)) if (f && f.intro === undefined && (f.pts > 0 || (f.talk ?? -1) !== -1 || (f.gift ?? -1) !== -1 || f.events?.length)) f.intro = -1; this.flags.met = 1; }
     forget(); this.sync();
-    this.people = Object.entries(PEOPLE).filter(([, d]) => !d.fixed && (!d.project || hasProject(d.project))).map(([id, d]) => this.make(id));
+    this.people = Object.entries(PEOPLE).filter(([, d]) => !d.fixed && (!d.site || hasBuilding(d.site))).map(([id, d]) => this.make(id));
     for (const n of this.people) n.placeAt(this.game.days.hour);
     this.world.reserved = new Set(this.people.filter(n => n.def.seat).map(n => `${Math.floor(n.def.seat[0])},${Math.floor(n.def.seat[1])}`));
   }

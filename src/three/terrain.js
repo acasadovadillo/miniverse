@@ -99,7 +99,7 @@ export class Terrain {
     } catch (e) { console.warn('Suelo: sin hilo aparte', e); return []; }
   }
   villageChanged() {
-    const m = { t: 'village', projects: village.getProjects(), family: village.familyHouse() };
+    const m = { t: 'village', village: village.getVillage(), family: village.familyHouse() };
     for (const w of this.workers) w.postMessage(m);
     this.gen?.fields.clear();
     for (const b of this.blocks.values()) b.stale = true;
@@ -114,7 +114,7 @@ export class Terrain {
     this.gen = gen;
     this.season = gen.season; this.roadsV = gen.roadsV;
     // (owner: el primer hilo es el que limpia lo guardado de otras versiones del relieve)
-    this.workers.forEach((w, i) => w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse(), roads: roadList(gen), owner: i === 0 }));
+    this.workers.forEach((w, i) => w.postMessage({ t: 'init', seed: gen.seed, village: village.getVillage(), family: village.familyHouse(), roads: roadList(gen), owner: i === 0 }));
   }
   dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); if (b.waterMesh) { this.water.group.remove(b.waterMesh); b.waterMesh.geometry.dispose(); } this.dropPit(b); }
   dropAll() {

@@ -6,9 +6,9 @@
 // read between two slices and the older one is dropped.
 //
 // Main thread → worker:
-//   { t: 'init', seed, projects, family }        as genworker.js: the world seed and the village projects
+//   { t: 'init', seed, village, family }         as genworker.js: the world seed and where the village's buildings stand
 //   { t: 'roads', roads }                        the world's roads changed (init has them too: terrain.js roadList)
-//   { t: 'village', projects, family }           on onVillageChange (village.js): drop the cached records and masks of
+//   { t: 'village', village, family }            on onVillageChange (village.js): drop the cached records and masks of
 //        the village
 //   { t: 'route', id, from: { x, y }, to: { x, y }, mode: 'walk' | 'ride' | 'row', explored: ['cx,cy', …], margin?, wide?, debug? }
 //        from/to in tiles, fractions allowed (the path ends exactly there); to.x already nearX'd to from.x. explored: the
@@ -34,7 +34,7 @@
 //        impassable (deep water riding, a cave, a building): the path goes to the nearest open tile and its last segment,
 //        to the pin, is KIND.unknown (a gap). seen (debug only): Int32Array [x0,y0,…] of the tiles expanded, at most 20000
 import { WorldGen, WORLD_SEED, CHUNK } from './gen.js';
-import { setProjects, setFamilyHouse, BOUNDS } from './village.js';
+import { setVillage, setFamilyHouse, BOUNDS } from './village.js';
 import { roadsFor } from './roads.js';
 import { NORTH, SOUTH, wrapIndex } from './planet.js';
 import { chunkRecord, chunkCost, combine, Search, pathOf, straightPath, KIND, LIMITS, UNKNOWN_COST, COST, MODES } from './routegrid.js';
@@ -75,11 +75,11 @@ onmessage = e => {
   if (!m) return;
   try {
     if (m.t === 'init') {
-      setProjects(m.projects); setFamilyHouse(m.family);
+      setVillage(m.village); setFamilyHouse(m.family);
       if ((m.seed | 0) !== gen.seed && Number.isFinite(m.seed)) { gen = new WorldGen(m.seed); records.clear(); coarse.clear(); }
       dropVillage(); useRoads(m.roads);
     } else if (m.t === 'roads') useRoads(m.roads);
-    else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen.fields.clear(); dropVillage(); }
+    else if (m.t === 'village') { dropVillage(); setVillage(m.village); setFamilyHouse(m.family); gen.fields.clear(); dropVillage(); }
     else if (m.t === 'masks') gotMasks(m);
     else if (m.t === 'route') { if (m.lines?.length) gen.roads?.adopt(m.lines); start(m); }
   } catch (err) {

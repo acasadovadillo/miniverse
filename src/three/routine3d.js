@@ -2,7 +2,7 @@
 // those at a table have before them and their bites and sips, the doors they go through (a closed one opens for them, only to
 // be seen), the dark windows of the houses where everybody sleeps, and the chapel's bell when it calls. All of it local
 import * as THREE from 'three';
-import { HOUSES, TAVERN, CHAPEL, LAW_OFFICE, STALL, hasProject } from '../world/village.js';
+import { HOUSES, TAVERN, CHAPEL, LAW_OFFICE, STALL, hasBuilding, houseStands } from '../world/village.js';
 import { ROUTINES, bellAt, BELL_S, opensNext, hhmm, weekdayOf } from '../routines.js';
 import { PEOPLE } from '../neighbors.js';
 import { foodModel } from './food3d.js';
@@ -81,10 +81,10 @@ export class RoutineView {
     dark.clear();
     const lit = r => N.people.some(n => n.spot?.room === r && !n.asleep), sleeps = r => N.people.some(n => n.asleep && n.spot?.room === r);
     const put = (r, x, y) => { if (lit(r) || (HOUSES[r] && !sleeps(r))) return; const k = at(x, y); if (k && k !== W.insideRegion) dark.add(k); };
-    for (const h in HOUSES) if (!HOUSES[h].project || hasProject(HOUSES[h].project)) put(h, HOUSES[h].x0 + 5, HOUSES[h].y0 + 5);
+    for (const h in HOUSES) if (houseStands(HOUSES[h])) put(h, HOUSES[h].x0 + 5, HOUSES[h].y0 + 5);
     put('taberna', TAVERN.x0 + 5, TAVERN.y0 + 4);
-    if (hasProject('law_office')) { put('law_office', LAW_OFFICE.x0 + 4, LAW_OFFICE.y0 + 6); }
-    if (hasProject('chapel')) put('chapel', CHAPEL.x0 + 3, CHAPEL.y0 + 5);
+    if (hasBuilding('law_office')) { put('law_office', LAW_OFFICE.x0 + 4, LAW_OFFICE.y0 + 6); }
+    if (hasBuilding('chapel')) put('chapel', CHAPEL.x0 + 3, CHAPEL.y0 + 5);
     W.darkRegions = dark.size ? dark : null;
   }
   // ---------- the card on the stall ----------

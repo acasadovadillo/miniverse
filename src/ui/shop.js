@@ -23,8 +23,8 @@ export function initShopUI(game, { onClose }) {
   const sellPrice = (id, s) => { const p = s ? stackPrice(s) : priceOf(id); return p ? Math.max(1, Math.round(p * (game.rep?.sellFactor() ?? 1))) : 0; };
 
   function stock() {
-    const s = SHOPS[shop], season = game.days.season, done = game.board.projects;
-    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (!e.project || done[e.project]) && (e.animal || (e.horse ? !racesOff() : e.plan ? PLANS.has(e.plan) : ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende, ya no es un objeto: se vende su plano)
+    const s = SHOPS[shop], season = game.days.season;
+    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (e.animal || (e.horse ? !racesOff() : e.plan ? PLANS.has(e.plan) : ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende, ya no es un objeto: se vende su plano)
   }
   const animalIcon = type => animalSprite(type, 0).toDataURL();
 
