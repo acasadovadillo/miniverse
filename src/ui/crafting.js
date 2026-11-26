@@ -65,7 +65,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     extraPanel(near);
     // Si hay una estación de esta pestaña cerca, se puede recoger
     const st = near[tab];
-    $('cf-pick').hidden = !st || st === true || !!st.fixed;   // (las del taller del pueblo no se recogen)
+    $('cf-pick').hidden = !st || st === true || !!st.fixed || !game.build?.on;   // (las del taller del pueblo no se recogen; las demás, solo en el modo construir: B › Quitar)
     if (st && st !== true) $('cf-pick').textContent = t('gui.crafting.pick_station', { item: { name: ITEMS[tab].name } });
     $('cf-where').textContent = tab === 'mano' ? 'Se fabrica en cualquier sitio.' : near[tab] ? `Estás junto a: ${STATIONS[tab].name.toLowerCase()}.` : `Para esto necesitas estar junto a: ${STATIONS[tab].name.toLowerCase()}.`;
   }
@@ -229,6 +229,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
   $('cf-make5').onclick = () => { if (picked) { game.craft.craft(picked, Math.min(5, game.craft.times(picked))); refresh(); } };
   $('cf-pick').onclick = () => {
     const st = cr().stationsNear()[tab];
+    if (!game.build?.on) return;   // (outside B nothing built is taken down)
     if (st && st !== true && game.pickUp(st)) { tab = 'mano'; picked = null; refresh(); }
   };
   $('cf-close').onclick = () => onClose();

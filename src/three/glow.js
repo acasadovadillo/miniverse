@@ -158,7 +158,8 @@ export class Glow {
         this.col.set(s.color || '#ffb870').multiplyScalar((0.16 + 0.03 * I) * k * iK);
         H.iPos.setXYZ(n, s.x, s.y, s.z); H.iCol.setXYZW(n, this.col.r, this.col.g, this.col.b, (s.x * 0.37 + s.z * 0.61) % 7); H.iSize.setXY(n, r, 0); n++;
       }
-      if (P && s.pool && !cave && np < MAX.pool) {
+      // (a torch inside a closed room: its puddle would come out under the walls; its own light does the floor, engine.js)
+      if (P && s.pool && !cave && np < MAX.pool && !v.lightBoxes?.(s, scene, game)) {
         const half = lit?.has(s) ? 0.5 : 1, [sx, sz] = s.sl || ZERO;
         this.col.set(s.color || '#ffc070').multiplyScalar(0.22 * k * half);
         P.iPos.setXYZ(np, s.x, (s.gy ?? v.groundY(scene, s.x, s.z)) + 0.04, s.z); P.iAx.setXYZW(np, 1, 0, s.pool, s.pool); P.iSl.setXY(np, sx, sz);

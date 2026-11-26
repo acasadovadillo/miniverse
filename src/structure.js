@@ -252,6 +252,72 @@ export function roomAt(scene, x, y, out = {}) {
   return out;
 }
 
+// ---------- what a light inside reaches ----------
+// A lamp, a candle, a candelabro or a hearth in a closed room lights the room and what its open doors and windows let out, never
+// the other side of a wall, the next room or the open air: three/engine.js clips each of its six near lights to these boxes.
+// lightRoom gives them for a light at (x, y): the room itself, up to the inner faces of its walls (in a few rectangles), from
+// its floor to under its roof, and a short spill out of each open door or window, the nearest first, that fades at its edges.
+// null: not in a closed room (the open air, a porch, a hall): it lights all round, as always.
+// Each box: [x0, y0, x1, y1 (the world's x and y), h0, h1 (height), soft (m it fades over past its edge; 0, a hard edge)]
+export const LIGHT_BOXES = 6;
+const LIGHT_RECTS = 3;           // (rectangles of the room; the rest of an odd shape goes in the last one's bounds)
+const INNER = 0.5 - 0.12 + 0.05; // (from a room tile's edge into its wall's tile: past the wall's inner face, short of its outer one)
+const SPILL = 3.5, SPILL_SOFT = 1.2, DOOR_TOP = 2.3, WALL_TOP = 2.8;   // (WALL_TOP: three/build3d.js WALL_H)
+const lightTmp = {};
+// (a window in a corner or a T is a wall: no gap there; world/scenes.js addBuilt)
+const joins = (L, x, y) => { const k = L.kind(x, y); return k === 'wall' || k === 'door'; };
+const straight = (L, x, y) => !((joins(L, x + 1, y) || joins(L, x - 1, y)) && (joins(L, x, y + 1) || joins(L, x, y - 1)));
+export function lightRoom(scene, x, y) {
+  const r = roomAt(scene, x, y, lightTmp);
+  if (r.kind !== 'room' && r.kind !== 'draughty') return null;
+  const L = LOOK, tiles = [];
+  let lo = Infinity, hi = -Infinity, ax0 = Infinity, ay0 = Infinity, ax1 = -Infinity, ay1 = -Infinity;
+  for (const k of r.tiles) {
+    const tx = k % 8388608 - 4194304, ty = Math.round((k - (k % 8388608)) / 8388608) - 4194304;
+    tiles.push([tx, ty]);
+    const h = scene.levelAt?.(tx + 0.5, ty + 0.5, true) ?? 0;
+    lo = Math.min(lo, h); hi = Math.max(hi, h);
+    ax0 = Math.min(ax0, tx); ay0 = Math.min(ay0, ty); ax1 = Math.max(ax1, tx + 1); ay1 = Math.max(ay1, ty + 1);
+  }
+  // (under the roof: up its pitch, as far as a roof over a room that wide rises)
+  const h0 = lo - 0.3, h1 = hi + WALL_TOP + Math.min(3.5, 0.35 * Math.min(ax1 - ax0, ay1 - ay0)) + 0.3, out = [];
+  // Rectangles: from the first tile left, as far along x as the room goes, then down while the whole row is in it
+  const left = new Set(r.tiles);
+  tiles.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  for (const [tx, ty] of tiles) {
+    if (!left.has(keyOf(tx, ty))) continue;
+    let x1 = tx;
+    while (left.has(keyOf(x1 + 1, ty))) x1++;
+    let y1 = ty;
+    for (let ok = true; ok;) { for (let i = tx; i <= x1 && ok; i++) ok = left.has(keyOf(i, y1 + 1)); if (ok) y1++; }
+    for (let j = ty; j <= y1; j++) for (let i = tx; i <= x1; i++) left.delete(keyOf(i, j));
+    const b = [tx - INNER, ty - INNER, x1 + 1 + INNER, y1 + 1 + INNER, h0, h1, 0];
+    if (out.length < LIGHT_RECTS) out.push(b);
+    else { const m = out[LIGHT_RECTS - 1]; m[0] = Math.min(m[0], b[0]); m[1] = Math.min(m[1], b[1]); m[2] = Math.max(m[2], b[2]); m[3] = Math.max(m[3], b[3]); }
+  }
+  // Its open doors and windows (a window with its shutters or its casements shut lets nothing out), the nearest first
+  const gaps = [], seen = new Set();
+  for (const [tx, ty] of tiles) for (const [a, b] of SIDES) {
+    const nx = tx + a, ny = ty + b, k = keyOf(nx, ny);
+    if (seen.has(k) || r.tiles.has(k)) continue;
+    seen.add(k);
+    const kind = L.kind(nx, ny), id = kind === 'wall' && L.id(nx, ny);
+    if (kind !== 'door' && !(id && id.startsWith('ventana') && straight(L, nx, ny))) continue;
+    if (scene.doorClosed(nx, ny)) continue;
+    gaps.push([Math.hypot(nx + 0.5 - x, ny + 0.5 - y), nx, ny, a, b, kind === 'door']);
+  }
+  gaps.sort((p, q) => p[0] - q[0]);
+  for (const [, nx, ny, a, b, door] of gaps) {
+    if (out.length >= LIGHT_BOXES) break;
+    const c = (a ? nx : ny) + 0.5, from = a > 0 || b > 0 ? c - 0.2 : c - SPILL, to = a > 0 || b > 0 ? c + SPILL : c + 0.2;
+    const top = door ? lo + DOOR_TOP : h1;
+    out.push(a ? [from, ny - 0.3, to, ny + 1.3, h0, top, SPILL_SOFT] : [nx - 0.3, from, nx + 1.3, to, h0, top, SPILL_SOFT]);
+  }
+  return out;
+}
+// What changes around a tile (the versions of its 3 × 3 chunks, the doors and the fires with them): when to work out again
+export const areaVersion = (scene, tx, ty) => RoomWatch.prototype.version(scene, tx, ty);
+
 // The room of the player, kept (game.room): worked out again when he steps out of its tiles or something around changes (the
 // versions of the 3 × 3 chunks, the doors and the fires with them), looked at every EVERY ms
 const EVERY = 250;

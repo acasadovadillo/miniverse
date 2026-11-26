@@ -45,6 +45,7 @@ import { Wind } from './wind.js';
 import { EVENT } from './senses.js';
 import { Rest } from './rest.js';
 import { Crew } from './crew.js';
+import { DoorWalk } from './doorwalk.js';
 import { footTile, front, extraTiles, yawOf } from './art/stations.js';
 import { solidsOf, hull, placeBoxes, aabb, distTo, rayHits } from './world/fit.js';
 import { HOTBAR, extraOf } from './inventory.js';
@@ -220,6 +221,7 @@ export class Game {
     this.wildlife = this.addSystem(new Wildlife(this));
     this.visitors = this.addSystem(new Visitors(this));   // the birds and the rabbits seen coming to the garden (src/visitors.js; after wildlife: they count together)
     this.rest = this.addSystem(new Rest(this));
+    this.doorWalk = this.addSystem(new DoorWalk(this));   // walking up to a door and pushing it (src/doorwalk.js)
     this.crew = this.addSystem(new Crew(this));   // ir de pasajero en la barca de otro
     this.neighbors = this.addSystem(new Neighbors(this));
     this.rep = this.addSystem(new Reputation(this));   // the village's reputation (after stats and neighbors: an old game is born from them)
@@ -612,9 +614,9 @@ export class Game {
     const dist = o => (sc.placedDist ? sc.placedDist(o, p.x, p.y) : Math.hypot(o.x - p.x, o.y - p.y));
     const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => (!o.fixed || STATIONS[o.placed] || FIRE_MS[o.placed] || o.placed === 'signpost') && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
     const o = near.find(o => o.layer !== 'rug');
-    if (o) return this.placedAction(o, true);
+    if (o) return this.inB(this.placedAction(o, true), o);
     const hearth = sc.hearthNear?.(p.x, p.y);
-    if (hearth) return this.hearthAction(hearth);
+    if (hearth) return this.inB(this.hearthAction(hearth), { tile: hearth, placed: 'chimenea' });
     const win = sc.windowNear?.(p.x, p.y);
     if (win) return this.windowAction(win);
     const rug = near.find(o => o.layer === 'rug');
@@ -719,10 +721,10 @@ export class Game {
   // Lo que se hace con lo apuntado (o null)
   actionFor(a) {
     switch (a.kind) {
-      case 'placed': return (a.o.layer === 'placed' && !a.o.unknown && this.ranch.objectAction(a.o)) || this.placedAction(a.o);
+      case 'placed': return this.inB((a.o.layer === 'placed' && !a.o.unknown && this.ranch.objectAction(a.o)) || this.placedAction(a.o), a.o);
       case 'door': return this.doorAction(a.tile);
       case 'window': return this.windowAction(a.tile);
-      case 'hearth': return this.hearthAction(a.tile);
+      case 'hearth': return this.inB(this.hearthAction(a.tile), { tile: a.tile, placed: 'chimenea', own: !!this.scene.ownAt?.('placed', ...a.tile) });
       case 'npc': return this.neighbors.actionFor(a.n);
       case 'kid': return this.family.actionFor(a.id, a.e);
       case 'animal': return this.ranch.talk(a.e);
@@ -743,9 +745,12 @@ export class Game {
     if (sc === this.world && this.law.locked(door)) return { text: t('law.locked'), run: () => Audio.error() };   // (the cell's, with somebody in it)
     if (!gate && closed && !(this.knocked?.k === k && this.time < this.knocked.until) && this.knockable(door)) return { text: 'Llamar a la puerta', run: () => this.knock(door) };
     // (la puerta de valla, como las vallas, solo se quita con Quitar en el modo construir, B)
-    if (closed || !inGap) return { text: `${closed ? 'Abrir' : 'Cerrar'} la puerta${gate ? ' de valla' : ''}`, run: () => { sc.toggleDoor(...door); Audio.place(); if (sc === this.world) this.wildlife.noise(door[0] + 0.5, door[1] + 0.5, EVENT.door); this.onSave?.(); } };
+    // (a little away, one walks up to it first and pushes or pulls it by hand: doorwalk.js; it swings when the hand gets there)
+    if (closed || !inGap) return { text: `${closed ? 'Abrir' : 'Cerrar'} la puerta${gate ? ' de valla' : ''}`, run: () => this.doorWalk.use(door, () => { if (sc.doorClosed(...door) !== closed || (!closed && this.doorBlocked(door))) return; sc.toggleDoor(...door); Audio.place(); if (sc === this.world) this.wildlife.noise(door[0] + 0.5, door[1] + 0.5, EVENT.door); this.onSave?.(); }) };
     return null;
   }
+  // (when the hand gets there: closing it, not on somebody in the gap now, nor on a wheelbarrow)
+  doorBlocked(door) { const p = this.player; return (!!p && Math.hypot(door[0] + 0.5 - p.x, door[1] + 0.5 - p.y) < 0.55) || (this.scene === this.world && !!this.barrow?.onDoor(door)); }
   // Lo colocado: las estaciones se usan, en la cama te tumbas o duermes, en la silla te sientas, las luces se
   // apagan y se encienden, el cofre, el armario y la mochila se abren; lo demás se recoge (con X, lo que se usa
   // con E). hungFirst: si encima del mueble cuelga un cuadro, se recoge antes el cuadro (sin apuntar con el ratón)
@@ -758,7 +763,8 @@ export class Game {
     if (this.carry.held) { const c = this.carry.stationAction(o); if (c) return c; }   // (with it in the arms: saw it at the bench, butcher it at the kitchen)
     const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v && ITEMS[v.split('@')[0]]) : null;
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
-    const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
+    // (lo construido, al desmontarlo, devuelve sus materiales; and only in build mode, B › Remove: xTakes)
+    const name = ITEMS[o.placed].name.toLowerCase(), pick = this.xTakes(top) ? { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) } : null;
     if (o.placed === 'rod_rest') return this.rodrest.action(o, pick);
     { const q = this.tables.tableAction(o); if (q) return q; }   // (what is on a table to play with: tablegames.js)
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
@@ -779,7 +785,20 @@ export class Game {
     if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela').replace(/^candelabro de techo/, 'el candelabro').replace(/^farol/, 'el farol')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
     return pick;
   }
-  // A fire one has built (a campfire, a brazier, a charcoal clamp): E lights it, with its fuel; X takes it down
+  // What is built (furniture, stations, the Rancho's, the outdoor things, the pieces: BUILDABLE, or a piece that is no item) is
+  // taken down only in build mode, with B › Remove; X still picks up what is an item (a lamp, a candle, a picture, a rug…)
+  builtThing(id) { return !!(BUILDABLE[id] || (PIECES[id] && !ITEMS[id])); }
+  xTakes(o) { return !!this.build?.on || !this.builtThing(o?.placed); }
+  // act, for something built of one's own aimed at outside build mode: where X took it down, a row saying how (ui/prompts.js,
+  // act.inB); where nothing else is done with it, just its name
+  inB(act, o) {
+    if (this.build?.on || !o || o.fixed || o.unknown || !this.builtThing(o.placed) || act?.alt) return act;
+    if (o.own === false || (this.scene === this.world && o.tile && !o.yard && !this.world.ownAt?.(o.layer || 'placed', ...o.tile) && this.build.lived?.(o.tile))) return act;
+    if (!act) { const n = ITEMS[o.placed]?.name || ''; act = { text: n.charAt(0).toUpperCase() + n.slice(1), run: () => Audio.blip() }; }
+    act.inB = true;
+    return act;
+  }
+  // A fire one has built (a campfire, a brazier, a charcoal clamp): E lights it, with its fuel; X takes it down (in build mode)
   fireAction(o, pick) {
     const lit = this.world.fireAt(...o.tile), [m, n] = FIRE_FUEL[o.placed];
     if (lit) return { text: t('fire.burning'), run: () => {}, alt: pick };
@@ -796,7 +815,7 @@ export class Game {
   // El fuego del hogar (el de los vecinos no se recoge)
   hearthAction(hearth) {
     const sc = this.scene, off = sc.lightOff(...hearth), mine = !!sc.ownAt?.('placed', ...hearth), save = () => this.onSave?.();
-    return { text: off ? 'Encender el fuego' : 'Apagar el fuego', run: () => { sc.toggleLight(...hearth); Audio.noiseHit(off ? 900 : 300, 0.25, 0.25); save(); }, alt: mine ? { text: 'Recoger el hogar', run: () => { if (this.pickUp({ tile: hearth, layer: 'placed', placed: 'chimenea' })) save(); } } : null };
+    return { text: off ? 'Encender el fuego' : 'Apagar el fuego', run: () => { sc.toggleLight(...hearth); Audio.noiseHit(off ? 900 : 300, 0.25, 0.25); save(); }, alt: mine && this.xTakes({ placed: 'chimenea' }) ? { text: 'Recoger el hogar', run: () => { if (this.pickUp({ tile: hearth, layer: 'placed', placed: 'chimenea' })) save(); } } : null };
   }
   // Una ventana: se abre o se cierra (con contraventanas, por fuera; sin ellas, con postigos por dentro)
   windowAction(win) { const sc = this.scene, closed = sc.doorClosed(...win); return { text: closed ? 'Abrir la ventana' : 'Cerrar la ventana', run: () => { sc.toggleDoor(...win); Audio.door(); this.onSave?.(); } }; }

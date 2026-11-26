@@ -91,7 +91,7 @@ import { KeyArt, KEY_ART, artNow, artOf, loadSet } from './ui/keyart.js';
 import { TIPS, tipText, recapText } from './ui/loading.js';
 import { RECAP_STATS, recapOf, Recap } from './recap.js';
 import { Audio as GameAudio } from './audio.js';
-import { View3D } from './three/engine.js';
+import { View3D, POINT_ROOMS } from './three/engine.js';
 import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
@@ -4497,7 +4497,7 @@ async function soloTests(game) {
     check(gate?.door === 'x' && gate.gate, `no va en la línea de las vallas: ${gate?.door}`);
     check(w().doorClosed(gx, y) && blocks(gx + 0.5, y + 0.5), 'no empieza cerrada');
     check(game.doorAction([gx, y]).text === 'Abrir la puerta de valla', `dice: ${game.doorAction([gx, y]).text}`);
-    await frames(2); game.doorAction([gx, y]).run(); await frames(2);
+    await frames(2); game.doorAction([gx, y]).run(); for (let i = 0; i < 400 && w().doorClosed(gx, y); i++) await frames(1);   // (the hand gets there first: doorwalk.js)
     check(!w().doorClosed(gx, y) && !blocks(gx + 0.5, y + 0.5), 'abierta no se puede pasar');
     check(w().collidersNear(x0 + 1, y + 0.5).some(c => c.low && c.x0 === x0 + 0.5), 'la valla no se une a la puerta');
     check(!game.doorAction([gx, y])?.alt, 'la puerta de valla se puede recoger sin el modo construir');
@@ -9025,6 +9025,195 @@ async function soloTests(game) {
       await goTo(game, 60, 36); await frames(3); check(!game.room && B._env !== null, 'outside there is a room'); B.poll(p()); check(B._env.pull === undefined, 'outside, the pull stays');
     } finally { if (W.doorClosed(...door) !== was) W.toggleDoor(...door); void wx; }
   });
+  // ---------- fixes of 2026-11-26: light stays in its room, X takes down nothing built outside B, doors by hand ----------
+  // (what the shader does with a light's boxes, engine.js pointRoomK: 1 in one, fading over soft m past a soft one's edge)
+  const lightK = (boxes, x, y, h) => {
+    if (!boxes) return 1;
+    let k = 0;
+    for (const [x0, y0, x1, y1, h0, h1, soft] of boxes) {
+      const d = Math.hypot(Math.max(x0 - x, x - x1, 0), Math.max(h0 - h, h - h1, 0), Math.max(y0 - y, y - y1, 0));
+      k = Math.max(k, soft > 0 ? 1 - Math.min(1, d / soft) : d === 0 ? 1 : 0);
+    }
+    return k;
+  };
+  await test('room light (english): a light in a closed room lights it and nothing past its walls, roof or floor; out of an open door or window it does', async () => {
+    // Two rooms (1..3 and 5..6) with a wall between at x = 4, its door at 4,3; the front door at 3,6, a window at 7,3; all shut
+    const S = fakeScene(); ringOf(S, 0, 0, 7, 6); fillTiles(S.roof, 0, 0, 7, 6, 'tejado_rojo'); fillTiles(S.floor, 0, 0, 7, 6, 'suelo_madera');
+    for (let y = 1; y < 6; y++) S.placed[`4,${y}`] = 'muro_piedra';
+    S.placed['4,3'] = 'puerta'; S.placed['3,6'] = 'puerta'; S.placed['7,3'] = 'ventana'; S.placed['2,3'] = 'candelabro';
+    for (const k of ['4,3', '3,6', '7,3']) S.closed[k] = true;
+    let B = ST.lightRoom(S, 2.5, 3.5);
+    check(B && B.length >= 1 && B.every(b => b.length === 7), `boxes: ${JSON.stringify(B)}`);
+    const K = (x, y, h) => lightK(B, x, y, h);
+    check(K(2.5, 3.5, 1) === 1 && K(1.2, 1.2, 0) === 1 && K(3.5, 5.2, 2.6) === 1, 'in the room itself');
+    check(K(2.5, 0.5 + 0.12 - 0.01, 1) === 1 && K(0.62 - 0.01, 3, 1) === 1 && K(2.5, 6.38 - 0.01, 1) === 1, 'the inner faces of its walls');
+    check(K(2.5, 0.5 - 0.13, 1) === 0 && K(0.5 - 0.13, 3, 1) === 0 && K(2.5, 6.5 + 0.13, 1) === 0 && K(4.5 + 0.13, 3, 1) === 0, 'the outer faces of its walls');
+    check(K(2.5, 8.5, 0) === 0 && K(-2, 3, 0) === 0 && K(2.5, -2, 0) === 0, 'the ground outside');
+    check(K(5.5, 3.5, 1) === 0 && K(6.5, 1.5, 0) === 0, 'the next room, through the wall and its shut door');
+    check(K(2.5, 3.5, -0.4) === 0 && K(2.5, 3.5, 7.5) === 0, 'under the floor and over the roof');
+    // The front door open: out of it, in front of it; not round the side
+    delete S.closed['3,6']; B = ST.lightRoom(S, 2.5, 3.5);
+    check(K(3.5, 8, 0.2) === 1 && K(3.5, 10.5, 0.2) > 0 && K(0.5, 8.5, 0.2) === 0 && K(6, 9, 0.2) === 0, `out of the open door: ${K(3.5, 8, 0.2)} ${K(0.5, 8.5, 0.2)}`);
+    check(K(5.5, 3.5, 1) === 0, 'the next room, with the front door open');
+    // The inner door open: into the next room, in front of it
+    S.closed['3,6'] = true; delete S.closed['4,3']; B = ST.lightRoom(S, 2.5, 3.5);
+    check(K(5.5, 3.5, 1) === 1 && K(6.4, 3.5, 0.2) === 1 && K(2.5, 8, 0) === 0, `through the inner door: ${K(5.5, 3.5, 1)}`);
+    // The window open (it is in the other room): from there, out of it; from the first room, only with the inner door open
+    delete S.closed['7,3']; B = ST.lightRoom(S, 5.5, 3.5);
+    check(K(8.5, 3.5, 1.2) === 1 && K(8.5, 0.5, 1.2) < 0.5 && K(1.5, 3.5, 1) === 1, `out of the window: ${K(8.5, 3.5, 1.2)}`);
+    S.closed['4,3'] = true; B = ST.lightRoom(S, 5.5, 3.5); check(K(8.5, 3.5, 1.2) === 1 && K(1.5, 3.5, 1) === 0, 'the window, the inner door shut');
+    // Out of a room: none (it lights all round, as before): the open air, a porch, a hall
+    check(ST.lightRoom(S, 12, 12) === null && ST.lightRoom(fakeScene({ roof: { '0,0': 'tejado_paja' } }), 0.5, 0.5) === null, 'the open air, or a roof alone');
+    const H = fakeScene(); ringOf(H, 0, 0, 22, 22); fillTiles(H.roof, 0, 0, 22, 22, 'tejado_rojo'); check(ST.lightRoom(H, 11.5, 11.5) === null, 'a hall');
+    // An L-shaped room: its corner outside stays dark
+    const L = fakeScene(); for (const [x, y] of [[0, 0], [1, 0], [2, 0], [3, 0], [0, 1], [3, 1], [0, 2], [3, 2], [4, 2], [5, 2], [0, 3], [5, 3], [0, 4], [1, 4], [2, 4], [3, 4], [4, 4], [5, 4]]) L.placed[`${x},${y}`] = 'muro_madera';
+    fillTiles(L.roof, 0, 0, 5, 4, 'tejado_rojo');
+    B = ST.lightRoom(L, 1.5, 1.5); check(B && K(4.5, 3.5, 1) === 1 && K(1.5, 1.5, 1) === 1 && K(4.5, 0.6, 1) === 0, `the L: ${JSON.stringify(B)}`);
+    // The time it takes, in a big room (it is worked out only when something round it changes)
+    const BIG = fakeScene(); ringOf(BIG, 0, 0, 19, 19); fillTiles(BIG.roof, 0, 0, 19, 19, 'tejado_rojo');
+    const T0 = performance.now(); for (let i = 0; i < 20; i++) ST.lightRoom(BIG, 9.5, 9.5); const ms = (performance.now() - T0) / 20; check(ms < 8, `${ms.toFixed(2)} ms`);
+  });
+  await test('room light (english): the shader clips the six near lights; the real thing in a house of the world, its door opened and shut', async () => {
+    const C = THREE.ShaderChunk;
+    check(C.lights_fragment_begin.includes('pointRoomK( UNROLLED_LOOP_INDEX, lrP )') && C.lights_fragment_begin.includes('if ( directLight.visible ) RE_Direct') && C.lights_pars_begin.includes('uniform vec4 pointRooms['), 'the chunks');
+    check(THREE.ShaderLib.standard.uniforms.pointRooms?.value === POINT_ROOMS && THREE.ShaderLib.lambert.uniforms.pointRooms?.value === POINT_ROOMS && POINT_ROOMS.length === 6 * ST.LIGHT_BOXES * 2, 'the uniform');
+    const v = game.view3d, W = w();
+    let shared = 0; v.scene.traverse(o => { if (!shared && o.isMesh && o.material?.isMeshStandardMaterial) { const u = v.renderer.properties.get(o.material).uniforms; if (u?.pointRooms) shared = u.pointRooms.value[0] === POINT_ROOMS[0] ? 1 : -1; } });
+    check(shared === 1, `a material's uniform is not the shared one: ${shared}`);
+    // A small house: walls round 0..5 × 0..5, its door at 2,5, a candelabro in the middle
+    await goTo(game, 60, 36);
+    let X = null, Y = null;
+    for (let ty = 28; ty < 46 && X === null; ty += 2) for (let tx = 52; tx < 76 && X === null; tx += 2) { let ok = true; for (let y = 0; y <= 5 && ok; y++) for (let x = 0; x <= 5 && ok; x++) ok = W.canPlace(tx + x, ty + y, 'muro_madera', null); if (ok) { X = tx; Y = ty; } }
+    check(X !== null, 'no room for the house');
+    const tiles = [];
+    try {
+      for (let y = 0; y <= 5; y++) for (let x = 0; x <= 5; x++) { tiles.push([X + x, Y + y]); W.place(X + x, Y + y, 'suelo_madera'); W.place(X + x, Y + y, 'tejado_rojo'); if (!x || !y || x === 5 || y === 5) W.place(X + x, Y + y, 'muro_madera'); }
+      W.place(X + 2, Y + 5, 'puerta'); if (!W.doorClosed(X + 2, Y + 5)) W.toggleDoor(X + 2, Y + 5);
+      W.place(X + 2, Y + 2, 'candelabro');
+      runCommand(game, '/time set 23:00', () => {});
+      p().x = X + 2.5; p().y = Y + 8; await sleep(400); await frames(8);
+      const lightAt = () => v.world.lights().find(l => Math.floor(l.x) === X + 2 && Math.floor(l.z) === Y + 2);
+      for (let k = 0; k < 400 && !lightAt(); k++) await frames(1);
+      const s = lightAt(); await frames(4);
+      check(s, 'its light');
+      v.updateLights(game, W, v.cam.target);
+      const i = v.pool.findIndex(l => l.intensity > 0 && Math.abs(l.position.x - s.x) < 0.01 && Math.abs(l.position.z - s.z) < 0.01);
+      check(i >= 0, 'not among the near lights');
+      const R = POINT_ROOMS, o = i * ST.LIGHT_BOXES * 2;
+      const shut = v.lightBoxes(s, W, game);
+      check(R[o].w === 1 && shut?.length === 1 && lightK(shut, X + 2.5, Y + 8, 0) === 0 && lightK(shut, X + 2.5, Y + 2.5, 0) === 1, `shut: ${JSON.stringify(shut)} w ${R[o].w}`);
+      W.toggleDoor(X + 2, Y + 5); await sleep(400); await frames(4);
+      const s2 = lightAt() || s; for (let k = 0; k < 100 && !(v.lightBoxes(s2, W, game)?.length > 1); k++) await frames(1);
+      const open = v.lightBoxes(s2, W, game);
+      await frames(2); v.updateLights(game, W, v.cam.target); const i2 = v.pool.findIndex(l => l.intensity > 0 && Math.abs(l.position.x - s2.x) < 0.01 && Math.abs(l.position.z - s2.z) < 0.01);
+      check(open?.length === 2 && i2 >= 0 && R[i2 * ST.LIGHT_BOXES * 2 + 2].w === 1 && R[i2 * ST.LIGHT_BOXES * 2 + 4].w === 0 && lightK(open, X + 2.5, Y + 7, 0) === 1, `open: ${JSON.stringify(open)} slot ${i2} w ${R.slice(i2 * 12, i2 * 12 + 12).map(q => q.toArray().map(n => +n.toFixed(2)).join(' ')).join(' | ')}`);
+      // ?roomlight=0 is the switch back; the cost: kept on the light, looked at again every 250 ms
+      let n = 0; const lr = ST.lightRoom; const T0 = performance.now();
+      for (let k = 0; k < 200; k++) v.updateLights(game, W, v.cam.target);
+      const ms = (performance.now() - T0) / 200; check(ms < 0.3, `${ms.toFixed(3)} ms a frame for the near lights`); void n; void lr;
+    } finally { for (const [x, y] of tiles) W.setTile(x, y, 'air'); runCommand(game, '/time set 12:00', () => {}); await frames(2); }
+  });
+  await test('x outside build (english): X takes down nothing built (furniture, stations, ranch, outdoor, business, the game table, the hearth); items, the barrow and logs as before; in B it does', async () => {
+    await goTo(game, 60, 36);
+    const W = w(), B = game.build;
+    let X = null, Y = null;
+    for (let ty = 28; ty < 46 && X === null; ty += 2) for (let tx = 52; tx < 76 && X === null; tx += 2) { let ok = true; for (let y = 0; y <= 2 && ok; y++) for (let x = 0; x <= 12 && ok; x++) ok = W.canPlace(tx + x, ty + y, 'silla', null); if (ok) { X = tx; Y = ty; } }
+    check(X !== null, 'no room');
+    const built = ['silla', 'banco', 'compost_bin', 'stone_bench', 'shop_counter', 'game_table', 'chimenea', 'post_lantern', 'caseta', 'scarecrow', 'hitching_post', 'campfire'];
+    const items = ['lampara', 'vela', 'maceta'];
+    const at = {}, used = [];
+    try {
+      built.concat(items).forEach((id, j) => { const x = X + j % 13, y = Y + Math.floor(j / 13) * 2; at[id] = [x, y]; used.push([x, y]); W.place(x, y, id); });
+      const log = [X + 2, Y + 2], bar = [X + 4, Y + 2]; W.place(...log, 'log'); W.place(...bar, BARROW.ID); used.push(log, bar);
+      p().x = X + 6; p().y = Y + 1.5; await frames(3);
+      const act = id => { const o = W.placedObjectAt(...(at[id] || id)); return o ? game.actionFor({ kind: o.hearth ? 'hearth' : 'placed', o, tile: o.tile }) : 'none'; };
+      check(!B.on, 'in build mode');
+      for (const id of built) {
+        const a = act(id);
+        check(a !== 'none' && !a?.alt && a?.inB, `${id}: ${a === 'none' ? 'not there' : JSON.stringify({ text: a?.text, alt: a?.alt?.text, inB: a?.inB })}`);
+      }
+      // (what has no use is only its name: E does nothing to it)
+      act('stone_bench').run(); check(W.ownAt('placed', ...at.stone_bench) === 'stone_bench', 'E took the bench down');
+      // The prompt says how: a B row, no X row
+      game.prompts.frame(act('silla'), null, false, ''); check(game.prompts.rows.some(r => r.key === 'B' && r.text === t('prompt.take_down_in_b')) && !game.prompts.rows.some(r => r.key === 'X'), `rows: ${game.prompts.rows.map(r => r.key + ' ' + r.text)}`);
+      // Items: X picks them up, as before
+      for (const id of items) {
+        const a = act(id), n = inv().count(id), take = a?.alt || a;   // (what has no other use is picked up with E too)
+        check(take?.text?.startsWith('Recoger') && !a.inB, `${id}: not picked up: ${take?.text}`);
+        take.run(); check(!W.ownAt('placed', ...at[id]) && inv().count(id) === n + 1, `${id} not picked up`); inv().remove(id, 1);
+      }
+      // The log and the wheelbarrow, their own X
+      check(act(log)?.alt === null || act(log)?.text, 'the log');
+      check(act(bar)?.alt?.text === t('barrow.open'), `the wheelbarrow: ${act(bar)?.alt?.text}`);
+      // In build mode X goes to B › Remove; the action, as before, would take it down
+      B.on = true;
+      for (const id of ['silla', 'banco', 'chimenea', 'caseta', 'compost_bin']) { const a = act(id); check(a?.alt?.text && !a.inB, `${id} in B: ${a?.alt?.text}`); }
+    } finally { B.on = false; for (const [x, y] of used) W.setTile(x, y, 'air'); await frames(2); }
+  });
+  await test('door walk (english): from far it walks to its side and pushes; near only the hand; a movement key stops it; both sides; a gate pushes one way and pulls the other; riding; the others see it', async () => {
+    const W = w(), D = game.doorWalk, door = [21, 16], was = W.doorClosed(...door), seen = [], emote = game.social.emote.bind(game.social);
+    game.social.emote = (e, k, o) => { if (e === p()) seen.push(k); return emote(e, k, o); };
+    const until = async (f, ms = 12000) => { const T = performance.now(); while (!f() && performance.now() - T < ms) await frames(1); return f(); };
+    const use = async (x, y) => { clearKeys(); p().x = x; p().y = y; p().vx = p().vy = 0; await frames(2); seen.length = 0; const a = game.doorAction(door); a.run(); return a; };
+    const gx = [], mouse = game.mouse;
+    try {
+      game.mouse = null;
+      await goTo(game, 21.5, 19.4);
+      if (!W.doorClosed(...door)) W.toggleDoor(...door);
+      // From 2.9 m outside: it walks to the spot on its side (0.72 m from the door's line), then the hand, then the door
+      await use(21.5, 19.4);
+      check(D.walking && W.doorClosed(...door), 'it does not walk, or it opened at once');
+      await until(() => !D.walking && !D.touching);
+      check(!W.doorClosed(...door) && Math.hypot(p().x - 21.5, p().y - 17.22) < 0.25 && p().y > 16.5, `far: open ${!W.doorClosed(...door)} at ${p().x.toFixed(2)}, ${p().y.toFixed(2)}`);
+      check(seen.length === 1 && (seen[0] === 'push' || seen[0] === 'pull') && Math.abs(p().face.y + 1) < 0.2, `the gesture: ${seen} facing ${JSON.stringify(p().face)}`);
+      const outward = seen[0];
+      // Near: no walk, the hand at once, the door when it gets there
+      await use(21.5, 17.3); const T0 = game.time;
+      check(!D.walking && D.touching && seen.length === 1 && !W.doorClosed(...door), 'near: walks, or no gesture, or shut at once');
+      await until(() => !D.touching, 9000); check(W.doorClosed(...door) && game.time - T0 > 0.25, `near: shut ${W.doorClosed(...door)}, after ${(game.time - T0).toFixed(2)} s`);
+      check(seen[0] !== outward, `closing from the same side, the other gesture: ${outward} then ${seen[0]}`);
+      // A movement key stops it: the door stays shut
+      await use(21.5, 19.4); check(D.walking, 'it does not walk');
+      keys.up = true; await until(() => !D.walking); keys.up = false; const tick = game.time; await until(() => game.time > tick + 0.8);
+      check(!D.walking && !D.touching && W.doorClosed(...door) && !seen.length, 'a key does not stop it');
+      // From inside: to the spot on that side
+      await use(21.5, 14.4); await until(() => !D.walking && !D.touching);
+      check(!W.doorClosed(...door) && p().y < 16.5 && Math.hypot(p().x - 21.5, p().y - 15.78) < 0.25 && seen.length === 1 && seen[0] !== outward, `inside: ${p().y.toFixed(2)} ${seen}`);
+      W.toggleDoor(...door);
+      // Never through a wall: no straight way, no walk (the hand from where you are, as before)
+      check(!D.clear(W, 18.5, 14.5, 18.5, 18.5) && D.clear(W, 21.5, 19.4, 21.5, 17.22), 'the way through the wall');
+      // A gate: opening it from its + side pulls (it opens towards you), from the other pushes
+      let gy = null, g0 = null;
+      for (let ty = 30; ty < 50 && gy === null; ty++) for (let tx = 56; tx < 80 && gy === null; tx++) if ([0, 1, 2].every(i => [-2, -1, 0, 1, 2].every(j => W.canPlace(tx + i, ty + j, 'valla', null)))) { g0 = tx; gy = ty; }
+      check(gy !== null, 'no room for a gate');
+      W.place(g0, gy, 'valla'); W.place(g0 + 2, gy, 'valla'); W.place(g0 + 1, gy, 'puerta_valla'); gx.push([g0, gy], [g0 + 1, gy], [g0 + 2, gy]);
+      await goTo(game, g0 + 1.5, gy + 2.6); await frames(3);
+      const gate = [g0 + 1, gy], useG = async (x, y) => { clearKeys(); p().x = x; p().y = y; p().vx = p().vy = 0; await frames(2); seen.length = 0; game.doorAction(gate).run(); await until(() => !D.walking && !D.touching); };
+      check(W.doorClosed(...gate), 'the gate starts open');
+      await useG(g0 + 1.5, gy + 2.6); const plus = seen[0];
+      check(!W.doorClosed(...gate) && p().y > gy + 0.5 && plus === 'pull', `the gate from +: ${seen} ${W.doorClosed(...gate)}`);
+      W.toggleDoor(...gate);
+      await useG(g0 + 1.5, gy - 1.6);
+      check(!W.doorClosed(...gate) && p().y < gy + 0.5 && seen[0] === 'push', `the gate from -: ${seen}`);
+      // Riding: at a gate within reach, a lean and the push, no walk; at a house door, at once as before
+      W.toggleDoor(...gate); p().x = g0 + 1.5; p().y = gy + 1.4; seen.length = 0;
+      p().mount = { fake: true };
+      try { game.doorAction(gate).run(); check(!D.walking && D.touching && seen[0], `riding: ${seen} walking ${D.walking}`); } finally { p().mount = null; }
+      await until(() => !D.touching); check(!W.doorClosed(...gate), 'riding: the gate');
+      // The others see it: the gesture goes in the state (em, ek) and a peer draws it
+      const live = game.live, k = EMOTE_KINDS.indexOf(seen[0]), seq = game.social.emSeq;
+      check(k > 0 && game.social.emKind === k && seq > 0, `in the state: ${game.social.emKind} ${k}`);
+      live.receive('dw1', { t: 'hi', id: 'id-dw1', name: 'Pepa', playing: true, look: LOOK });
+      live.receive('dw1', { t: 'st', sc: 'world', x: p().x + 1.5, y: p().y, yaw: 0, em: 1, ek: 0 });
+      live.receive('dw1', { t: 'st', sc: 'world', x: p().x + 1.5, y: p().y, yaw: 0, em: 2, ek: EMOTE_KINDS.indexOf('pull') });
+      const e = live.peers.get('dw1')?.entity;
+      check(e?.emote?.k === 'pull' && EMOTES.push && EMOTES.pull, `the peer: ${e?.emote?.k}`);
+    } finally {
+      game.social.emote = emote; clearKeys(); D.reset(); game.mouse = mouse; game.live.peers.delete('dw1');
+      if (W.doorClosed(...door) !== was) W.toggleDoor(...door);
+      for (const [x, y] of gx) W.setTile(x, y, 'air');
+    }
+  });
   await test('salvage (english): full refund within 10 minutes; after it planks 50 %, stone 75 %, thatch 0; old pieces need a hold', async () => {
     check(JSON.stringify([[['tablas', 2]], [['tablas', 3]], [['tablas', 1]], [['piedra', 3]], [['piedra', 2]], [['tablas', 2], ['piedra', 1]], [['fibra', 3]], [['tablas', 2], ['tela', 1]]].map(salvage)) === JSON.stringify([[['tablas', 1]], [['tablas', 1]], [['tablas', 1]], [['piedra', 2]], [['piedra', 1]], [['tablas', 1], ['piedra', 1]], [], [['tablas', 1]]]), 'what comes back');
     const W = w(), B = game.build, I = inv(), mouse = game.mouse, [x, y] = openGround(), kept = I.slots.slice();
@@ -12056,8 +12245,8 @@ async function soloTests(game) {
         // the fence taken away: loose, where it stands
         W0.setTile(fx, fy, 'air'); a.tiedS.check = 0; RN().moveHorse(a, 1 / 20, false); check(!a.tie && Math.abs(a.at[0] - a.x) < 0.3, `a removed fence: ${a.tie}`);
         // the post: two horses, two knots; E on the post unties yours; riding unties
-        const K1 = L.knotOn(po, b.x, b.y); L.tie(b, K1); const K2 = L.knotOn(po, b.x, b.y); check(Math.hypot(K1.x - K2.x, K1.y - K2.y) > 0.3, 'two knots in one'); L.tie(a, K2); check(a.tie && b.tie, 'both'); const un = RN().objectAction(po); check(un?.text.startsWith(t('horse.menu.untie')) && un.alt, `E on the post: ${un?.text}`);
-        un.run(); check(!a.tie !== !b.tie, 'untied'); { const free = a.tie ? b : a, bound = a.tie ? a : b, k0 = bound.tie; free.x = po.x; free.y = po.y - 1.6; delete bound.tie; const by = RN().objectAction(po); check(by?.text.startsWith(t('horse.menu.tie', { name: '' }).trim().split(' ')[0]) && by.alt, `E on the post with one by it: ${by?.text}`); bound.tie = k0; } const c = a.tie ? a : b; RN().mount(c); check(!c.tie && c.rider === myId(), 'ridden and tied'); RN().dismount(); HS().update(0.01);
+        const K1 = L.knotOn(po, b.x, b.y); L.tie(b, K1); const K2 = L.knotOn(po, b.x, b.y); check(Math.hypot(K1.x - K2.x, K1.y - K2.y) > 0.3, 'two knots in one'); L.tie(a, K2); check(a.tie && b.tie, 'both'); const un = RN().objectAction(po); check(un?.text.startsWith(t('horse.menu.untie')) && !un.alt, `E on the post: ${un?.text} (X takes the post down only in build mode)`);
+        un.run(); check(!a.tie !== !b.tie, 'untied'); { const free = a.tie ? b : a, bound = a.tie ? a : b, k0 = bound.tie; free.x = po.x; free.y = po.y - 1.6; delete bound.tie; const by = RN().objectAction(po); check(by?.text.startsWith(t('horse.menu.tie', { name: '' }).trim().split(' ')[0]) && !by.alt, `E on the post with one by it: ${by?.text}`); bound.tie = k0; } const c = a.tie ? a : b; RN().mount(c); check(!c.tie && c.rider === myId(), 'ridden and tied'); RN().dismount(); HS().update(0.01);
         // a tree
         const tree = { kind: 'oak', x: p().x + 1.5, y: p().y, col: { x: 0, y: 0, r: 0.4 } }; const kt = L.knotOn(tree, p().x, p().y); check(kt?.kind === 'tree' && kt.r > 0.1 && kt.r < 0.3 && !L.knotOn({ ...tree, sapling: true }, 0, 0) && !L.knotOn({ ...tree, kind: 'bush' }, 0, 0), 'a tree');
       });

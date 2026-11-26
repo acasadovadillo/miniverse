@@ -46,6 +46,7 @@ import { setRenderer as contactRenderer, contactOn, contactSun, contactRestored 
 import { TONE_MAPPING, CURVA, lightAt, toneOut } from './look.js';
 import { preloadPhotos, photosSettled } from './photos.js';
 import { trackVram, vramLost } from './vram.js';
+import { lightRoom, areaVersion, LIGHT_BOXES } from '../structure.js';
 
 const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
 const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
@@ -54,13 +55,43 @@ const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
 // píxel aunque estén apagadas (de día) o el píxel quede fuera de su alcance: buena parte del trabajo de la
 // gráfica. Aquí, cada una se salta donde no da luz (su color, ya con la distancia, es cero): sale lo mismo, porque
 // lo que se saltaba sumaba cero. (Antes de que se compile ningún material: el trozo es común a todos.)
+// And each one only where it really reaches (structure.js lightRoom): a light inside a closed room does not go through its
+// walls, its roof or its floor, only out of its open doors and windows. POINT_ROOMS: per light, LIGHT_BOXES boxes of the world
+// (two vec4 each: x0 h0 y0 on, x1 h1 y1 soft), shared by every material (the same Vector4s in all their uniforms: ShaderLib's
+// array is copied, not its items); with its first box off, the light lights all round as before. The point of the pixel in the
+// world comes from the view one (the view matrix has no scale). ?roomlight=0: no clipping, as before
+const ROOM_LIGHT = !apagada('roomlight'), ROOM_W = LIGHT_BOXES * 2;
+export const POINT_ROOMS = Array.from({ length: 6 * ROOM_W }, () => new THREE.Vector4());
 {
   const C = THREE.ShaderChunk, from = C.lights_fragment_begin.indexOf('for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {'), call = '\t\tRE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
+  const head = '#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )\n', top = C.lights_fragment_begin.indexOf(head);
   const at = C.lights_fragment_begin.indexOf(call, from);
-  if (from >= 0 && at > from) C.lights_fragment_begin = C.lights_fragment_begin.slice(0, at) + '\t\tif ( directLight.visible ) ' + call.trimStart() + C.lights_fragment_begin.slice(at + call.length);
-  else console.warn('Luces de cerca: el trozo de Three ha cambiado y no se ahorran');
+  const clip = ROOM_LIGHT ? '\t\tif ( directLight.visible ) { float lrK = pointRoomK( UNROLLED_LOOP_INDEX, lrP ); directLight.color *= lrK; directLight.visible = lrK > 0.0; }\n' : '';
+  if (from >= 0 && at > from && top >= 0 && top < from) {
+    const L = C.lights_fragment_begin, pos = ROOM_LIGHT ? '\tvec3 lrP = ( vec4( geometryPosition - viewMatrix[ 3 ].xyz, 0.0 ) * viewMatrix ).xyz;\n' : '';
+    C.lights_fragment_begin = L.slice(0, top + head.length) + pos + L.slice(top + head.length, at) + clip + '\t\tif ( directLight.visible ) ' + call.trimStart() + L.slice(at + call.length);
+    if (ROOM_LIGHT) {
+      C.lights_pars_begin += `
+#if NUM_POINT_LIGHTS > 0
+uniform vec4 pointRooms[ NUM_POINT_LIGHTS * ${ROOM_W} ];
+float pointRoomK( const in int i, const in vec3 p ) {
+	if ( pointRooms[ i * ${ROOM_W} ].w < 0.5 ) return 1.0;
+	float k = 0.0;
+	for ( int b = 0; b < ${LIGHT_BOXES}; b ++ ) {
+		vec4 lo = pointRooms[ i * ${ROOM_W} + b * 2 ], hi = pointRooms[ i * ${ROOM_W} + b * 2 + 1 ];
+		if ( lo.w < 0.5 ) break;
+		float d = length( max( max( lo.xyz - p, p - hi.xyz ), 0.0 ) );
+		k = max( k, hi.w > 0.0 ? 1.0 - smoothstep( 0.0, hi.w, d ) : step( d, 0.0 ) );
+	}
+	return k;
+}
+#endif`;
+      for (const S of Object.values(THREE.ShaderLib)) if (S.uniforms?.pointLights) S.uniforms.pointRooms = { value: POINT_ROOMS };
+    }
+  } else console.warn('Luces de cerca: el trozo de Three ha cambiado y no se ahorran');
 }
 
+const ROOM_EVERY = 250;   // ms (see lightBoxes)
 const SWIM_EYE = 0.7;   // (ver feetY)
 const FAR = 420;        // (how far the camera sees, as made: under the water, only to the end of the fog)
 // Diving (docs/planes/gta/PLAN-D-barras-buceo.md §4.3; ?buceo=0 turns it off: no underwater camera, as before). With the
@@ -683,8 +714,33 @@ export class View3D {
       l.distance = s.range || 8;
       const flick = s.flicker ? 0.86 + Math.sin(t * 13 + i) * 0.07 + Math.sin(t * 29 + i * 2) * 0.06 : 1;
       l.intensity = (s.intensity ?? 3) * flick * (s.always ? 1 : 0.35 + 0.65 * Math.max(this.night, this.cave ? 1 : 0, game.indoors && !game.underGlass ? 0.8 : 0));
+      if (ROOM_LIGHT) this.clipLight(i, this.lightBoxes(s, scene, game));
     });
+    if (ROOM_LIGHT) for (let i = 0; i < this.pool.length; i++) if (!this.pool[i].intensity) POINT_ROOMS[i * ROOM_W].w = 0;
     return { src, lit };
+  }
+  // The boxes of a near light (structure.js lightRoom), kept on it: looked at again every ROOM_EVERY ms, and worked out again
+  // only when something around it changed (a door, a wall, a window: areaVersion). In a cave, or for one of the actors (a
+  // player's lantern), none
+  lightBoxes(s, scene, game) {
+    if (this.cave || !scene || scene !== game.world || s.x === undefined || !scene.deltas) return null;
+    const now = performance.now(), c = s.room;
+    if (c && c.scene === scene && now - c.at < ROOM_EVERY) return c.boxes;
+    const v = areaVersion(scene, Math.floor(s.x), Math.floor(s.z));
+    if (c && c.scene === scene && c.v === v) { c.at = now; return c.boxes; }
+    let boxes = null;
+    try { boxes = lightRoom(scene, s.x, s.z); } catch (e) { console.warn(e); }
+    s.room = { scene, v, at: now, boxes };
+    return boxes;
+  }
+  clipLight(i, boxes) {
+    const R = POINT_ROOMS, o = i * ROOM_W;
+    if (!boxes) { R[o].w = 0; return; }
+    for (let b = 0; b < LIGHT_BOXES; b++) {
+      const q = boxes[b], lo = R[o + b * 2], hi = R[o + b * 2 + 1];
+      if (!q) { lo.w = 0; return; }
+      lo.set(q[0], q[4], q[1], 1); hi.set(q[2], q[5], q[3], q[6]);
+    }
   }
   // Tres pasadas: el mundo (el jugador solo deja su sombra), su silueta donde algo lo tapa y el jugador.
   // En primera persona, solo la primera: el cuerpo no se ve, pero sigue dando sombra (y la barca o el

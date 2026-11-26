@@ -50,6 +50,7 @@ export class Prompts {
       if (near.npc) head = g.talk.focus(near.npc, near.n, true);   // (a neighbour: their tag over the rows, so these say no name)
       this.add('E', head ? near.row : near.text);
       if (near.alt) this.add('X', near.alt.hold ? `${near.alt.text} ${t('prompt.hold')}` : near.alt.text, near.alt.hold || 0, true);
+      else if (near.inB) this.add('B', t('prompt.take_down_in_b'), 0, true);   // (built: taken down only in build mode, game.js inB)
       this.click = !!prey;
       if (prey) this.add('mouse:l', t('prompt.attack'), 0, true);
     }

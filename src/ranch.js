@@ -1082,7 +1082,7 @@ export class Ranch {
       }
       case 'caseta': case 'cojin': {   // (se usan con E; se recogen con X)
         const list = this.livingIn(o.tile);
-        return { text: `${ITEMS[o.placed].name}: ${list.length ? list[0].name : 'vacío'}`, run: () => this.houseMenu(o), alt: { text: `Recoger ${ITEMS[o.placed].name.toLowerCase()}`, run: () => this.game.pickUp(o) } };
+        return { text: `${ITEMS[o.placed].name}: ${list.length ? list[0].name : 'vacío'}`, run: () => this.houseMenu(o), alt: this.game.xTakes(o) ? { text: `Recoger ${ITEMS[o.placed].name.toLowerCase()}`, run: () => this.game.pickUp(o) } : null };   // (built: only in build mode, game.js xTakes)
       }
       case 'silo': {
         const cap = this.siloCap, hay = this.farm.hay, have = inv.count('heno');
@@ -1176,7 +1176,7 @@ export class Ranch {
   // The scarecrow (pests.js): a garment in the hand goes on it (what it had on comes back); with none, what it wears is taken
   // off. Dressed, it scares far more
   scarecrowAction(o, d, k) {
-    const g = this.game, inv = g.inv, on = ITEMS[d.garb?.[k]?.id] ? d.garb[k] : null, pick = { text: tr('farm.scarecrow.dismantle'), run: () => g.pickUp(o) };
+    const g = this.game, inv = g.inv, on = ITEMS[d.garb?.[k]?.id] ? d.garb[k] : null, pick = g.xTakes(o) ? { text: tr('farm.scarecrow.dismantle'), run: () => g.pickUp(o) } : null;
     const held = inv.held, dress = held && SHIRTS.has(ITEMS[held.id]?.wear) ? held : null;
     const changed = () => { this.world.touch(Math.floor(o.tile[0] / CHUNK), Math.floor(o.tile[1] / CHUNK)); Audio.swish(); g.onSave?.(); };
     const takeOff = () => {
@@ -1200,7 +1200,7 @@ export class Ranch {
   }
   // The compost bin: what is in the hand goes in, if it rots; full, it takes its days; ready, the compost comes out
   compostAction(o, d, k) {
-    const g = this.game, inv = g.inv, pick = { text: tr('farm.compost.dismantle'), run: () => g.pickUp(o) };
+    const g = this.game, inv = g.inv, pick = g.xTakes(o) ? { text: tr('farm.compost.dismantle'), run: () => g.pickUp(o) } : null;
     const c = compostAt(d.compost?.[k], this.today), changed = () => { this.world.touch(Math.floor(o.tile[0] / CHUNK), Math.floor(o.tile[1] / CHUNK)); g.onSave?.(); };
     if (c.ready) return { text: tr('farm.compost.take', { n: COMPOST.gives }), alt: pick, run: () => {
       if (!compostAt(d.compost?.[k], this.today).ready) return;

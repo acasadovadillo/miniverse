@@ -347,7 +347,7 @@ export class World3D {
       const amount = prev ? prev.amount : scene.doorClosed(...d.tile) ? 0 : 1;
       leaf.userData.setAngle(amount);
       group.add(leaf);
-      this.doors.set(k, { leaf, amount, tile: d.tile, group });
+      this.doors.set(k, { leaf, amount, tile: d.tile, group, swing: d.swing || 1 });
     }
     group.matrixAutoUpdate = true;
     this.group.add(group);
@@ -949,6 +949,8 @@ export class World3D {
   // What the outline and the aim of the cursor need (outline.js): the leaf of a door or gate as it is now, a moored boat
   // and the instances of a tree ([instanced mesh, index, part type]), or null
   doorLeaf(tile) { return this.doors.get(`${tile[0]},${tile[1]}`)?.leaf || null; }
+  // (the side its leaf opens to, along the way through it: +1 or -1; doorwalk.js, to push it or pull it. Undefined if not drawn)
+  doorSwing(tile) { return this.doors.get(`${tile[0]},${tile[1]}`)?.swing; }
   // What spins of the model placed at (x, y), as it turns (the wheel of a noria)
   spinningAt(x, y) {
     let out = null;

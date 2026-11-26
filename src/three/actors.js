@@ -1205,6 +1205,11 @@ export const EMOTES = {
   roll: { dur: 0.75, pose: (k, s) => { const a = Math.min(1, k * 5, (1 - k) * 3.2), f = k < 0.45 ? Math.sin(k / 0.45 * Math.PI) : -0.5 * Math.sin((k - 0.45) / 0.55 * Math.PI); return { ax: -0.95 * a - 0.3 * f * a, az: -s * 0.08 * a, fx: -0.75 * a - 0.5 * f * a, tx: 0.16 * a, hx: 0.14 * a }; } },
   place: { dur: 0.95, pose: (k, s) => { const a = Math.min(1, k * 3.4, (1 - k) * 2.8), q = a * a * (3 - 2 * a); return { ax: -1.12 * q, az: -s * 0.1 * q, fx: -0.22 * q, tx: 0.3 * q, hx: 0.2 * q }; } },
   cheer: { dur: 1.1, both: true, pose: (k, s) => { const a = Math.min(1, k * 5, (1 - k) * 4), p = Math.sin(k * Math.PI * 6) ** 2; return { ax: (-2.3 - 0.2 * p) * a, az: s * 0.3 * a, fx: -0.6 * a, hx: -0.14 * a }; } },
+  // A door or a gate by hand (doorwalk.js; the leaf swings at CONTACT): push, the forearm up bent and then out straight at chest
+  // height, the trunk leaning in, held while it swings and back; riding, lower, leaning down to a gate. pull: the arm out to
+  // the handle, then drawn back with the elbow bent, the trunk leaning back a touch
+  push: { dur: 0.9, pose: (k, s, ride) => ride ? { ax: keys(PUSH.ax, k) + 0.3, az: s * 0.1, fx: keys(PUSH.fx, k), tx: keys(PUSH.tx, k) + 0.28, hx: 0.12 } : { ax: keys(PUSH.ax, k), az: s * 0.08, fx: keys(PUSH.fx, k), tx: keys(PUSH.tx, k), hx: 0.06 } },
+  pull: { dur: 1.0, pose: (k, s) => ({ ax: keys(PULL.ax, k), az: s * 0.1, fx: keys(PULL.fx, k), tx: keys(PULL.tx, k), hx: 0.05 }) },
   // whistle: the fingers to the mouth, the head up a touch, held for about half a second
   whistle: { dur: 0.9, pose: (k, s) => ({ ax: -1.2, az: -s * 0.1, ay: -s * 0.85, fx: -2.25, hx: -0.06 }) },
 };
@@ -1239,6 +1244,16 @@ function shiverBones(m, P, k, t, player) {
   P.torso.rotation.x += 0.07 * k; P.torso.rotation.z += tr * 0.5;
   P.head.rotation.x += 0.08 * k;
 }
+const PUSH = {
+  ax: [[0, -0.3], [0.22, -1.1], [0.38, -1.32], [0.75, -1.3], [1, -0.3]],
+  fx: [[0, -0.4], [0.22, -1.45], [0.38, -0.12], [0.75, -0.2], [1, -0.4]],
+  tx: [[0, 0], [0.22, 0.04], [0.38, 0.16], [0.75, 0.12], [1, 0]],
+};
+const PULL = {
+  ax: [[0, -0.3], [0.3, -1.35], [0.42, -1.35], [0.78, -0.8], [1, -0.3]],
+  fx: [[0, -0.4], [0.3, -0.12], [0.42, -0.15], [0.78, -1.45], [1, -0.4]],
+  tx: [[0, 0], [0.3, 0.14], [0.42, 0.12], [0.78, -0.08], [1, 0]],
+};
 const DRINK = {
   ax: [[0, -0.2], [0.25, -0.55], [0.5, -1.05], [0.7, -1.05], [1, -0.2]],
   az: [[0, 0.1], [0.25, -0.12], [0.5, -0.22], [0.7, -0.22], [1, 0.1]],

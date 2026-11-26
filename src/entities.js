@@ -187,7 +187,9 @@ export class Player extends Person {
   update(dt, keys, scene) {
     if (this.mount || this.boat || this.pushing) this.crouch = false;   // (agachado no se monta ni se rema; nor pushing the wheelbarrow)
     const sx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), sy = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
-    const l = Math.hypot(sx, sy);
+    // (steer: a way to walk of the world's, { x, y } of length 1, when no key says one: walking up to a door, doorwalk.js)
+    const st = !sx && !sy && this.steer ? this.steer : null;
+    const l = st ? 1 : Math.hypot(sx, sy);
     if (this.mount || this.boat || this.aboard || this.ghost || this.pose) { this.swim = false; this.dive = 0; }
     // (en el agua: nadando, más despacio y agachado no frena, que es para hundirse; andando, cuanto más hondo más cuesta)
     const wade = this.wading ? 1 - 0.45 * clamp(this.depth / SWIM_OUT, 0, 1) : 1;
@@ -201,7 +203,7 @@ export class Player extends Person {
     // (nadando, cada brazada lleva; letting go of the keys always stops, at any speed and on anything: on foot, riding,
     // rowing and pushing in a fifth of a second or so, swimming in under half a second: STOP_SWIM)
     const k = 1 - Math.exp(-dt * (this.swim ? (l ? 3 : STOP_SWIM) : 14));
-    const [dx, dy] = screenToWorld(sx, sy);
+    const [dx, dy] = st ? [st.x, st.y] : screenToWorld(sx, sy);
     let wx = dx * speed, wy = dy * speed;
     // (pushing the wheelbarrow, only along it: forwards, or back at half the speed; the keys to a side turn it, see below)
     const push = this.pushing && !this.ghost;
@@ -281,7 +283,7 @@ export class Player extends Person {
     // (pushing, where the keys point, not where it goes: it goes only along the wheelbarrow)
     const kx = push ? dx : wx, ky = push ? dy : wy;
     let want = null;
-    if (sx || sy) { const fl = Math.hypot(kx, ky); if (fl > 1e-9) { want = { x: kx / fl, y: ky / fl }; this.dir = [kx, ky]; } }
+    if (sx || sy || st) { const fl = Math.hypot(kx, ky); if (fl > 1e-9) { want = { x: kx / fl, y: ky / fl }; this.dir = [kx, ky]; } }
     // Arriba o abajo: de espaldas o de frente; solo a los lados: de perfil
     // Mira hacia donde anda: 8 direcciones (de frente, de espaldas, los dos perfiles y las cuatro diagonales)
     if (sx || sy) [this.view, this.flip] = viewFor(sx, sy);
