@@ -522,7 +522,7 @@ export function initMenus(game) {
   // (la vista previa es el mismo modelo en 3D que en el juego)
   const look = { ...DEFAULT_LOOK };
   const preview = new CharacterPreview($('cr-canvas'));
-  // Pages (Q and E, or their tabs): body and clothes, face and hair (on the face, the camera comes closer to the head). Each has
+  // Pages (Q and E, or their tabs): body and clothes, face and hair (on the face and the hair, the camera comes closer to the head). Each has
   // its rows, «Label ‹ Value ›» (frontend.js optionRow). They are made again each time it opens (buildRows): the mirror and the
   // barber leave some out, and the language may be another
   const PAGES = ['cuerpo', 'cara', 'pelo'];   // (gui.creator.page.*)
@@ -584,7 +584,7 @@ export function initMenus(game) {
     if (document.activeElement === nameIn) nameIn.blur();
     paintRows();
     L.focus(rows.findIndex(x => !x.el.hidden));
-    const near = id === 'cara' || !!mirror?.barber || (!!mirror && id === 'pelo');
+    const near = id === 'cara' || id === 'pelo' || !!mirror?.barber;
     preview.focus(near ? 'face' : 'body');
     $('cr-stage').classList.toggle('near', near);
   }

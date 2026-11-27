@@ -2638,7 +2638,7 @@ async function soloTests(game) {
       }
       pauseKey('KeyE');
     }
-    check(crTab() === 'cuerpo', 'E does not go round'); pauseKey('KeyQ'); check(crTab() === 'pelo', 'Q'); pauseKey('Digit2'); check(crTab() === 'cara', '2'); document.querySelector('#cr-tabs [data-tab=cuerpo]').click(); check(crTab() === 'cuerpo', 'a tab');
+    check(crTab() === 'cuerpo', 'E does not go round'); pauseKey('KeyQ'); check(crTab() === 'pelo', 'Q'); check($('cr-stage').classList.contains('near'), 'the hair page comes closer to the head'); pauseKey('Digit2'); check(crTab() === 'cara', '2'); document.querySelector('#cr-tabs [data-tab=cuerpo]').click(); check(crTab() === 'cuerpo', 'a tab');
     $('cr-name').value = 'Vera'; $('cr-name').dispatchEvent(new Event('input', { bubbles: true }));
     crRow('accent').querySelectorAll('.fe-sw button')[6].click(); check(me() === ACCENTS[6] && crRow('accent').querySelector('b').textContent === t('gui.settings.row.accent.sky'), `your colour: ${me()}`);
     crRow('skin').querySelectorAll('.fe-sw button')[4].click(); check(crRow('skin').querySelector('b').textContent.startsWith('5'), 'a swatch'); pauseKey('KeyR'); check(FE.active() === 's-creator' && me() === ACCENTS[6], 'R');
