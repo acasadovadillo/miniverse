@@ -202,6 +202,16 @@ const BUILD = {
   pan: loaf('#b8783a'), pan_bellota: loaf('#7a4e2c', true),
   tostada_miel: g => { add(g, new THREE.BoxGeometry(1, 1, 1), M('#c8904a', { roughness: 0.9 }), [0, 0, 0], [0.1, 0.018, 0.09]); add(g, new THREE.BoxGeometry(1, 1, 1), M('#e0a030', { roughness: 0.15 }), [0, 0.011, 0], [0.08, 0.004, 0.07]); },
   tarta_calabaza: pie('#d8782a'),
+  // (the wedding's: three tiers of white icing on a plate, piped round the foot of each, strawberries on top; missions/wedding.js)
+  wedding_cake: g => {
+    add(g, CYL, M('#f0ece0', { roughness: 0.4 }), [0, -0.025, 0], [0.105, 0.006, 0.105]);
+    [[0.085, 0.05, -0.0], [0.062, 0.042, 0.046], [0.042, 0.038, 0.086]].forEach(([r, h, y]) => {
+      add(g, CYL, M('#f4ecdc', { roughness: 0.45 }), [0, y - 0.02 + h / 2, 0], [r, h, r]);
+      add(g, TORUS, M('#fbf5ea', { roughness: 0.45 }), [0, y - 0.017, 0], [r, r, 0.03], [Math.PI / 2, 0, 0]);
+    });
+    add(g, CYL, M('#ecd2d0', { roughness: 0.6 }), [0, 0.0, 0], [0.086, 0.01, 0.086]);
+    for (let i = 0; i < 4; i++) { const a = i * 1.57 + 0.4; add(g, BALL, M('#b8243a', { roughness: 0.45 }), [Math.cos(a) * 0.022, 0.108, Math.sin(a) * 0.022], 0.008); }
+  },
   estofado: bowl('#8a7a3a', ['#6a8a4a', '#c86a3a']), sopa_verduras: bowl('#b89a50', ['#d8742a', '#5a8a3a', '#e0c040']),
   palomitas: g => { add(g, CONE, M('#e8e0d0', { roughness: 1 }), [0, -0.03, 0], [0.045, -0.11, 0.045]); for (let i = 0; i < 9; i++) { const a = i * 2.3; add(g, LUMP, M('#f4ecd0', { roughness: 1 }), [Math.cos(a) * 0.025, 0.03 + (i % 3) * 0.01, Math.sin(a) * 0.025], 0.014); } },
   mermelada: jar('#5a2a4a'), mermelada_fresa: jar('#a8242a'), miel: jar('#d89a28', '#e8dcc0'),

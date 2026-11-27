@@ -240,6 +240,8 @@ const HORSE_THINGS = new Set(['trough', 'hitching_post']);   // (longer than a t
 // (a hunted carcass, gutted: quality.js, the record's second; with Settings › blood off, as the others)
 for (const id of ['carcass_deer', 'carcass_hind', 'carcass_boar']) STORES[id] = (d, t) => (d.cq?.[t]?.[1] > 0 && Gore.on ? id + ':gutted' : undefined);
 const BIG_HOUSE = new Set(['gallinero', 'establo']);   // (con la puerta abierta o cerrada)
+// (the wedding arch: only its two posts are solid, one walks under it; three/wedding3d.js ARCH_POSTS)
+function archPosts(x, y, a, colliders) { const [ux, uy] = sideOf(a); for (const u of [-0.3, 1.3]) colliders.push({ x: x + ux * u, y: y + uy * u, r: 0.13 }); }
 function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   Object.assign(o, { x, y, yaw: a, rot, free: true, glow: GLOW[id] });
   const [ux, uy] = sideOf(a), [vx, vy] = dirOf(a);
@@ -253,6 +255,7 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   // (el pozo: lo bajo, la losa y el brocal; el tejadillo vuela por encima de la cabeza y no quita sitio a la casilla de al
   // lado, que se puede cercar o labrar pegada)
   else if (wellSpec(id)) { const s = placeBoxes([hull(local.filter(l => l[1] < wellSpec(id).low))], x, y, a)[0]; colliders.push({ ...bounds(s), obb: s, free: true }); }
+  else if (id === 'wedding_arch') archPosts(x, y, a, colliders);
   // (a hitching post is low: on horseback it is jumped, as a fence)
   else colliders.push({ ...bounds(box), obb: box, free: true, ...(id === 'hitching_post' && { low: true }) });
   for (const s of placeBoxes(local, x, y, a)) solids.push(s);
@@ -278,6 +281,7 @@ function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
     const ts = [[tx, ty], ...extraTiles(id, tx, ty, rot)], xs = ts.map(t => t[0]), ys = ts.map(t => t[1]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, y0 = Math.min(...ys), y1 = Math.max(...ys) + 1;
     o.fx = [x0 + sx, x1 + sx]; o.fy = [y0 + sy, y1 + sy];
+    if (id === 'wedding_arch') { archPosts(o.x, o.y, o.yaw, colliders); return false; }
     colliders.push({ x0: x0 + 0.06 + sx, y0: y0 + 0.06 + sy, x1: x1 - 0.06 + sx, y1: y1 - 0.06 + sy });
     // (la mesa grande se dibuja de su tamaño, centrada en lo que ocupa y sin girar)
     if (LONG[id] === 'table') Object.assign(o, { x: (x0 + x1) / 2, y: (y0 + y1) / 2, yaw: 0, model: `mesa_grande:${x1 - x0}x${y1 - y0}` });

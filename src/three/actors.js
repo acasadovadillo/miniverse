@@ -1258,6 +1258,9 @@ export const EMOTES = {
   // the handle, then drawn back with the elbow bent, the trunk leaning back a touch
   push: { dur: 0.9, pose: (k, s, ride) => ride ? { ax: keys(PUSH.ax, k) + 0.3, az: s * 0.1, fx: keys(PUSH.fx, k), tx: keys(PUSH.tx, k) + 0.28, hx: 0.12 } : { ax: keys(PUSH.ax, k), az: s * 0.08, fx: keys(PUSH.fx, k), tx: keys(PUSH.tx, k), hx: 0.06 } },
   pull: { dur: 1.0, pose: (k, s) => ({ ax: keys(PULL.ax, k), az: s * 0.1, fx: keys(PULL.fx, k), tx: keys(PULL.tx, k), hx: 0.05 }) },
+  // kiss (the wedding, missions/wedding.js): facing the other, both arms round them at the waist, the trunk leaning in and the head
+  // tilted, held a moment and back
+  kiss: { dur: 2.0, both: true, pose: (k, s) => { const a = Math.min(1, k * 3.2, (1 - k) * 3), q = a * a * (3 - 2 * a); return { ax: -0.62 * q, az: -s * 0.42 * q, fx: -1.05 * q, tx: 0.16 * q, hx: 0.1 * q, hz: 0.2 * q }; } },
   // whistle: the fingers to the mouth, the head up a touch, held for about half a second
   whistle: { dur: 0.9, pose: (k, s) => ({ ax: -1.2, az: -s * 0.1, ay: -s * 0.85, fx: -2.25, hx: -0.06 }) },
 };

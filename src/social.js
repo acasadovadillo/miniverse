@@ -41,7 +41,7 @@ const MY_LIFE = 2.6, NPC_LIFE = 2.8, STAY = 1.8;   // s: how long the bubbles la
 // the cupped hand (needs.drinkAt plays it again while drinking; its animation is three/actors.js EMOTES.drink: an old
 // client without it shows 'wave', live.js). 'scrub': washing at a river or a lake, or at a basin (body.js, Plan E §4.2);
 // 'shiver': the cold as a gesture (actors.js EMOTES; the idle shiver itself is drawn from st.bd)
-export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink', 'scrub', 'shiver', 'brush', 'pat', 'whistle', 'talk', 'think', 'inspect', 'pay', 'stagger', 'arrest', 'push', 'pull'];   // (append only: the index travels as st.ek; brush, pat and whistle: the horse, Plan F §5.3; talk and think: a talk's, never sent, talk.js)
+export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink', 'scrub', 'shiver', 'brush', 'pat', 'whistle', 'talk', 'think', 'inspect', 'pay', 'stagger', 'arrest', 'push', 'pull', 'kiss'];   // (append only: the index travels as st.ek; brush, pat and whistle: the horse, Plan F §5.3; talk and think: a talk's, never sent, talk.js)
 export const PLAYER_LINES = ['social.say.greet.morning', 'social.say.greet.day', 'social.say.greet.evening', 'social.say.greet.night', 'social.say.greet_player', 'social.say.greet_partner', 'social.say.insult', 'social.say.insult_player', 'social.say.air', 'social.say.greet_stranger'];   // (only added at the end: they travel by index)
 const RELS = ['friend', 'neutral', 'cold'];
 const MEM_DAYS = 2;   // (a memory of today or the 2 days before: «the last 3 days» of relation())
@@ -111,6 +111,7 @@ export function areCouple(fam, x, y) {
   if (!fam || typeof x !== 'string' || typeof y !== 'string' || !x || !y || x === y) return false;
   const both = ids => Array.isArray(ids) && ids.includes(x) && ids.includes(y);
   if (Array.isArray(fam.kids) && fam.kids.some(k => both(k?.parents))) return true;
+  if (Array.isArray(fam.weddings) && fam.weddings.some(w => !w?.npc && both([w?.a, w?.b]))) return true;   // (married: missions/wedding.js)
   const e = fam.expecting;
   return !!e && typeof e.father === 'string' && both([e.mother, e.father]);
 }
@@ -394,7 +395,7 @@ export class Social {
     if (!peer?.entity || !id) return false;
     const both = ids => ids.includes(me) && ids.includes(id);
     const kids = Array.isArray(F.kids) ? F.kids : [], x = F.expecting;
-    if (kids.some(k => Array.isArray(k?.parents) && both(k.parents)) || (x?.father && both([x.mother, x.father]))) return true;
+    if (kids.some(k => Array.isArray(k?.parents) && both(k.parents)) || (x?.father && both([x.mother, x.father])) || areCouple(F, me, id)) return true;
     if (!kids.some(k => !Array.isArray(k?.parents)) && !(x && !x.father)) return false;   // (no child or pregnancy from before)
     const sex = e => e?.look?.sex || 'chico', mine = sex(g.player);
     const others = [...g.live.peers.values()].filter(q => q.playing && !q.server && q.entity && sex(q.entity) !== mine);
@@ -407,7 +408,7 @@ export class Social {
     if (!id || !me || id === me) return false;
     const both = ids => Array.isArray(ids) && ids.includes(me) && ids.includes(id);
     const kids = Array.isArray(F.kids) ? F.kids : [], x = F.expecting;
-    if (kids.some(k => both(k?.parents)) || (x?.father && both([x.mother, x.father]))) return true;
+    if (kids.some(k => both(k?.parents)) || (x?.father && both([x.mother, x.father])) || areCouple(F, me, id)) return true;
     for (const peer of g.live?.peers?.values() || []) if (peer.id === id && peer.entity) return this.isPartner(peer);
     return false;
   }

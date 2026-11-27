@@ -15,6 +15,7 @@ import { getModel } from './models.js';
 import { FishingView } from './fishing3d.js';
 import { ReinsView } from './reins3d.js';
 import { RodRestView } from './rodrest3d.js';
+import { Petals } from './wedding3d.js';
 import { FOUNTAIN_U } from './fountain3d.js';
 import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
@@ -105,6 +106,7 @@ export class Fx {
     const hs = new THREE.Shape(); hs.moveTo(0, -1); hs.bezierCurveTo(-1.4, -0.1, -1.15, 1, -0.5, 1); hs.bezierCurveTo(-0.2, 1, 0, 0.75, 0, 0.5); hs.bezierCurveTo(0, 0.75, 0.2, 1, 0.5, 1); hs.bezierCurveTo(1.15, 1, 1.4, -0.1, 0, -1);
     this.hearts = new THREE.InstancedMesh(new THREE.ExtrudeGeometry(hs, { depth: 0.28, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 2, curveSegments: 10 }).translate(0, 0, -0.14), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }), 96);
     this.hearts.count = 0; this.hearts.frustumCulled = false; this.hearts.renderOrder = 4; this.group.add(this.hearts);
+    this.petals = new Petals(this.group);   // (a wedding's: wedding3d.js)
     // Llamas de tres capas de cara a la cámara (fuera rojiza, en medio naranja, dentro casi blanca), chispas que suben y
     // humo de bocanadas suaves que crecen y se desvanecen
     const plane = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
@@ -238,6 +240,7 @@ export class Fx {
     this.updateChips(game, playing);
     this.updateRipples(t);
     this.updateHearts(game, scene, playing, t);
+    { const P = playing ? game.missions?.petalList() : null; if (P?.length || this.petals.mesh.count) this.petals.update(P || [], dt, gy, x => nearX(x, game.player.x)); }
     this.updateFlames(scene, t);
     this.updateSmoke(scene, t);
     this.updateFountains(t);

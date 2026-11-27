@@ -133,6 +133,7 @@ import * as TGT from './tg/tiles.js';
 import * as TGAI from './tg/ai.js';
 import * as DRIVE from './missions/drive.js';
 import * as SBOX from './missions/strongbox.js';
+import * as WED from './missions/wedding.js';
 import { Missions as MissionsCls } from './missions.js';
 const TG_CAPS = { games: GAMES_A_DAY, lost: LOST_A_DAY };
 import { wayRound } from './world/walkways.js';
@@ -12198,6 +12199,254 @@ async function soloTests(game) {
   });
   await test('play (english): the strongbox alone, with the keys', playBox(false));
   await test('play (english): the strongbox with a partner, with the keys', playBox(true));
+  // ---------- I-3: the wedding (missions/wedding.js) ----------
+  const WD = WED.wedding, WDL = WED.dbg.local;
+  const GUESTS4 = ['rosa', 'bruno', 'lia', 'dani'];
+  // (a clean family and friendships with everybody; Bea beside you as a peer when asked; everything put back after)
+  const wedded = (fn, { bea = true } = {}) => jobbed(async o => {
+    const M = o.M, F = game.family, L = live(), keep = { fam: structuredClone(F.v), was: { joined: L.joined, role: L.role, net: L.net }, slots: inv().slots.slice(), sel: inv().selected, mine: M.mine, ask: hud.ask, any: w().buildAnywhere, nilo: [w().nilo.x, w().nilo.y], mouse: game.mouse, mp: game.mousePoint, auto: game.talk.auto };
+    F.v = { kids: [], expecting: null }; M.mine = {}; WDL.kissed.clear(); WDL.bells.clear(); WDL.lines.clear(); WDL.asked = null; WDL.told.clear(); WED.petals.length = 0;
+    for (const id of ['nilo', 'anselmo', 'marta', 'eusebio', 'paco', 'ines', ...GUESTS4]) { Nb().friend(id).pts = 300; Nb().friend(id).intro = 0; }
+    const P = p(), sent = [], peer = { id: 'id-bea', name: 'Bea', playing: true, sc: 'world', entity: { update() {}, x: P.x + 1.4, y: P.y, to: [P.x + 1.4, P.y], look: {} } };
+    const bea = (x, y) => { peer.entity.x = x; peer.entity.y = y; peer.entity.to = [x, y]; };
+    const placed = [];
+    const arch = (cx = 21, cy = 31) => {   // (a wedding arch two tiles wide, as near (cx, cy) as there is room)
+      w().buildAnywhere = true;
+      try { for (let r = 0; r < 9; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const tx = cx + dx, ty = cy + dy; if (w().canPlace(tx, ty, 'wedding_arch', null, 0) && w().canPlace(tx, ty + 2, 'silla', null)) { w().place(tx, ty, 'wedding_arch', 0); placed.push([tx, ty]); return [tx, ty]; } } }
+      finally { w().buildAnywhere = keep.any; }
+      return null;
+    };
+    try {
+      if (bea) { L.joined = true; L.role = 'host'; L.net = { send: (m, to) => sent.push({ m, to }) }; L.peers.set('w-bea', peer); }
+      await fn({ ...o, M, F, peer, bea, sent, arch });
+    } catch (e) { console.log('wedding test stack:', String(e.stack).split('\n').slice(0, 4).join(' | ')); throw e; } finally {
+      for (const [x, y] of placed) w().unplace({ tile: [x, y], layer: 'placed', placed: 'wedding_arch' });
+      F.v = keep.fam; L.joined = keep.was.joined; L.role = keep.was.role; L.net = keep.was.net; L.peers.delete('w-bea'); M.mine = keep.mine; hud.ask = keep.ask; hud.closeDialog?.();
+      inv().slots.splice(0, inv().slots.length, ...keep.slots); inv().select(keep.sel); inv().changed(); WED.petals.length = 0; M.list.clear(); M.client();
+      [w().nilo.x, w().nilo.y] = keep.nilo; game.mouse = keep.mouse; game.mousePoint = keep.mp; delete game.aimed; w().buildAnywhere = keep.any; game.build.toggle(false); Tk().stop?.(); game.talk.auto = keep.auto; game.busy = false;
+    }
+  });
+  const archNear = (A, r = 2) => { game.teleport(A.x + Math.sin(A.yaw) * r, A.y + Math.cos(A.yaw) * r); };
+  // (the checklist of a job, done by asking as the game would: the arch, the rings, the feast and four guests)
+  const prepare = (M, j, tile, { rings = true } = {}) => {
+    const A = WED.archOf({ tile, x: tile[0] + 0.5, y: tile[1] + 0.5, yaw: 0 }); archNear(A);
+    let ok = true; M.event('arch', { tile }, v => { ok &&= v; });
+    if (rings) { inv().add('ring', 2); ok &&= WD.give(game, { ring: 2 }); }
+    for (const [k, n] of Object.entries(WED.FEAST)) inv().add(k, n);
+    ok &&= WD.give(game, { ...WED.FEAST });
+    for (const id of GUESTS4) M.event('invite', { npc: id }, v => { ok &&= v; });
+    return ok;
+  };
+  await test('job (english): wedding vote', wedded(async ({ M, F, peer, bea, sent, arch }) => {
+    // Who may marry whom: by a child, by an engagement; never twice
+    check(WED.partnerOf({ kids: [{ parents: ['a', 'b'] }] }, 'a') === 'b' && WED.partnerOf({ expecting: { mother: 'a', father: 'b' } }, 'b') === 'a' && !WED.partnerOf({ kids: [{ parents: ['a', 'b'] }], weddings: [{ a: 'b', b: 'a' }] }, 'a'), 'partnerOf');
+    check(M.why('wedding') === 'nopair' && M.posters().some(q => q.kind === 'wedding_npc') && !M.posters().some(q => q.kind === 'wedding'), 'alone: the neighbours\' wedding is offered');
+    // Engaged (Bea said yes to my ring): the ring goes once, also after a reload
+    await boardNear(); bea(p().x + 1.5, p().y); inv().add('ring', 1);
+    check(CLAIMS.wed(game, { by: 'id-bea', to: ME(), ev: 'engage', k: 'wed' }) && WED.engagedTo(F.v, ME()) === 'id-bea', `engaged: ${JSON.stringify(F.v.engaged)}`);
+    check(!CLAIMS.wed(game, { by: 'id-cris', to: ME(), ev: 'engage', k: 'wed' }), 'one engagement each');
+    M.client(); M.client(); check(inv().count('ring') === 0, `my ring went to Bea: ${inv().count('ring')}`);
+    { const o = {}; M.save(o); M.reset(JSON.parse(JSON.stringify(o))); M.client(); check(inv().count('ring') === 0, 'a reload takes nothing more'); }
+    check(M.why('wedding') === null && M.posters().some(q => q.kind === 'wedding') && !M.posters().some(q => q.kind === 'wedding_npc'), `engaged: the couple's wedding: ${M.why('wedding')}`);
+    M.accept('wedding'); const j = M.active;
+    check(j?.kind === 'wedding' && j.crew.join() === [ME(), 'id-bea'].join() && j.data.pair.join() === [ME(), 'id-bea'].join(), `taken by both: ${JSON.stringify(j && { crew: j.crew, data: j.data })}`); if (!j) return;
+    check(!CLAIMS.job(game, { by: 'id-cris', k: 'job', ev: 'join', jid: j.id }, {}, 'x', {}), 'nobody else joins a couple\'s wedding');
+    // The checklist: E on the bell before it is done says what is missing
+    const tile = arch(); check(tile, 'room for an arch'); if (!tile) return;
+    check(!CLAIMS.job(game, { by: ME(), k: 'job', ev: 'bell', jid: j.id }, {}, 'x', {}), 'no bell without the arch');
+    check(prepare(M, j, tile) && !WED.missing(j).length, `the checklist: ${WED.missing(j)} ${JSON.stringify(j.data)}`);
+    check(!inv().count('ring') && !inv().count('wedding_cake') && !CLAIMS.job(game, { by: ME(), k: 'job', ev: 'invite', jid: j.id, npc: 'nilo' }, {}, 'x', {}), 'what was given is gone; Nilo is no guest');
+    // The bell: both there. Bea far away: no
+    const A = j.data.arch; archNear(A, 2); bea(A.x + 40, A.y); const extra = {};
+    check(!CLAIMS.job(game, { by: ME(), k: 'job', ev: 'bell', jid: j.id }, {}, 'x', extra) && extra.why === 'both' && j.stage === 'prepare', 'the bell alone');
+    bea(A.x + 1, A.y + 1.5); const t0 = madridMs();
+    check(CLAIMS.job(game, { by: ME(), k: 'job', ev: 'bell', jid: j.id }, {}, 'x', {}) && j.stage === 'ceremony' && Math.abs(j.data.ceremonyAt - t0 - WED.LEAD_S * 1000) < 2000, `the bell: ${j.stage} ${j.data.ceremonyAt - t0}`);
+    // From then the guests go to the arch: every game works it out from the job alone
+    M.client(); const G = WED.dbg.G, off = game.days.now - madridMs();
+    check(G && G.jid === j.id && GUESTS4.every(id => G.by.has(id)), `the gathering: ${G && [...G.by.keys()]}`);
+    const n0 = Nb().people.find(n => n.id === 'rosa'), at = n0.whereAt(j.data.ceremonyAt + 5000 + off);
+    check(at.spot.kind === 'wedding' && !at.moving && Math.hypot(at.x - A.x, at.y - A.y) < 6, `Rosa at the arch: ${JSON.stringify({ x: at.x, y: at.y, k: at.spot.kind, m: at.moving })}`);
+    check(M.gatherAt('rosa', j.data.ceremonyAt - WED.LEAD_S * 1000 - 5000 + off) === null && n0.whereAt(j.data.ceremonyAt - WED.LEAD_S * 1000 - 5000 + off).spot.kind !== 'wedding', 'before the bell, as always');
+    // Vows: not before it begins; one alone does nothing; four minutes without the other's, back to the preparations
+    check(!CLAIMS.job(game, { by: ME(), k: 'job', ev: 'vow', jid: j.id }, {}, 'x', {}), 'a vow before it begins');
+    j.data = { ...j.data, ceremonyAt: madridMs() - 14000 }; M.changed();
+    check(CLAIMS.job(game, { by: ME(), k: 'job', ev: 'vow', jid: j.id }, {}, 'x', {}) && !j.done && j.data.vows.join() === ME() && !WED.married(F.v, ME(), 'id-bea'), 'one vow alone');
+    j.data = { ...j.data, ceremonyAt: madridMs() - (WED.VOW_S + 5) * 1000 }; M.runT = 1; M_run(1.1); M_run(1.1);
+    check(j.stage === 'prepare' && !j.data.ceremonyAt && !j.data.vows && !j.done, `back to the preparations: ${j.stage} ${JSON.stringify(j.data.vows)}`);
+    // Again, and both: married, the engagement gone, a couple from now on; each paid once
+    check(CLAIMS.job(game, { by: 'id-bea', k: 'job', ev: 'bell', jid: j.id }, {}, 'x', {}), 'Bea rings it');
+    j.data = { ...j.data, ceremonyAt: madridMs() - 14000 }; const rep0 = game.rep.v.pts, pts0 = Nb().friend('rosa').pts;
+    CLAIMS.job(game, { by: 'id-bea', k: 'job', ev: 'vow', jid: j.id }, {}, 'x', {}); check(!j.done, 'Bea alone');
+    CLAIMS.job(game, { by: ME(), k: 'job', ev: 'vow', jid: j.id }, {}, 'x', {});
+    check(j.done?.outcome === 'ok' && WED.married(F.v, ME(), 'id-bea') && !WED.engagedTo(F.v, ME()) && areCouple(F.v, ME(), 'id-bea') && game.social.isPartnerId('id-bea') && game.social.isPartner(peer), `married: ${JSON.stringify(j.done)} ${JSON.stringify(F.v.weddings)}`);
+    M.look(); const rings = inv().count('ring');
+    check(rings === 1 && game.rep.v.pts > rep0 && Nb().friend('rosa').pts >= pts0 + WED.FRIEND_WED, `rewards: ring ${rings}, rep ${game.rep.v.pts - rep0}, Rosa +${Nb().friend('rosa').pts - pts0}`);
+    { const o = {}; M.save(o); M.reset(JSON.parse(JSON.stringify(o))); M.look(); M.client(); check(inv().count('ring') === 1, 'paid once'); }
+    check(M.why('wedding') === 'nopair' && !CLAIMS.wed(game, { by: 'id-bea', to: ME(), ev: 'engage', k: 'wed' }), 'never twice: no new wedding, no new engagement');
+    // The kiss and the petals, here, near the arch
+    archNear(A, 1.2); bea(A.x + 0.8, A.y + 1.2); M.client();
+    check(WDL.kissed.has(j.id) && WED.petals.length > 50 && p().emote?.k === 'kiss', `kiss ${p().emote?.k}, petals ${WED.petals.length}`);
+    // Solo: the neighbours' wedding, once per world
+    L_off(); M.list.clear();
+    check(M.posters().some(q => q.kind === 'wedding_npc'), 'the neighbours\' wedding for the married too');
+    await boardNear(); M.accept('wedding_npc'); const k = M.active;
+    check(k?.kind === 'wedding_npc' && k.crew.join() === ME(), `solo: ${k?.kind}`); if (!k) return;
+    inv().add('ring', 1); check(!CLAIMS.job(game, { by: ME(), k: 'job', ev: 'invite', jid: k.id, npc: 'marta' }, {}, 'x', {}) && !WD.give(game, { ring: 1 }) && inv().count('ring') === 2, 'the bride is no guest; no rings');
+    check(prepare(M, k, tile, { rings: false }) && !WED.missing(k).length, `checklist ${WED.missing(k)}`);
+    archNear(k.data.arch, 2); check(CLAIMS.job(game, { by: ME(), k: 'job', ev: 'bell', jid: k.id }, {}, 'x', {}), 'the bell, alone');
+    const m0 = game.money; k.data = { ...k.data, ceremonyAt: madridMs() - (WED.NPC_S + 1) * 1000 }; M.runT = 1; M_run(1.1); M.look();
+    check(k.done?.outcome === 'ok' && WED.npcDone(F.v) && game.money - m0 === WED.PAY_NPC, `Marta and Eusebio married: ${JSON.stringify(k.done)} +${game.money - m0}`);
+    check(M.why('wedding_npc') === 'once', `once per world: ${M.why('wedding_npc')}`);
+  }));
+  function L_off() { const L = live(); L.peers.delete('w-bea'); }
+  const ringsIn = j => Object.values(j.data.gave || {}).reduce((s, q) => s + (q?.ring | 0), 0);
+  // Bea's game, apart, for a wedding: its own jobs, wallet, backpack and family (a copy of the host's, sent now and then)
+  const beaWed = () => {
+    const G = beaGame(); G.family = { v: structuredClone(game.family.v), hearts: [] }; G.player = { x: p().x, y: p().y, face: { x: 1, y: 0 }, name: 'Bea' }; G.live.nameOf = () => 'Ana';
+    G.neighbors.friend = () => ({ pts: 300 }); G.rep = { change() {} }; G.inv.room = () => 99; return G;
+  };
+  await test('dos (english): the wedding for two, requests lost, late and twice; one vow alone; the partner offline', wedded(async ({ M, F, peer, bea, arch }) => {
+    const r = seeded(13), q = [], Bg = beaWed(), BM = Bg.missions;
+    const asBea = fn => { const d = Object.getOwnPropertyDescriptor(Profile, 'id'); Object.defineProperty(Profile, 'id', { configurable: true, get: () => 'id-bea' }); try { return fn(); } finally { Object.defineProperty(Profile, 'id', d); } };
+    Bg.barrow.claim = (kind, k, data, done) => q.push({ kind, k, data: { ...data, by: 'id-bea', k: kind }, done, fate: r(), when: step + 1 + Math.floor(r() * 3) });
+    let step = 0, lost = 0, twice = 0;
+    const pump = () => {
+      for (const m of q.filter(m => !m.over && m.when <= step)) {
+        m.over = true;
+        if (m.fate < 0.2) { lost++; m.done(null); continue; }
+        const extra = {}; let ok = false;
+        try { ok = !!CLAIMS[m.kind](game, m.data, {}, m.k, extra); } catch { ok = false; }
+        if (m.fate > 0.9) { twice++; try { CLAIMS[m.kind](game, m.data, {}, m.k, {}); } catch { /* twice */ } }
+        m.done(m.fate < 0.3 ? null : { ok, ...extra });
+      }
+      q.splice(0, q.length, ...q.filter(m => !m.over));
+      asBea(() => { BM.share([...M.list.values()].map(x => structuredClone(x))); Bg.family.v = structuredClone(F.v); BM.slow = 0; BM.update(0.2); });
+    };
+    const pend = G2 => Object.values(G2.missions.mine).flatMap(q => q?.pend || []).reduce((s, P) => s + (P.what.ring | 0), 0);
+    const ringsAll = () => inv().count('ring') + Bg.inv.count('ring') + ringsIn(M.active || { data: {} }) + pend(game) + pend(Bg);
+    // Engaged; the job taken by me; Bea leaves her two rings, I bring the feast and the guests
+    await boardNear(); bea(p().x + 1.2, p().y); CLAIMS.wed(game, { by: 'id-bea', to: ME(), ev: 'engage', k: 'wed' }); M.client();
+    M.accept('wedding'); const j = M.active; check(j, 'taken'); if (!j) return;
+    const tile = arch(); check(tile, 'an arch'); if (!tile) return;
+    for (let i = 0; i < 3; i++) pump();
+    Bg.inv.add('ring', 3); const all0 = ringsAll();   // (Bea: the ring of the engagement and three more)
+    asBea(() => WD.give(Bg, { ring: 2 })); let worst = all0;
+    for (; step < 300 && (ringsIn(j) < 2 || pend(Bg)); step++) { if (step % 5 === 0) for (const P of Object.values(BM.mine).flatMap(q => q?.pend || [])) P.sent = 0; pump(); worst = Math.max(worst, ringsAll()); if (step === 40) asBea(() => { const o = {}; BM.save(o); BM.reset(JSON.parse(JSON.stringify(o))); }); }
+    check(ringsIn(j) === 2 && ringsAll() === all0 && worst === all0 && all0 === 4 && !pend(Bg), `the rings counted once: given ${ringsIn(j)}, all ${ringsAll()} of ${all0} (most ${worst}; Bea ${Bg.inv.count('ring')}, pending ${pend(Bg)})`);
+    prepare(M, j, tile, { rings: false }); check(!WED.missing(j).length, `checklist: ${WED.missing(j)}`);
+    // Bea goes offline: no bell; the stage waits; nothing is lost
+    peer.playing = false; M.lastSeen.set('id-bea', game.time - 700); M.runT = 0; M_run(0.2);
+    archNear(j.data.arch); check(M.isAway(j, 'id-bea') && !CLAIMS.job(game, { by: ME(), k: 'job', ev: 'bell', jid: j.id }, {}, 'x', {}) && !j.done, 'the partner offline: no bell, and the job waits');
+    game.time += 2000; M.runT = 0; M_run(0.2); check(!j.done, 'a wedding is patient: nobody gone fails it');
+    peer.playing = true; bea(j.data.arch.x + 1, j.data.arch.y + 1.4); M.lastSeen.set('id-bea', game.time); M.runT = 0; M_run(0.2);
+    check(!M.isAway(j, 'id-bea'), 'back');
+    // The bell, then only my vow: back to the preparations after four minutes; then both, through lossy requests
+    CLAIMS.job(game, { by: ME(), k: 'job', ev: 'bell', jid: j.id }, {}, 'x', {}); j.data = { ...j.data, ceremonyAt: madridMs() - 14000 };
+    CLAIMS.job(game, { by: ME(), k: 'job', ev: 'vow', jid: j.id }, {}, 'x', {});
+    j.data = { ...j.data, ceremonyAt: madridMs() - (WED.VOW_S + 5) * 1000 }; M.runT = 1; M_run(1.1); M_run(1.1);
+    check(j.stage === 'prepare' && !j.done && !WED.married(F.v, ME(), 'id-bea'), 'one vow alone: back');
+    CLAIMS.job(game, { by: ME(), k: 'job', ev: 'bell', jid: j.id }, {}, 'x', {}); j.data = { ...j.data, ceremonyAt: madridMs() - 14000 };
+    CLAIMS.job(game, { by: ME(), k: 'job', ev: 'vow', jid: j.id }, {}, 'x', {});
+    for (; step < 400 && !j.done; step++) { if (step % 3 === 0) asBea(() => BM.event('vow', {}, () => {})); pump(); }
+    for (let i = 0; i < 8; i++) { step++; pump(); }
+    M.look(); asBea(() => BM.look());
+    check(j.done?.outcome === 'ok' && WED.married(F.v, ME(), 'id-bea'), `married through lossy requests: ${JSON.stringify(j.done)} at ${step}`);
+    asBea(() => { const o = {}; BM.save(o); BM.reset(JSON.parse(JSON.stringify(o))); BM.share([...M.list.values()].map(x => structuredClone(x))); BM.look(); BM.client(); });
+    { const o = {}; M.save(o); M.reset(JSON.parse(JSON.stringify(o))); M.look(); M.client(); }
+    check(inv().count('ring') === 1 && Bg.inv.count('ring') === 3, `each one their ring, once: Ana ${inv().count('ring')}, Bea ${Bg.inv.count('ring')} (she kept 2)`);
+    check(lost > 0, `${lost} lost, ${twice} twice`);
+    console.log(`wedding two clients: ${step} steps, ${lost} requests lost, ${twice} twice`);
+    // Another couple's job that goes wrong: the rings given come back, once
+    F.v.weddings = []; F.v.engaged = [{ id: 'e2', a: ME(), b: 'id-bea', day: game.days.realDay - 30 }]; M.list.clear(); M.mine = {};
+    await boardNear(); bea(p().x + 1, p().y); M.accept('wedding'); const j2 = M.active; check(j2, 'taken again'); if (!j2) return;
+    inv().add('ring', 2); for (const [k, n] of Object.entries(WED.FEAST)) inv().add(k, n); WD.give(game, { ring: 2, ...WED.FEAST });
+    const had = inv().count('ring'), cake = inv().count('wedding_cake'); check(ringsIn(j2) === 2 && !cake, 'given'); check(CLAIMS.job(game, { by: 'id-bea', k: 'job', ev: 'leave', jid: j2.id }, {}, 'x', {}) && j2.done?.outcome === 'fail', 'Bea leaves: no wedding');
+    M.look(); M.client(); M.client(); { const o = {}; M.save(o); M.reset(JSON.parse(JSON.stringify(o))); M.client(); }
+    check(inv().count('ring') === had + 2 && inv().count('wedding_cake') === 1 && inv().count('estofado') === 3, `the rings and the feast back, once: ${had} → ${inv().count('ring')}, cake ${inv().count('wedding_cake')}`);
+  }));
+  await test('play (english): the wedding with the keys, and the neighbours\' wedding', wedded(async ({ M, F, peer, bea, sent, arch }) => {
+    // (the questions: the stub of the tests picks what each step wants, in order, and notes what was not offered)
+    const N = Nb(), wants = [], misses = []; game.talk.auto = null;
+    const keepNilo = { banco: game.craft.taught.has('banco'), told: game.hammerTold }; game.craft.taught.add('banco'); game.hammerTold = true;   // (Nilo's first words, over)
+    try {
+    hud.ask = (who, text, options) => { const want = wants.shift(), k = want == null ? options.length - 1 : options.findIndex(o => o.includes(want)); if (k < 0) misses.push(`«${want}» not in ${options}`); return Promise.resolve(k < 0 ? options.length - 1 : k); };
+    const clickSay = async () => { await until(() => document.querySelector('#dialog.show'), 3000, 'a line'); document.getElementById('dialog').click(); await sleep(5); };
+    const talkTo = async (id, opt, there = false) => { const n = id === 'nilo' ? null : N.people.find(q => q.id === id); if (!n) { game.teleport(w().nilo.x - 1.1, w().nilo.y); await frames(2); } else if (there) { game.teleport(n.x + Math.sin(n.yaw ?? 0) * 1.1, n.y + Math.cos(n.yaw ?? 0) * 1.1); await frames(2); } else put(id, p().x + 1.1, p().y); N.talk(id, n || undefined); await toList(id); await pickOpt(opt); };
+    // The ring, bought from Bruno (a gold ingot and an emerald)
+    inv().add('lingote_oro', 1); inv().add('esmeralda', 1);
+    wants.push(ITEMS.ring.name.toLowerCase(), t('npc.opt.bye')); const tr = N.trade('bruno'); await clickSay(); await tr;   // (his trades' window: «Hacer tratos» in a talk at his forge)
+    check(inv().count('ring') === 1 && !inv().count('lingote_oro'), `the ring bought: ${inv().count('ring')}`);
+    // Propose: the ring in the hand, E on Bea; her game says yes
+    await boardNear(); bea(p().x + 1.3, p().y); holdId('ring');
+    check(aimOn(a => a.sys === game.missions), 'Bea aimed at, with the ring'); await keyE();
+    check(sent.some(s => s.m.t === 'wed' && s.m.ev === 'ask' && s.to === 'w-bea'), `asked: ${JSON.stringify(sent.map(s => s.m.t))}`);
+    CLAIMS.wed(game, { by: 'id-bea', to: ME(), ev: 'engage', k: 'wed' }); M.heardWed('w-bea', peer, { t: 'wed', ev: 'yes' }); M.client();
+    check(WED.engagedTo(F.v, ME()) === 'id-bea' && !inv().count('ring'), 'engaged, the ring given');
+    // The job, from Nilo's talk
+    wants.push(t('job.take')); await talkTo('nilo', t('job.ask')); await sleep(10); const j = M.active;
+    check(j?.kind === 'wedding', `the job: ${j?.kind} ${misses}`); if (!j) return; Tk().stop();
+    // The arch, built with B (its plan bought from Dani), a carpenter's bench beside it; the cake, cooked
+    game.craft.learnPlan('wedding_arch'); const T0 = arch(21, 31); check(T0, 'room'); w().unplace({ tile: T0, layer: 'placed', placed: 'wedding_arch' });
+    w().buildAnywhere = true; w().place(T0[0] + 3, T0[1], 'banco', 0); w().place(T0[0] - 3, T0[1], 'cocina', 0);
+    for (const [k, n] of [['tablas', 6], ['madera', 4], ['margarita', 8], ['harina', 2], ['huevo', 2], ['leche', 1], ['miel', 1]]) inv().add(k, n);
+    game.teleport(T0[0] + 1, T0[1] + 2.5); await readyGround(game, 4000); await frames(3);
+    game.build.toggle(true); game.build.select('wedding_arch'); game.build.pointTo(T0); game.mousePoint = () => [T0[0] + 0.5, T0[1] + 0.5]; game.build.place(T0); await frames(2); game.build.toggle(false);
+    check(w().at('placed', ...T0)?.startsWith('wedding_arch') && !inv().count('tablas') && !inv().count('margarita'), `the arch built with B: ${w().at('placed', ...T0)} (${inv().count('tablas')} planks left)`);
+    game.craft.check(true); const R = RECIPES.find(q => q.out === 'wedding_cake'); game.teleport(T0[0] - 2, T0[1] + 1); await frames(2);
+    check(game.craft.craft(R) === 1 && inv().count('wedding_cake') === 1, `the cake: ${game.craft.problem(R)}`);
+    w().buildAnywhere = false;
+    // E on the arch: hold it here. Then the rings to Nilo, the feast to Anselmo, four guests, all by talking
+    archNear(WED.archOf({ tile: T0, x: T0[0] + 0.5, y: T0[1] + 0.5, yaw: 0 }), 2.2); await frames(2);
+    check(aimOn(a => a.kind === 'placed' && a.o.placed === 'wedding_arch'), 'the arch aimed at'); await keyE();
+    check(j.data.arch?.tile.join() === T0.join(), `the arch chosen: ${JSON.stringify(j.data.arch)}`);
+    inv().add('ring', 2); await boardNear(); await talkTo('nilo', t('job.wed.give_rings', { n: 2 })); Tk().stop();
+    check(WD.checklist(game, j)[1][0] && !inv().count('ring'), `the rings: ${JSON.stringify(j.data.gave)}`);
+    for (const [k, n] of [['estofado', 3], ['pan', 2]]) inv().add(k, n);
+    game.teleport(6.5, 36); await talkTo('anselmo', t('job.wed.give_feast')); Tk().stop();
+    check(WD.checklist(game, j)[2][0] && !inv().count('estofado') && !inv().count('wedding_cake'), `the feast: ${JSON.stringify(j.data.gave)}`);
+    for (const id of GUESTS4) { await goTo(game, 21, 27); await talkTo(id, t('job.wed.invite')); for (let i = 0; i < 60 && !(j.data.guests || []).includes(id); i++) await frames(2); Tk().stop(); }
+    check((j.data.guests || []).length === 4 && !WED.missing(j).length, `the guests: ${j.data.guests} (${Tk().why}, ${misses})`);
+    // The bell with Bea beside; the guests come; Nilo speaks; «I do» (the card); Bea's; the kiss
+    const A = j.data.arch; archNear(A, 2.2); bea(A.x + 0.9, A.y + 1.6); await frames(2);
+    aimOn(a => a.kind === 'placed' && a.o.placed === 'wedding_arch'); await keyE();
+    check(j.stage === 'ceremony', `the bell: ${j.stage}`);
+    wants.push(t('job.wed.vows')); j.data = { ...j.data, ceremonyAt: madridMs() - 14000 }; M.changed(); M.slow = 0; M_run(0.1); await frames(3); await sleep(10);
+    check(j.data.vows?.includes(ME()), `my vow: ${JSON.stringify(j.data.vows)}`);
+    CLAIMS.job(game, { by: 'id-bea', k: 'job', ev: 'vow', jid: j.id }, {}, 'x', {}); M.slow = 0; M_run(0.1); await frames(4);
+    check(j.done?.outcome === 'ok' && p().emote?.k === 'kiss' && WED.petals.length > 50 && inv().count('ring') === 1, `married with the keys: ${p().emote?.k}, ${WED.petals.length} petals, ring ${inv().count('ring')}`);
+    let drawn = 0; for (let i = 0; i < 200 && !drawn; i++) { await frames(3); drawn = game.view3d.fx.petals.mesh.count; }
+    check(drawn > 50, `petals drawn: ${drawn}`);
+    // The neighbours' wedding, alone, with the keys
+    L_off(); M.list.clear(); WED.petals.length = 0;
+    wants.push(t('job.take')); await talkTo('nilo', t('job.ask')); await sleep(10); const k = M.active; Tk().stop();
+    check(k?.kind === 'wedding_npc', `alone: ${k?.kind}`); if (!k) return;
+    archNear(A, 2.2); await frames(2); aimOn(a => a.kind === 'placed' && a.o.placed === 'wedding_arch'); await keyE();
+    for (const [kk, n] of Object.entries(WED.FEAST)) inv().add(kk, n);
+    game.teleport(6.5, 36); await talkTo('anselmo', t('job.wed.give_feast')); Tk().stop();
+    for (const id of GUESTS4) { await goTo(game, 21, 27); await talkTo(id, t('job.wed.invite_npc')); for (let i = 0; i < 60 && !(k.data.guests || []).includes(id); i++) await frames(2); Tk().stop(); }
+    archNear(A, 2.2); await frames(2); aimOn(a => a.kind === 'placed' && a.o.placed === 'wedding_arch'); await keyE();
+    check(k.stage === 'ceremony', `the bell alone: ${k.stage} ${WED.missing(k)}`);
+    const m0 = game.money; k.data = { ...k.data, ceremonyAt: madridMs() - (WED.NPC_S + 1) * 1000 }; M.runT = 1; M_run(1.1); M.look(); M.slow = 0; M_run(0.1); await frames(3);
+    const marta = N.people.find(q => q.id === 'marta');
+    check(k.done?.outcome === 'ok' && game.money - m0 === WED.PAY_NPC && WED.npcDone(F.v) && marta?.emote?.k === 'kiss', `Marta and Eusebio: ${JSON.stringify(k.done)} +${game.money - m0}, ${marta?.emote?.k}`);
+    check(!misses.length, `questions: ${misses}`);
+    } finally { if (!keepNilo.banco) game.craft.taught.delete('banco'); game.hammerTold = keepNilo.told; }
+  }));
+  await test('job (english): wedding perf and the gathering', wedded(async ({ M, F, arch }) => {
+    // A ceremony in sight: the gathering made once, then each neighbour's place and Nilo's walk cost almost nothing
+    F.v.engaged = [{ id: 'e', a: ME(), b: 'id-bea', day: game.days.realDay }];
+    await boardNear(); M.accept('wedding'); const j = M.active; const tile = arch(); if (!j || !tile) { check(false, 'no job'); return; }
+    prepare(M, j, tile); for (const id of ['paco', 'ines', 'marta', 'eusebio', 'anselmo']) M.event('invite', { npc: id });
+    j.stage = 'ceremony'; j.data = { ...j.data, ceremonyAt: madridMs() + 20000 }; M.changed();
+    let t0 = performance.now(); M.client(); const made = performance.now() - t0;
+    const G = WED.dbg.G; check(G?.by.size >= 8, `${G?.by.size} walk there`);
+    let ms = 0; for (let i = 0; i < 600; i++) { const ts = game.days.now + i * 16; t0 = performance.now(); for (const n of Nb().people) n.whereAt(ts); WD.frame(game, 1 / 60); ms += performance.now() - t0; }
+    const nb0 = Nb().people.length; ms /= 600;
+    // and with no wedding, nothing
+    M.list.clear(); M.client(); let idle = 0; for (let i = 0; i < 600; i++) { t0 = performance.now(); for (const n of Nb().people) M.gatherAt(n.id, game.days.now); WD.frame(game, 1 / 60); idle += performance.now() - t0; }
+    check(ms < 0.4 && made < 60 && !WED.dbg.G, `gathering made in ${made.toFixed(1)} ms; ${ms.toFixed(3)} ms a frame for ${nb0} neighbours (budget 0.4)`);
+    console.log(`wedding perf: gathering made in ${made.toFixed(1)} ms, ${ms.toFixed(3)} ms a frame with ${G.by.size} walking (all ${nb0} neighbours' places), ${(idle / 600).toFixed(4)} ms with none`);
+  }));
   const gossiping = fn => social(() => routine(async o => {
     const N = Nb(); N.flags = {}; newsList();
     for (const id of IDS) N.friends[id] = { pts: 150, talk: 0, gift: -1, events: [3, 6], intro: 0 };

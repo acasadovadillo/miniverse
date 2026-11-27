@@ -23,13 +23,14 @@ import { JOURNAL_PAGES } from './ui/journal.js';
 import { Audio } from './audio.js';
 import { reportFault } from './faults.js';
 import { hud } from './ui/hud.js';
-import { t, tHtml } from './i18n.js';
+import { t, tHtml, has } from './i18n.js';
 import { apagada } from './opciones.js';
 import { drive } from './missions/drive.js';
 import { strongbox } from './missions/strongbox.js';
+import { wedding, weddingNpc, gatherAt, petals } from './missions/wedding.js';
 import { talkOptions } from './talk.js';
 
-export const KINDS = { drive, strongbox };
+export const KINDS = { drive, strongbox, wedding, wedding_npc: weddingNpc };
 const ON = !apagada('misiones');   // (?misiones=0: nothing is offered nor shown here; the jobs of the world go on)
 const DAY = 864e5, WEEK = 7 * DAY;
 export const AWAY_S = 600, DROP_MS = 3 * DAY, JOIN_R = 12, GIVER_HEARTS = 2, REP = 15, FRIEND = 30;
@@ -52,7 +53,7 @@ CLAIMS.job = (g, c, d, k, extra) => {
   if (c.ev === 'join') return M.enter(j, c.by);
   if (c.ev === 'leave') return M.quit(j, c.by);
   if (!j.crew.includes(c.by) && !own(KINDS[j.kind], 'open')) return false;
-  const ok = !!KINDS[j.kind].onEvent?.(g, j, c.ev, c.by, c);
+  const ok = !!KINDS[j.kind].onEvent?.(g, j, c.ev, c.by, c, extra);
   if (ok) M.changed();
   return ok;
 };
@@ -133,7 +134,7 @@ export class Missions {
   create(c) {
     const g = this.game, K = own(KINDS, c.kind) ? KINDS[c.kind] : null;
     if (!K || !this.free(c.kind) || this.running().some(j => j.crew.includes(c.by))) return null;
-    const n = g.neighbors?.people.find(x => x.id === K.giver);
+    const n = g.neighbors?.people.find(x => x.id === K.giver) || (K.giver === 'nilo' ? g.world?.nilo : null);   // (Nilo is no neighbour of the routines: his body, wherever it is)
     if (!this.near(c.by, BOARD.x, BOARD.y, ASK_R) && !(n && this.near(c.by, n.x, n.y, ASK_R))) return null;
     const j = { id: randomId() + randomId(), kind: c.kind, by: c.by, nm: cleanName(c.nm), crew: [c.by], stage: K.stages[0], since: now(), until: now() + K.ms, site: null, data: {} };
     let ok = false;
@@ -145,7 +146,7 @@ export class Missions {
   }
   enter(j, by) {
     if (j.done || j.crew.includes(by)) return j.crew.includes(by) && !j.done;
-    if (j.crew.length >= 4 || KINDS[j.kind].closed(j) || this.running().some(q => q.crew.includes(by))) return false;
+    if (j.crew.length >= 4 || KINDS[j.kind].closed(j, by) || this.running().some(q => q.crew.includes(by))) return false;
     j.crew = [...j.crew, by];
     try { KINDS[j.kind].entered?.(this.game, j, by); } catch (e) { reportFault(e, 'Missions.enter'); }
     this.changed();
@@ -185,7 +186,7 @@ export class Missions {
         if (JSON.stringify(away) !== JSON.stringify(j.away || [])) { if (away.length) j.away = away; else delete j.away; this.changed(); }
         if (now() >= j.until) { this.finish(j, 'fail', { why: 'time' }); continue; }
         // (everybody gone for over 10 minutes: it goes wrong, unless the game itself was closed)
-        if (j.crew.length && away.length === j.crew.length && this.allGone(j, T)) this.finish(j, 'fail', { why: 'left' });
+        if (j.crew.length && away.length === j.crew.length && this.allGone(j, T) && !KINDS[j.kind].patient) this.finish(j, 'fail', { why: 'left' });   // (patient: a wedding waits for its people, its window is long)
       }
     }
     for (const j of this.jobs()) { if (j.done) this.over(j, dt); else try { KINDS[j.kind].update?.(g, j, dt); } catch (e) { reportFault(e, `Missions.${j.kind}`); } }
@@ -215,6 +216,7 @@ export class Missions {
     const g = this.game, K = KINDS[kind], at = this.list.get('@');
     if (this.active) return 'busy';
     if (this.running().some(j => j.kind === kind)) return 'taken';
+    { const why = K.why?.(g); if (why) return why; }   // (a kind's own: the wedding's 'nopair', 'once')
     if (at?.week?.[kind] === this.week() || at?.fail?.[kind] === Math.floor(now() / DAY)) return 'week';
     if (g.neighbors.hearts(K.giver) < GIVER_HEARTS) return 'hearts';
     if (g.rep?.counts && g.rep.index < levelIndex('known')) return 'rep';
@@ -228,12 +230,12 @@ export class Missions {
   event(ev, data, done) { const j = this.active; if (j) this.ask({ ev, jid: j.id, ...data }, done); else done?.(false, {}); }
   title(kind) { return t(`job.${kind}.title`); }
   // (the board's second page) The posters: [{ kind, why, join }]
-  posters() { return ON ? Object.keys(KINDS).slice(0, 3).map(kind => ({ kind, why: this.why(kind), join: this.running().find(j => j.kind === kind && !j.crew.includes(me()) && !KINDS[j.kind].closed(j)) || null })) : []; }
-  poster(kind) { const K = KINDS[kind]; return [t(`job.${kind}.text`), [t('job.reward', { n: K.pay }), t('job.window', { t: t('job.hours', { n: Math.round(K.ms / 36e5) }) }), t('job.best_two')].join(' · ')]; }
+  posters() { return ON ? Object.keys(KINDS).filter(k => !KINDS[k].hidden?.(this.game)).slice(0, 3).map(kind => ({ kind, why: this.why(kind), join: this.running().find(j => j.kind === kind && !j.crew.includes(me()) && !KINDS[j.kind].closed(j)) || null })) : []; }
+  poster(kind) { const K = KINDS[kind]; return [t(`job.${kind}.text`), [K.payText ? K.payText() : t('job.reward', { n: K.pay }), t('job.window', { t: t('job.hours', { n: Math.round(K.ms / 36e5) }) }), t('job.best_two')].join(' · ')]; }
   async board() {
     const g = this.game;
     for (;;) {
-      const L = this.posters(), opts = L.map(p => t(p.join ? 'job.row_join' : p.why ? 'job.row_no' : 'job.row', { job: this.title(p.kind), giver: PEOPLE[KINDS[p.kind].giver].name, n: KINDS[p.kind].pay, name: p.join?.nm || '', why: p.why ? t(`job.why.${p.why}`, { name: PEOPLE[KINDS[p.kind].giver].name }) : '' }));
+      const L = this.posters(), opts = L.map(p => t(p.join ? 'job.row_join' : p.why ? 'job.row_no' : KINDS[p.kind].payText ? 'job.row_text' : 'job.row', { pay: KINDS[p.kind].payText?.() || '', job: this.title(p.kind), giver: PEOPLE[KINDS[p.kind].giver].name, n: KINDS[p.kind].pay, name: p.join?.nm || '', why: p.why ? t(`job.why.${p.why}`, { name: PEOPLE[KINDS[p.kind].giver].name }) : '' }));
       const i = await hud.ask(t('job.board'), t('job.board.ask'), [...opts, t('common.close')]);
       if (!(i >= 0 && i < L.length)) return;
       const p = L[i];
@@ -248,7 +250,7 @@ export class Missions {
     const K = KINDS[kind], name = PEOPLE[K.giver].name, j = this.running().find(q => q.kind === kind && !q.crew.includes(me()));
     if (j && !KINDS[kind].closed(j)) { const k = await hud.ask(name, t('job.offer_join', { name: j.nm || '?', job: this.title(kind) }), [t('job.join'), t('job.not_now')]); if (k === 0) this.join(j.id); return; }
     const why = this.why(kind);
-    if (why) { await hud.say(name, [t(`job.${kind}.no.${why === 'busy' ? 'busy' : 'later'}`)]); return; }
+    if (why) { await hud.say(name, [t(has(`job.${kind}.no.${why}`) ? `job.${kind}.no.${why}` : `job.${kind}.no.${why === 'busy' ? 'busy' : 'later'}`)]); return; }
     const k = await hud.ask(name, [t(`job.${kind}.offer`), this.poster(kind)[1]].join('\n'), [t('job.take'), t('job.not_now')]);
     if (k === 0) this.accept(kind);
   }
@@ -286,6 +288,7 @@ export class Missions {
       g.neighbors.addPoints(K.giver, FRIEND);
       g.rep?.change(REP, 'job');
       g.stats?.add('jobs_done', 1);
+      try { K.settled?.(g, j, true); } catch (e) { reportFault(e, 'Missions.settled'); }
       Audio.unlock();
       hud.toast(t('job.done', { job: this.title(j.kind) }), 'good');
       if (r.coins > 0) hud.toast(t('job.paid', { name: PEOPLE[K.giver].name, n: r.coins }), 'money');
@@ -301,6 +304,7 @@ export class Missions {
     // (with no job in the world, only now and then: a map half or a box left from one that is no more)
     if (!this.list.size) { if ((this.idleT = (this.idleT ?? 0) - dt) <= 0 && !Profile.server && g.player) this.idleT = this.client() ? 0.5 : 2; return; }
     if (this.decides()) this.run(dt);
+    for (const K of FRAME) K.frame(g, dt);   // (each frame: what a kind draws moving, as Nilo walking to a wedding)
     if (Profile.server || !g.player) return;
     if ((this.slow -= dt) > 0) return;
     this.slow = 0.5;
@@ -348,6 +352,12 @@ export class Missions {
     for (const K of Object.values(KINDS)) { const a = K.interact?.(this.game, p); if (a) return a; }
     return null;
   }
+  // (game.js placedAction) E on a wedding arch; (live.js 'wed') a proposal and its answer; (neighbors.js) a wedding's guests
+  archAction(o, pick) { return wedding.archAction(this.game, o, pick); }
+  heardWed(conn, peer, m) { wedding.heard(this.game, conn, peer, m); }
+  boardKey() { return KEY(); }
+  gatherAt(id, ms) { return gatherAt(id, ms); }
+  petalList() { return petals; }
   // (gather.js) The left button with the rattle in the hand: thrown (the strongbox's lure)
   target(p, held, def) { return held?.id === 'rattle' && this.game.scene === this.world && this.game.gamemode !== 'spectator' ? strongbox.rattleTarget(this.game, p) : null; }
   // (explore.js) E on the chest of a camp or a tower: a job's, before its own loot (null: as always)
@@ -363,8 +373,10 @@ export class Missions {
     const who = q => q.crew.map(id => (id === me() ? g.player?.name || '' : g.live?.nameOf?.(id) || (id === q.by ? q.nm : '') || '?') + (this.isAway(q, id) ? ` (${t('job.away')})` : '')).join(', ');
     if (j) {
       const K = KINDS[j.kind], at = K.stages.indexOf(j.stage);
-      out.push(`<h3>${esc(this.title(j.kind))}</h3><p class="j-note">${tHtml('job.timer', { m: this.minutes(j) })} · ${tHtml('job.reward', { n: K.pay })}</p>`);
+      out.push(`<h3>${esc(this.title(j.kind))}</h3><p class="j-note">${tHtml('job.timer', { m: this.minutes(j) })} · ${K.payText ? esc(K.payText()) : tHtml('job.reward', { n: K.pay })}</p>`);
+      const C = K.checklist?.(g, j);
       out.push(...K.stages.map((s, i) => `<div class="j-row ach ${i < at ? 'done' : ''}"><b>${i < at ? '✓' : i === at ? '▸' : '·'} ${tHtml(`job.${j.kind}.stage.${s}`, K.params?.(g, j))}</b></div>`));
+      if (C) out.push(...C.map(([done, text]) => `<div class="j-row ach ${done ? 'done' : ''}"><small>${done ? '✓' : '·'} ${esc(text)}</small></div>`));
       out.push(`<p class="j-note">${tHtml('job.crew', { list: who(j) })}</p>`);
       out.push(`<p><button type="button" class="btn" data-job-leave="${esc(j.id)}" style="width:auto">${tHtml('job.leave')}</button></p>`);
     }
@@ -382,4 +394,5 @@ export class Missions {
 }
 JOURNAL_PAGES.push({ id: 'jobs', label: 'job.tab', when: g => !!g.missions?.on, html: g => g.missions.journal(), bind: (el, g) => g.missions.bind(el) });
 // Their giver, in a talk: "Any work for me?"
-for (const [kind, K] of Object.entries(KINDS)) talkOptions.add({ id: `job_${kind}`, order: 45, when: c => ON && !c.cold && c.id === K.giver && c.game.neighbors.introduced(c.id), label: () => t('job.ask'), run: c => ({ modal: true, open: () => c.game.missions.offer(kind) }) });
+const FRAME = Object.values(KINDS).filter(K => K.frame);
+for (const [kind, K] of Object.entries(KINDS)) talkOptions.add({ id: `job_${kind}`, order: 45, when: c => ON && !c.cold && c.id === K.giver && c.game.neighbors.introduced(c.id) && !K.hidden?.(c.game), label: () => t('job.ask'), run: c => ({ modal: true, open: () => c.game.missions.offer(kind) }) });

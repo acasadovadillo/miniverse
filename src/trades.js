@@ -21,6 +21,7 @@ export const TRADES = {
     T(1, [['lingote_hierro', 4]], [['esmeralda', 1]], 12, 10), T(1, [['esmeralda', 5]], [['casco_hierro', 1]], 3, 5),
     T(2, [['esmeralda', 9]], [['peto_hierro', 1]], 3, 10), T(2, [['lingote_oro', 3]], [['esmeralda', 1]], 12, 20),
     T(3, [['diamante', 1]], [['esmeralda', 2]], 12, 30), T(4, [['esmeralda', 13]], [['espada_oro', 1]], 3, 30),
+    T(0, [['lingote_oro', 1], ['esmeralda', 1]], [['ring', 1]], 4, 5),   // (the ring of a proposal and a wedding: missions/wedding.js; only at the end, the index is saved)
   ],
   lia: [
     T(0, [['cuerda', 6]], [['esmeralda', 1]]), T(0, [['esmeralda', 2]], [['sardina', 1]], 16, 1),

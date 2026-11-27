@@ -242,6 +242,9 @@ export const RECIPES = [
   R('banco', 'tile_box', 1, [['tablas', 3], ['hueso', 1]]),
   // (the strongbox's lure: missions/strongbox.js)
   R('mano', 'rattle', 1, [['hueso', 2], ['cuerda', 1]]),
+  // (the wedding: missions/wedding.js)
+  R('banco', 'wedding_arch', 1, [['tablas', 6], ['madera', 4], ['margarita', 8]]),
+  R('cocina', 'wedding_cake', 1, [['harina', 2], ['huevo', 2], ['leche', 1], ['miel', 1]]),
   R('banco', 'barber_chair', 1, [['tablas', 4], ['cuero', 2], ['lingote_hierro', 1]]),
   R('cocina', 'sidra', 2, [['manzana', 3]]),
   R('cocina', 'cerveza', 2, [['trigo', 2], ['miel', 1]]),

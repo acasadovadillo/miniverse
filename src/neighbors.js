@@ -220,7 +220,7 @@ class Neighbor extends Person {
     this.path = [];
   }
   // Where they are at a moment: gone to a player's shop or tavern (business.js), or what their routine says
-  whereAt(ms) { return this.game?.business?.errandAt(this.id, ms) || placeAt(this.id, ms, (R, s) => this.way(R, s)); }
+  whereAt(ms) { return this.game?.missions?.gatherAt(this.id, ms) || this.game?.business?.errandAt(this.id, ms) || placeAt(this.id, ms, (R, s) => this.way(R, s)); }
   // The way of a slot round what players have built on it (only drawn: world/walkways.js). Looked at once per walk
   way(R, s) {
     const k = `${s.day}:${s.i}`;

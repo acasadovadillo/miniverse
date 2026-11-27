@@ -789,6 +789,7 @@ export class Game {
     if (o.placed === 'lavabo') return { text: this.onBasin && this.body && !this.body.off?.surface ? t('body.basin.use') : t('body.mirror'), run: () => (this.onBasin ? this.onBasin(o) : this.onMirror?.()), alt: pick };   // (onBasin: ui/menus.js asks wash or mirror)
     if (FIRE_MS[o.placed]) return this.fireAction(o, o.fixed ? null : pick);
     if (o.placed === 'signpost' && sc === this.world) return this.places.roadside.action(o, pick);
+    if (o.placed === 'wedding_arch') return this.missions.archAction(o, pick);   // (the wedding: missions/wedding.js)
     if (o.placed === 'bell_frame') return { text: t('bell.ring'), run: () => Audio.bell?.() ?? Audio.clink(), alt: pick };
     if (BIZ_THINGS.has(o.placed)) return this.business.action(o, o.fixed ? null : pick);   // (a counter, a shelf or a crate: business.js)
     if (wellSpec(o.placed)) return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo. The big well too)

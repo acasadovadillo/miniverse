@@ -20,6 +20,7 @@ import { pew } from './chapel3d.js';
 import { desk } from './law3d.js';
 import { shopCounter, displayShelf, goodsCrate } from './shop3d.js';
 import { cupModel, diceModel, tileBox, gameTable } from './tgmodels.js';
+import { archModel, ringModel } from './wedding3d.js';
 import { tintOf } from './tints.js';
 import { trough, hitchingPost } from './stable3d.js';
 import { rodRest } from './rest3d.js';
@@ -1472,6 +1473,7 @@ function strongboxModel(m, open) {
 }
 BUILD.strongbox = m => strongboxModel(m, false);
 BUILD.strongbox_open = m => strongboxModel(m, true);
+BUILD.wedding_arch = archModel; BUILD.ring = ringModel;   // (the wedding: wedding3d.js)
 // Bruno's anvil, by his forge in the village: on an oak stump, its horn to +x, the hammer on its face, the tongs against the
 // stump and the quench bucket beside it
 VILLAGE.anvil = m => {

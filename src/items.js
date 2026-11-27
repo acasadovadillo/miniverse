@@ -419,6 +419,11 @@ defineNames(PLACE_ITEMS, 'item');
 const GARDEN_ITEMS = { pear: { food: 14 }, cherry: { food: 5 }, pear_sapling: { sapling: 'pear' }, cherry_sapling: { sapling: 'cherry' }, straw: {}, manure: {}, glass: {}, cloche: {}, compost_bin: { place: 'furniture' }, scarecrow: { place: 'furniture' }, trough: { place: 'furniture' }, hitching_post: { place: 'furniture' }, abono: ITEMS.abono };
 Object.assign(ITEMS, GARDEN_ITEMS);
 defineNames(GARDEN_ITEMS, 'item');
+// ---------- The wedding (docs/planes/gta/PLAN-I-juntos.md §1.6, missions/wedding.js): the ring (Bruno makes it), the cake (in the
+// kitchen) and the arch of woven branches and flowers (B › Outside, two tiles wide; its plan at Dani's) ----------
+const WEDDING_ITEMS = { ring: { stack: 4, icon3d: true }, wedding_cake: { food: 70, buff: ['rapido', 120] }, wedding_arch: { place: 'furniture' } };
+Object.assign(ITEMS, WEDDING_ITEMS);
+defineNames(WEDDING_ITEMS, 'item');
 defineNames({ comedero: ITEMS.comedero, herraduras: ITEMS.herraduras }, 'item', ['desc']);
 // Muebles de la casa familiar: dormitorios, cocina y baño
 Object.assign(ITEMS, {

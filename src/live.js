@@ -512,6 +512,7 @@ export class Live {
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
       case 'greet': if (!Profile.server && this.joined) g.social.heard(conn, peer, m); break;   // (someone greets: social.js)
       case 'tk': if (!Profile.server && this.joined) g.talk?.heard(conn, peer, m); break;   // (someone talks with a neighbour: talk.js)
+      case 'wed': if (!Profile.server && this.joined) g.missions?.heardWed(conn, peer, m); break;   // (a proposal and its answer: missions/wedding.js)
       case 'nw': if (!Profile.server && this.joined) g.gossip?.heard(conn, peer, m); break;   // (your partner did something good: gossip.js)
       // The law (law.js): where Ramiro is and who is arrested (from whoever runs the world), what a guest says they did or asks for
       case 'law': if (fromHost) g.law?.netAt(m); break;
