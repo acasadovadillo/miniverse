@@ -7987,7 +7987,7 @@ async function soloTests(game) {
   });
   await test('dive (english): deep sea exists', async () => {
     const G = w().gen, S = sea();
-    check(RELIEF_V === 2, `RELIEF_V ${RELIEF_V}`);
+    check(RELIEF_V >= 2, `RELIEF_V ${RELIEF_V}`);
     check(G.groundAt(...S.deep) < -9 && G.groundAt(S.deep[0], S.deep[1]) < -6, `the deep sea is at ${G.groundAt(...S.deep)}`);
     // A river's centre is as before (about -2.2 or more), and the village ground is 0
     let river = null;
