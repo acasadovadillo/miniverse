@@ -103,7 +103,7 @@ uniform vec4 beard, lay1, lay2, lay3; uniform vec3 moles[6]; uniform vec2 eyesF;
 varying float vScalp; varying vec3 vBeard; varying vec4 vZone; varying vec3 vFace; varying vec3 vObj;
 ${skinLayers}`)
       .replace('#include <map_fragment>', `
-vec3 ty = texture2D(map, vMapUv).rgb / meanY, to = texture2D(mapOld, vMapUv).rgb / meanO;
+vec3 ty = age < 0.97 ? texture2D(map, vMapUv).rgb / meanY : vec3(1.0), to = age > 0.03 ? texture2D(mapOld, vMapUv).rgb / meanO : vec3(1.0);
 vec3 dt = mix(ty, to, age);
 float dl = dot(dt, vec3(0.2126, 0.7152, 0.0722));
 diffuseColor.rgb *= tone * mix(vec3(dl), dt, 0.35);
@@ -125,14 +125,15 @@ if (bz > 0.0) {
       .replace('#include <bumpmap_pars_fragment>', `#ifdef USE_BUMPMAP
 uniform sampler2D bumpMap; uniform float bumpScale;
 float skinH(vec2 uv) {
-  float y = dot(texture2D(bumpMap, uv).rgb, vec3(0.3, 0.59, 0.11)), o = dot(texture2D(mapOld, uv).rgb, vec3(0.3, 0.59, 0.11));
+  // (only the photos that count at this age: a young face reads one, an old one the other)
+  float y = age < 0.97 ? dot(texture2D(bumpMap, uv).rgb, vec3(0.3, 0.59, 0.11)) : 0.0, o = age > 0.03 ? dot(texture2D(mapOld, uv).rgb, vec3(0.3, 0.59, 0.11)) : 0.0;
   float p = texture2D(poreMap, uv * 52.0).r;
   return mix(y * 0.6, o * 1.5, age) + (p - 0.5) * poreK * (0.35 + 0.65 * vZone.w);
 }
 vec2 dHdxy_fwd() {
-  vec2 dSTdx = dFdx(vBumpMapUv), dSTdy = dFdy(vBumpMapUv);
-  float Hll = bumpScale * skinH(vBumpMapUv);
-  return vec2(bumpScale * skinH(vBumpMapUv + dSTdx) - Hll, bumpScale * skinH(vBumpMapUv + dSTdy) - Hll);
+  // (one height per pixel and the screen's own derivatives, not three: a third of the texture reads)
+  float h = bumpScale * skinH(vBumpMapUv);
+  return vec2(dFdx(h), dFdy(h));
 }
 vec3 perturbNormalArb(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirection) {
   vec3 vSigmaX = normalize(dFdx(surf_pos.xyz)), vSigmaY = normalize(dFdy(surf_pos.xyz)), vN = surf_norm;
@@ -180,7 +181,7 @@ diffuseColor.rgb *= mix(e, iris * (0.35 + 2.6 * l), k);`);
 }
 // Cards (brows, lashes), hair and the provisional clothes: the texture's lightness (its mean taken out) times the look's
 // colour. Hair comes in two files, colour and alpha, and is drawn twice: cut out, and then its soft edges blended over
-function tinted(file, { alpha = null, colour = '#2a1e1e', blendEdges = false, cutout = false, rough = 0.6, keep = 0.85, test = 0.5 } = {}) {
+function tinted(file, { alpha = null, colour = '#2a1e1e', blendEdges = false, cutout = false, rough = 0.6, keep = 0.85, test = 0.5, edgeOnly = false } = {}) {
   const U = { tint: { value: new THREE.Color(colour) }, meanL: { value: 0.3 } };
   const map = tex(file, { onLoad: img => { const v = meanLinear(img); U.meanL.value = Math.max(0.02, 0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z); } });
   const m = new THREE.MeshStandardMaterial({ map, alphaMap: alpha ? tex(alpha, { srgb: false }) : null, side: THREE.DoubleSide, roughness: rough });
@@ -193,8 +194,10 @@ vec4 c4 = texture2D(map, vMapUv);
 float cl = dot(c4.rgb, vec3(0.2126, 0.7152, 0.0722)) / meanL;
 diffuseColor.rgb *= tint * clamp(mix(1.0, cl, ${keep.toFixed(2)}), 0.0, 3.0);
 diffuseColor.a *= c4.a;`);
+    // (the soft pass of the hair: only its edges, the rest was drawn cut out)
+    if (edgeOnly) sh.fragmentShader = sh.fragmentShader.replace('#include <alphamap_fragment>', '#include <alphamap_fragment>\nif (diffuseColor.a > 0.6 || diffuseColor.a < 0.03) discard;');
   };
-  m.customProgramCacheKey = () => 'mh-tint' + keep;
+  m.customProgramCacheKey = () => 'mh-tint' + keep + edgeOnly;
   m.userData.U = U;
   return m;
 }
@@ -338,7 +341,11 @@ export class MhPerson {
     const t0 = performance.now(), D = this.D, sex = look.sex === 'chico' ? 'chico' : 'chica';
     this.clear();
     const prof = this.prof = {}, lap = k => { prof[k] = performance.now(); };
-    const v = blend(D, look.mh, sex), nb = D.head.nbody, ex = expressions(D, look.mh);
+    const v = blend(D, look.mh, sex), nb = D.head.nbody;
+    // (the expressions depend only on the origin: kept while it stays, and copied, since a giant is squeezed below)
+    const m0 = look.mh?.macro || {}, exKey = [m0.af, m0.as, m0.ca].join();
+    if (this.exKey !== exKey) { this.exKey = exKey; this.ex0 = expressions(D, look.mh); this.exDense = this.ex0.map(e => dense(e, D.nv)); }
+    const ex = this.ex0.map(e => ({ id: e.id, idx: e.idx, d: e.d.slice() }));
     lap('blend');
     // The bound meshes first, on the base still in its A pose; those of the face also with each expression on
     const parts = [['eyes', 'high-poly'], ['brows', browsOf(look)], ['lashes', lashesOf(look)], ['teeth', 'teeth_base'], ['tongue', 'tongue01']];
@@ -372,7 +379,8 @@ export class MhPerson {
     let top = -Infinity, wide = 0;
     for (let i = 0; i < nb; i++) { top = Math.max(top, v[i * 3 + 1]); wide = Math.max(wide, Math.abs(v[i * 3])); }
     const ky = Math.min(1, 19.5 / (top - ground)), kx = Math.min(1, 3.9 / (wide * ky));
-    if (ky < 1 || kx < 1) {
+    const squeezed = ky < 1 || kx < 1;
+    if (squeezed) {
       const squeeze = a => { for (let i = 0; i < a.length; i += 3) { a[i] *= ky * kx; a[i + 1] = ground + (a[i + 1] - ground) * ky; a[i + 2] *= ky; } };
       squeeze(v);
       for (const f of fitted) { squeeze(f.v); for (const m of f.morphs || []) for (let i = 0; i < m.length; i += 3) { m[i] *= ky * kx; m[i + 1] *= ky; m[i + 2] *= ky; } }
@@ -395,7 +403,7 @@ export class MhPerson {
     bodyGeo.setAttribute('beardZone', new THREE.BufferAttribute(fm.beard, 3));
     bodyGeo.setAttribute('zone', new THREE.BufferAttribute(fm.zone, 4));
     bodyGeo.setAttribute('face', new THREE.BufferAttribute(fm.face, 3));
-    morphs(bodyGeo, rm, ex.map(e => dense(e, D.nv)));
+    morphs(bodyGeo, rm, squeezed ? ex.map(e => dense(e, D.nv)) : this.exDense);
     this.eyesF = fm.eyes;
     lap('body');
     const body = new THREE.Mesh(bodyGeo, this.mat('skin:' + sex, () => skinMaterial(sex)));
@@ -414,7 +422,7 @@ export class MhPerson {
       else if (f.kind === 'hair') {
         mesh = new THREE.Mesh(g, this.mat('hair:' + f.name, () => tinted(`hair-${f.name}.jpg`, { alpha: `hair-${f.name}.a.png`, cutout: true, rough: 0.5, test: 0.5 })));
         // (its soft edges, over the cut-out cards: no hard line where the hair meets the forehead)
-        const soft = new THREE.Mesh(g, this.mat('hairsoft:' + f.name, () => tinted(`hair-${f.name}.jpg`, { alpha: `hair-${f.name}.a.png`, blendEdges: true, rough: 0.5 })));
+        const soft = new THREE.Mesh(g, this.mat('hairsoft:' + f.name, () => tinted(`hair-${f.name}.jpg`, { alpha: `hair-${f.name}.a.png`, blendEdges: true, edgeOnly: true, rough: 0.5 })));
         soft.renderOrder = 3; soft.name = 'hairsoft:' + f.name;
         this.root.add(soft);
       } else if (f.d.part) {

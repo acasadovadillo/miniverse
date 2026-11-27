@@ -13,6 +13,8 @@ const HEIGHT_K = 0.45;
 // (P2: twice MakeHuman's own range for weight, muscle and the face, extrapolating its corners, which are linear; the
 // heaviest and strongest still fit a door, a bed and the saddle: a test measures them)
 export const RANGE = 2;
+// (a few of MakeHuman's face targets swell into lumps past their own end: those go less far)
+const FACE_RANGE = { cheek_volume: 1.3, head_fat: 1.4, eye_size: 1.4, eye_open: 1.5, chin_cleft: 1.5, brow_ridge: 1.5 };
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 
@@ -43,7 +45,7 @@ export function weightsFor(D, mh, sex) {
   }
   const f = mh?.face || {};
   for (const s of D.face) {
-    const v = clamp(num(f[s.id]) / 100, -1, 1) * RANGE;
+    const v = clamp(num(f[s.id]) / 100, -1, 1) * (FACE_RANGE[s.id] || RANGE);
     if (v > 0 && s.pos) out.push([s.pos, v]);
     else if (v < 0 && s.neg) out.push([s.neg, -v]);
   }
