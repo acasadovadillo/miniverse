@@ -12,7 +12,7 @@ const BASE = {
   amatista: 80, esmeralda: 140, rubi: 200, diamante: 400, fosil_concha: 60, fosil_hueso: 120, fosil_ambar: 150,
   calavera: 30, moneda_antigua: 100, lingote_cobre: 36, lingote_hierro: 57, lingote_oro: 114,
   pocion_rapidez: 60, pocion_fuerza: 80, pocion_resistencia: 90, pocion_regeneracion: 90,
-  carne_ave: 14, carne_conejo: 16, carne_vaca: 30, carne_cordero: 26, carne_cabra: 24, carne_cerdo: 26, carne_venado: 30, carne_jabali: 30, piel: 20, hueso: 6, manteca: 14, asta: 60, colmillo: 45,
+  carne_ave: 14, carne_conejo: 16, carne_vaca: 30, carne_cordero: 26, carne_cabra: 24, carne_cerdo: 26, carne_venado: 30, carne_jabali: 30, piel: 20, wolf_hide: 80, wolf_rug: 120, hueso: 6, manteca: 14, asta: 60, colmillo: 45,
   huevo_pato: 35, huevo_oro: 300, plumas: 12, leche_cabra: 40, nata: 60, lana_fina: 140, angora: 55, trufa: 250, heno: 3, straw: 2, manure: 2, glass: 4, cloche: 9,
   // Thirst and diving: what the sea bed gives (Rosa buys it all), and what is made, below what the shops sell it for
   seashell: 5, pearl: 180, mussel: 4, seaweed: 2, canteen: 24, water_jug: 20, apple_juice: 30,

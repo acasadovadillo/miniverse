@@ -70,6 +70,9 @@ const KINDS = {
   ciervo: { biomes: [B.FOREST, B.PINES, B.MEADOW], hours: [6, 20], speed: 0.8, flee: 5.5, fear: 7, r: 0.55 },
   jabali: { biomes: [B.FOREST, B.PINES], hours: [5, 23], speed: 0.9, flee: 4.8, fear: 4.5, r: 0.45 },
   cisne: { water: true, biomes: [B.LAKE], hours: [6, 21], speed: 0.4, flee: 1.2, fear: 4, r: 0.35 },
+  // (the predators of Plan R3-5: moved by predators.js, never spawned at random here)
+  lobo: { predator: true, biomes: [B.PINES, B.FOREST, B.SNOW], hours: [19, 8], speed: 1.1, flee: 6.5, fear: 30, r: 0.45 },
+  zorro: { predator: true, town: true, biomes: [B.MEADOW], hours: [20, 6], speed: 1.2, flee: 6, fear: 20, r: 0.3 },
 };
 
 // Los que pastan: hasta dónde llega el morro, cuántas casillas se comen como mucho, cada cuánto (segundos) y cuánto tardan
@@ -178,7 +181,7 @@ export class Wildlife {
     // leads somewhere, and a badly wounded one not while whoever wounded it is in a cave: they come back to its trail)
     // (one of a herd, only with all of it: herdTick)
     const herds = this.herdsNow();
-    this.list = this.list.filter(w => ((w.herd || this.stays(w, players, gone)) && (KINDS[w.type].water || !this.built(w.x, w.y, 0))) || this.leave(w));
+    this.list = this.list.filter(w => ((w.herd || w.pack || this.stays(w, players, gone)) && (KINDS[w.type].water || !this.built(w.x, w.y, 0))) || this.leave(w));
     if (herds) this.herdTick(dt, herds, walkers, players);
     else if ((this.t += dt) > SPAWN_EVERY) {
       this.t = 0;
@@ -300,7 +303,7 @@ export class Wildlife {
       for (const q of walkers) {
         if (distOf(q.x, q.y, x, y) > WOUND.LEASH) continue;
         let a = 0, m = 0;
-        for (const w of this.list) if (!w.herd && (distOf(q.x, q.y, w.x, w.y) < WOUND.LEASH || (w.bleed > 0 && this.woundedBy(w, q)))) a++;
+        for (const w of this.list) if (!w.herd && !w.pack && (distOf(q.x, q.y, w.x, w.y) < WOUND.LEASH || (w.bleed > 0 && this.woundedBy(w, q)))) a++;
         for (const G of this.groups.values()) if (G.list.some(w => distOf(q.x, q.y, w.x, w.y) < WOUND.LEASH || (w.bleed > 0 && this.woundedBy(w, q)))) { m++; a += G.list.length; }
         if (a + n > HERD.MAX || m >= HERD.GROUPS) { full = q; break; }
       }
@@ -515,7 +518,7 @@ export class Wildlife {
     const x = wrapX(q.x + Math.cos(a) * r), y = q.y + Math.sin(a) * r, h = this.game.days.hourAt(x);
     if (inBounds(x, y) || walkers.some(o => distOf(o.x, o.y, x, y) < near[0])) return;
     const biome = this.world.gen.biomeAt(x, y), water = !!this.world.water(x, y);
-    const ok = Object.entries(KINDS).filter(([, k]) => k.biomes.includes(biome) && !!k.water === water && h >= k.hours[0] && h < k.hours[1]);
+    const ok = Object.entries(KINDS).filter(([, k]) => !k.predator && k.biomes.includes(biome) && !!k.water === water && h >= k.hours[0] && h < k.hours[1]);
     if (!ok.length || this.world.blocked?.(x, y)) return;
     const [type] = ok[Math.floor(Math.random() * ok.length)];
     if (this.built(x, y, KINDS[type].r + 0.5)) return;   // (ni dentro de una casa ni pegado a ella)
@@ -527,6 +530,7 @@ export class Wildlife {
   move(w, dt, walkers) {
     const k = KINDS[w.type], g = this.game;
     if (!(w.eating > 0)) { w.grazing = false; w.drinking = false; }   // (lo que llegó por red, si ahora los mueve este juego)
+    if (k.predator) { if (this.game.predators) this.game.predators.move(w, dt, walkers); else this.wander(w, dt, k, k.speed); return; }   // (wolves and foxes: predators.js)
     if (w.charge) { this.moveCharge(w, dt, walkers); return; }
     if (w.bleed === 2) { if (w.aw || w.flight || w.alert) this.calm(w); this.moveWounded(w, dt, walkers, k); return; }
     if (sensesOn()) { this.moveAware(w, dt, walkers, k); return; }
@@ -577,7 +581,7 @@ export class Wildlife {
   // (cada uno en su medio, fuera del pueblo y de lo construido) May an animal of kind k not stand at p?
   offLimits(p, k) {
     const W = this.world;
-    return !!(k.water ? W.natWater : W.water).call(W, p.x, p.y) !== !!k.water || (k.water && W.digH(Math.floor(p.x), Math.floor(p.y)) !== null) || inBounds(p.x, p.y) || this.built(p.x, p.y, k.r);
+    return !!(k.water ? W.natWater : W.water).call(W, p.x, p.y) !== !!k.water || (k.water && W.digH(Math.floor(p.x), Math.floor(p.y)) !== null) || (!k.town && inBounds(p.x, p.y)) || this.built(p.x, p.y, k.r);   // (town: a fox goes to the coops)
   }
 
   // ---------- senses (host side; Plan R3 §3.2, §3.4) ----------
@@ -1263,6 +1267,7 @@ export class Wildlife {
   // Uno nuevo (también con /summon: lo hace quien lleva el mundo). Its spawn point (sx, sy) keys its trail: trailKey
   summon(type, x, y) { const w = new Wild(type, wrapX(x), y, `w${++this.n}`); w.sx = qs(w.x); w.sy = qs(w.y); this.list.push(w); return w; }
   entities(scene) { return scene === this.world ? this.list : null; }
+  kindOf(type) { return KINDS[type]; }
   // El salvaje más cercano a un punto (para que el perro le ladre)
-  near(x, y, r) { return this.list.find(w => w.type !== 'cisne' && Math.hypot(w.x - x, w.y - y) < r) || null; }
+  near(x, y, r) { return this.list.find(w => w.type !== 'cisne' && !KINDS[w.type].predator && Math.hypot(w.x - x, w.y - y) < r) || null; }
 }

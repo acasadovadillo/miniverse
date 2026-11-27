@@ -217,6 +217,9 @@ export const RECIPES = [
   R('telar', 'wool_socks', 1, [['lana', 1]]),
   R('telar', 'lined_boots', 1, [['cuero', 2], ['lana', 1]]),
   R('telar', 'leather_apron', 1, [['cuero', 3]]),
+  // (Plan R3-5: the wolf's hide, as a rug or as the lining of a winter coat)
+  R('telar', 'wolf_rug', 1, [['wolf_hide', 1], ['tela', 1]]),
+  R('telar', 'wolf_lined_coat', 1, [['wool_coat', 1], ['wolf_hide', 1]]),
   R('mano', 'flor_pelo', 1, [['fibra', 2], ['bayas', 1]]),
   R('yunque', 'horquillas', 2, [['lingote_cobre', 1]]),
   R('mano', 'corona_flores', 1, [['fibra', 4], ['bayas', 2]]),

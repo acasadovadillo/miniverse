@@ -753,7 +753,7 @@ export class Ranch {
     const g = this.game, V = g.wind;
     let best = null, bd = POINT.R;
     if (V) for (const w of g.wildlife.list) {
-      if (w.type === 'cisne') continue;
+      if (w.type === 'cisne' || ANIMALS[w.type]?.predator) continue;   // (a wolf: it growls instead, predators.js)
       const dx = dxOf(a.x, w.x), dy = a.y - w.y, d = Math.hypot(dx, dy), A = g.wildlife.airAt ? g.wildlife.airAt(w.x, w.y, V.s, AIR) : V;   // (with hardly any wind, the thermals: wildlife.js)
       if (d < bd && d > 2 && downwind(A.x, A.y, dx, dy, d)) { bd = d; best = w; }
     }
@@ -939,7 +939,9 @@ export class Ranch {
     const dog = this.animals.some(a => a.type === 'perro' && !a.stray), cat = this.animals.some(a => a.type === 'gato' && !a.stray);
     if (!dog) for (const kind of ['gallinero', 'conejera', 'establo']) for (const h of this.placed(kind)) {
       const list = this.animals.filter(a => a.home && a.home[0] === h.tile[0] && a.home[1] === h.tile[1]);
-      if (!list.length || h.d.door?.[h.k] === 0 || Math.random() > 0.1) continue;
+      // (Plan R3-5: with the predators, a fox that really came, or with nobody about one by the seed; its prints at the door)
+      const P = this.game.predators;
+      if (!list.length || h.d.door?.[h.k] === 0 || (P?.on ? !P.foxCame(h.tile, day) : Math.random() > 0.1)) continue;
       for (const a of list) a.love = Math.max(0, a.love - 1);
       news.push(`Esta noche un zorro ha rondado ${kind === 'establo' ? 'el establo' : kind === 'conejera' ? 'la conejera' : 'el gallinero'} con la puerta abierta y los animales están asustados. Ciérrala por la noche, o ten un perro.`);
     }

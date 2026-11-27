@@ -22,6 +22,9 @@ export const ANIMALS = {
   ciervo: { name: 'Ciervo', wild: true },
   jabali: { name: 'Jabalí', wild: true },
   cisne: { name: 'Cisne', wild: true, swims: true },
+  // (Plan R3-5, predators.js: never sold or bred; huntable, they leave their hide)
+  lobo: { name: 'Lobo', wild: true, predator: true },
+  zorro: { name: 'Zorro', wild: true, predator: true },
 };
 // Cómo se llama un pelaje o una raza, para enseñarlo
 export const BREED_NAMES = {

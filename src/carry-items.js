@@ -32,7 +32,7 @@ export const WEIGHT = {
   // (tackle and bait, Plan R1-2)
   worm: 0.005, cut_bait: 0.05, spoon: 0.02, jig: 0.02, landing_net: 0.8, deer_call: 0.2, hunting_horn: 1.2, fish_trap: 3, rod_rest: 0.7, salt: 0.3, fillet: 0.3, salted_fish: 0.4, rotten_fish: 0.5,
   // (Plan E §3.1: the coats and the heavier new garments; the rest are clothes, 0.4)
-  wool_coat: 1.5, sheepskin_jacket: 2, lined_boots: 1.2, leather_apron: 0.8,
+  wool_coat: 1.5, sheepskin_jacket: 2, wolf_lined_coat: 2.5, wolf_hide: 3, wolf_rug: 3, lined_boots: 1.2, leather_apron: 0.8,
 };
 // kg of one sip of water in a canteen or a jug (s.sips)
 export const SIP_KG = 0.25;

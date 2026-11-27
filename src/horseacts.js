@@ -1,6 +1,6 @@
 // What a horse nobody rides plays for everybody to see (Plan F phase 2, docs/planes/gta/PLAN-F-caballo.md §1.5, §1.6,
 // §3.3 and §5.2): the Bow (a bonded horse, level 4: E on it › Bow) and the shy of a spook (a monster within 5 m, a boar
-// within 4 m or a thunderbolt: it starts, throws its head up and sidesteps, and below level 4 it trots off to 6-10 m from
+// within 4 m, a wolf within 15 m (Plan R3-5) or a thunderbolt: it starts, throws its head up and sidesteps, and below level 4 it trots off to 6-10 m from
 // what scared it). Whoever runs the world decides and plays them (alone, the host or the world server) and sends them in
 // the 'herd' message; a guest only asks for the Bow, through the horse's `trick` field.
 //
@@ -27,7 +27,7 @@ import { distOf, dxOf, wrapX } from './world/planet.js';
 export const ACT_KINDS = ['', 'bow', 'shy'];   // (the codes in the herd: append only)
 export const BOW_S = 2.5, SHY_S = 0.6;          // s each one plays (three/animals.js HORSE_ACTS has the same)
 export const SHY_M = [6, 10];                   // m from what scared it, where it stops (below level 4)
-const TICK = 0.25, SHY_EVERY = 20, MOB_R = 5, BOAR_R = 4, THUNDER_K = 0.25, BOW_LEVEL = 4, SEND_PAD = 0.4;
+const TICK = 0.25, SHY_EVERY = 20, MOB_R = 5, BOAR_R = 4, WOLF_R = 15, THUNDER_K = 0.25, BOW_LEVEL = 4, SEND_PAD = 0.4;
 const NONE = Object.freeze([]);
 
 export const packAct = (n, kind) => ((Math.max(0, n | 0) % 1e6) * 4) + Math.max(0, ACT_KINDS.indexOf(kind));
@@ -123,7 +123,7 @@ export class HorseActs {
     return best;
   }
   boarAt(a) {
-    for (const w of this.game.wildlife?.list || []) if (w.type === 'jabali' && !w.dead && distOf(w.x, w.y, a.x, a.y) < BOAR_R) return w;
+    for (const w of this.game.wildlife?.list || []) if (((w.type === 'jabali' && distOf(w.x, w.y, a.x, a.y) < BOAR_R) || (w.type === 'lobo' && distOf(w.x, w.y, a.x, a.y) < WOLF_R)) && !w.dead) return w;
     return null;
   }
 }

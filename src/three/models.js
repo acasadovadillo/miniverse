@@ -57,7 +57,7 @@ export function modelMats() {
     plank: mat({ map: planks(), roughness: 0.75, color: '#d2c6b6' }), stone: mat({ map: stone('#9a948a') }), brick: mat({ map: stone('#b0705a') }), soot: c('#2a2220', { roughness: 1 }),
     sheet: c('#f4efe6', { roughness: 0.95 }), quilt: c('#d0574a', { roughness: 0.95 }), quiltB: c('#f0c25a', { roughness: 0.95 }), cloth: c('#e8e0d0', { roughness: 0.95 }),
     pot: c('#b8643c', { roughness: 0.8 }), soil: c('#4a3020'), leaf: c('#4f9a3a', { flatShading: true }), leafD: c('#3f7a2e', { flatShading: true }),
-    rug: mat({ map: rug(), roughness: 1 }), brass: c('#c89a48', { metalness: 0.7, roughness: 0.35 }), iron: c('#3a3634', { metalness: 0.55, roughness: 0.45 }), steel: c('#8a929a', { metalness: 0.7, roughness: 0.3 }),
+    rug: mat({ map: rug(), roughness: 1 }), pelt: c('#8a7e6a', { roughness: 1 }), peltD: c('#4e463c', { roughness: 1 }), peltL: c('#cfc4ae', { roughness: 1 }), brass: c('#c89a48', { metalness: 0.7, roughness: 0.35 }), iron: c('#3a3634', { metalness: 0.55, roughness: 0.45 }), steel: c('#8a929a', { metalness: 0.7, roughness: 0.3 }),
     gold: c('#f0c840', { metalness: 0.8, roughness: 0.25 }), copper: c('#c8743a', { metalness: 0.6, roughness: 0.4 }),
     horn: c('#d9c7a2', { roughness: 0.45 }), hornTip: c('#3e3026', { roughness: 0.4 }),   // (Paco's hunting horn: the horn's ivory and its dark point)
     candle: c('#fff4dc', { roughness: 0.8 }), shade: c('#f4dca0', { emissive: '#ffb860', emissiveIntensity: 0.6, roughness: 0.9, side: THREE.DoubleSide }),
@@ -457,6 +457,15 @@ const BUILD = {
     for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; m.geo(i % 2 ? 'leaf' : 'leafD', ICO, Math.cos(a) * 0.12, 0.5 + (i % 3) * 0.12, Math.sin(a) * 0.12, [i, i * 2, 0], 0.16 + (i % 2) * 0.04); }
     m.geo('leaf', ICO, 0, 0.78, 0, [0, 0, 0], 0.17);
     for (let i = 0; i < 4; i++) { const a = i * 1.7; m.geo(['red', 'quiltB', 'white', 'books4'][i], ICO, Math.cos(a) * 0.14, 0.72 + (i % 2) * 0.1, Math.sin(a) * 0.14, [0, 0, 0], 0.05); }
+  },
+  // (Plan R3-5: a wolf's pelt laid flat, head to one end, legs spread and the tail out behind; a dark saddle down its back
+  // and a pale belly edge)
+  wolf_rug(m) {
+    const fan = (mat, P, y, k = 1, dz = 0) => { const b = m.B(mat); for (let i = 0; i < P.length; i++) { const a = P[i], c = P[(i + 1) % P.length], A = [a[0] * k, y, a[1] * k + dz], C = [c[0] * k, y, c[1] * k + dz], O = [0, y, dz]; if ((A[0] - O[0]) * (C[2] - O[2]) - (A[2] - O[2]) * (C[0] - O[0]) < 0) b.tri(O, A, C, [0, 1, 0], [[0.5, 0.5], [0, 0], [1, 0]]); else b.tri(O, C, A, [0, 1, 0], [[0.5, 0.5], [1, 0], [0, 0]]); } };
+    const P = [[0, 0.8], [0.1, 0.66], [0.15, 0.42], [0.48, 0.47], [0.6, 0.34], [0.3, 0.22], [0.27, -0.28], [0.55, -0.4], [0.52, -0.55], [0.22, -0.5], [0.08, -0.6], [0.06, -0.98], [-0.06, -0.98], [-0.08, -0.6], [-0.22, -0.5], [-0.52, -0.55], [-0.55, -0.4], [-0.27, -0.28], [-0.3, 0.22], [-0.6, 0.34], [-0.48, 0.47], [-0.15, 0.42], [-0.1, 0.66]];
+    fan('peltL', P, RUG_Y, 1.04);
+    fan('pelt', P, RUG_Y + 0.004, 0.97);
+    fan('peltD', [[0, 0.62], [0.09, 0.4], [0.14, 0.05], [0.1, -0.45], [0.05, -0.9], [-0.05, -0.9], [-0.1, -0.45], [-0.14, 0.05], [-0.09, 0.4]], RUG_Y + 0.008);
   },
   alfombra(m) { m.B('rug').quad([-0.9, RUG_Y, 0.6], [0.9, RUG_Y, 0.6], [0.9, RUG_Y, -0.6], [-0.9, RUG_Y, -0.6], [0, 1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]]); },
   cofre(m) {

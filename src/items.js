@@ -285,7 +285,9 @@ const TACKLE_ITEMS = { worm: {}, cut_bait: {}, spoon: { stack: 8, lure: 60 }, ji
 Object.assign(ITEMS, TACKLE_ITEMS);
 defineNames(TACKLE_ITEMS, 'item');
 // ---------- The hunt (Plan R3-4, huntcode.js): Paco's deer call, and his old hunting horn to hang on a wall ----------
-const HUNT_ITEMS = { deer_call: { stack: 1, call: true }, hunting_horn: { place: 'wall', stack: 4 } };
+const HUNT_ITEMS = { deer_call: { stack: 1, call: true }, hunting_horn: { place: 'wall', stack: 4 },
+  // (Plan R3-5, predators.js: a wolf's hide, and the pelt rug woven from it at the loom)
+  wolf_hide: {}, wolf_rug: { place: 'rug' } };
 Object.assign(ITEMS, HUNT_ITEMS);
 defineNames(HUNT_ITEMS, 'item');
 // ---------- Exploración (fase 8) ----------
@@ -385,6 +387,7 @@ const GARMENT_ITEMS = {
   wool_socks: { wear: 'calcetines', dye: '#b8a688' },
   lined_boots: { wear: 'pies', dye: '#6a4a30' },
   leather_apron: { wear: 'encima', dye: '#7a5232' },
+  wolf_lined_coat: { wear: 'outer', dye: '#4e4a42' },   // (Plan R3-5: the wool coat lined with a wolf's hide)
 };
 Object.assign(ITEMS, GARMENT_ITEMS);
 defineNames(GARMENT_ITEMS, 'item');

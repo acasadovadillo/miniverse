@@ -358,6 +358,8 @@ const BUILD = {
     [[-0.13, 0.33], [0.13, 0.33], [-0.13, -0.33], [0.13, -0.33]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.8, z, up: 0.42, low: 0.34, r0: 0.07, r1: 0.035, r2: 0.028, color: fur, foot: 0.04, phase: TROT[i] }));
   },
   perro: (o) => pet(o, true),
+  lobo: (o) => canid(o, false),
+  zorro: (o) => canid(o, true),
   gato: (o) => pet(o, false),
   conejo({ body, legs, u, cb, cd, k }) {
     // (un huevo con la grupa ancha y alta, y las orejas largas y finas)
@@ -495,6 +497,51 @@ function pet({ body, legs, u, cb, cd, cl, k, breed }, dog) {
   [[-0.07, 0.16], [0.07, 0.16], [-0.07, -0.16], [0.07, -0.16]].forEach(([x, z], i) => leg(body, legs, { x: x * L, y: 0.22 * L + dy, z: z * L, up: 0.11 * L * lh, low: 0.1 * L * lh, r0: 0.04 * L, r1: 0.028 * L, r2: 0.025 * L, color: breed === 'negro' && dog ? cd : cb, paw: true, footColor: breed === 'negro' && dog ? cd : (breed === 'manchado' || breed === 'tricolor' ? '#f4f0e8' : cb), phase: TROT[i] }));
 }
 
+// The Iberian wolf and the red fox (Plan R3-5, predators.js), on the dog's frame (pet) and drawn at their own size
+// (herds.js PRED_SCALE): erect ears, a long muzzle, a bushy tail carried low. The wolf grey-buff with a dark saddle, a pale
+// belly and cheeks, white lips and the dark stripe down the front of each foreleg; the fox rust-red with a white chest,
+// throat and tail tip, black socks and black backs to its big ears
+function canid({ body, legs, u, k }, fox) {
+  const lh = fox ? 1.25 : 1.5, dy = (lh - 1) * 0.21, L = fox ? 1.12 : 1;
+  const cb = fox ? '#b4622c' : '#948670', back = fox ? '#93501f' : '#3a342c', pale = fox ? '#f0e8dc' : '#d8cfba', dark = fox ? '#221a16' : '#2c2620';
+  const fur = (n, extra) => {
+    C.set(tone(cb));
+    if (n.y > 0.05) C.lerp(C2.set(tone(back)), Math.min(1, (n.y - 0.05) * 1.8) * (fox ? 0.45 : 0.85));
+    if (n.y < -0.3) C.lerp(C2.set(tone(pale)), Math.min(1, (-n.y - 0.3) * 2.4));
+    if (extra) extra(n);
+    C.multiplyScalar(0.88 + noise(n.x * 8 + 3, n.y * 8, n.z * 8) * 0.14 + noise(n.x * 26, n.y * 26 + 5, n.z * 26) * 0.07);   // (the guard hairs)
+    return C;
+  };
+  const chest = n => { if (n.z > 0.5 && n.y < 0.25) C.lerp(C2.set(tone(pale)), Math.min(1, (n.z - 0.5) * 3) * (fox ? 1 : 0.6)); };
+  mesh(blob(k + ':b', 40, trunk({ L: 0.27 * L, W: fox ? 0.085 : 0.105, H: fox ? 0.1 : 0.125, belly: -0.02, chest: fox ? 0.03 : 0.07, withers: fox ? 0.04 : 0.1, hips: 0.03 }), n => fur(n, chest)), WHITE, { p: [0, 0.32 + dy, 0] }, body);
+  const hy = 0.49 + dy + (fox ? -0.02 : 0), hz = 0.31 * L;
+  const head = new THREE.Group(); head.position.set(0, hy, hz); body.add(head); u.head = head;
+  tube(M(cb), [0, 0.36 + dy, 0.15 * L], [0, hy, hz], fox ? 0.06 : 0.085, fox ? 0.045 : 0.065, body, 10);
+  // (a ruff of longer hair round the wolf's neck)
+  if (!fox) mesh(blob(k + ':ruff', 20, (v, n) => v.set(n.x * 0.105, n.y * 0.1, n.z * 0.075), n => fur(n)), WHITE, { p: [0, 0.43 + dy, 0.22], r: [0.5, 0, 0] }, body);
+  mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * (fox ? 0.075 : 0.1), n.y * (fox ? 0.07 : 0.088), n.z * (fox ? 0.085 : 0.1)), n => fur(n, m => { if (m.y < -0.2 || Math.abs(m.x) > 0.75) C.lerp(C2.set(tone(pale)), fox ? 0.85 : 0.55); })), WHITE, {}, head);
+  // (the muzzle, long and narrowing to the nose; pale underneath, the lips white)
+  mesh(blob(k + ':m', 16, (v, n) => { const f = Math.max(0, n.z); v.set(n.x * (fox ? 0.034 : 0.05) * (1 - 0.35 * f), n.y * (fox ? 0.03 : 0.044) * (1 - 0.25 * f), n.z * (fox ? 0.1 : 0.115)); }, n => fur(n, m => { if (m.y < 0.1) C.lerp(C2.set(tone(fox ? pale : '#efeae0')), Math.min(1, (0.1 - m.y) * 2.5)); })), WHITE, { p: [0, -0.03, fox ? 0.09 : 0.105] }, head);
+  mesh(G.ball, M('#141010', { roughness: 0.25 }), { p: [0, -0.012, fox ? 0.19 : 0.215], s: fox ? [0.014, 0.011, 0.01] : [0.022, 0.017, 0.015] }, head);
+  eyes(head, fox ? 0.036 : 0.048, 0.025, fox ? 0.068 : 0.085, fox ? 0.014 : 0.017);
+  for (const s of [-1, 1]) {
+    const ex = fox ? 0.045 : 0.058, ey = fox ? 0.075 : 0.08, ew = fox ? 0.036 : 0.036, eh = fox ? 0.075 : 0.06;
+    mesh(G.cone, M(fox ? dark : cb), { p: [s * ex, ey, -0.02], s: [ew, eh, 0.02], r: [-0.15, 0, -s * 0.25] }, head);
+    mesh(G.cone, M(fox ? '#f0e4d8' : '#c8bca4'), { p: [s * ex, ey - 0.005, -0.008], s: [ew * 0.6, eh * 0.7, 0.008], r: [-0.15, 0, -s * 0.25] }, head);   // (the pale inside)
+  }
+  // (the bushy tail: low and straight in the wolf, with a dark tip; long and full in the fox, with its white tip)
+  const tail = new THREE.Group(); tail.position.set(0, 0.38 + dy, -0.25 * L); body.add(tail); u.tail = tail;
+  mesh(G.ball, M(cb), { s: [0.035, 0.035, 0.04] }, tail);   // (its root; and two pieces are merged with their colours: one alone keeps its white material)
+  mesh(blob(k + ':t', 16, (v, n) => { const r = 1 - 0.35 * Math.abs(n.y); v.set(n.x * (fox ? 0.05 : 0.045) * r, n.y * (fox ? 0.19 : 0.16), n.z * (fox ? 0.055 : 0.048) * r); }, n => fur(n, m => { if (m.y < -0.7) C.lerp(C2.set(tone(fox ? '#f4efe6' : '#1e1a16')), Math.min(1, (-m.y - 0.7) * 5)); })), WHITE, { p: [0, -0.12, fox ? -0.12 : -0.07], r: [fox ? 0.95 : 0.4, 0, 0] }, tail);
+  [[-0.07, 0.16], [0.07, 0.16], [-0.07, -0.16], [0.07, -0.16]].forEach(([x, z], i) => {
+    const up = 0.11 * lh, low = 0.1 * lh, r0 = fox ? 0.032 : 0.042, r1 = fox ? 0.022 : 0.029, r2 = fox ? 0.02 : 0.026;
+    const knee = leg(body, legs, { x, y: 0.22 + dy, z: z * L, up, low, r0, r1, r2, color: cb, paw: true, footColor: fox ? dark : cb, phase: TROT[i] });
+    // (the fox's black socks; the wolf's dark stripe down the front of the forelegs)
+    if (fox) mesh(G.ball, M(dark), { p: [0, -low * 0.55, 0], s: [r1 * 1.08, low * 0.5, r1 * 1.08] }, knee);
+    else if (i < 2) mesh(G.ball, M(dark), { p: [0, -low * 0.45, r1 * 0.75], s: [r1 * 0.45, low * 0.42, r1 * 0.35] }, knee);
+  });
+}
+
 // Gallina (o gallo) y pato: cuerpo de gota, alas, cola, cabeza con cresta o pico plano, patas finas con dedos
 function bird({ body, legs, u, cb, cd, cl, k, breed }, duck) {
   const rooster = breed === 'gallo', real = breed === 'real', col = cb;
@@ -540,7 +587,8 @@ function bird({ body, legs, u, cb, cd, cl, k, breed }, duck) {
 }
 
 // ---------- cómo se mueven ----------
-const SIT_LEAN = { perro: -0.62, gato: -0.7 };
+const SIT_LEAN = { perro: -0.62, gato: -0.7, lobo: -0.58, zorro: -0.62 };
+const PREDATOR = { lobo: 1, zorro: 1 };   // (resting, w.bedded, they sit; a wolf howls sitting, e.howl 0..1: the nose up)
 // A wounded wild animal (Plan G §8.2; wildlife.js sets e.lying and e.limp, 0..1, and sends them). Bedded: the belly on the
 // ground, the front legs folded with the knees forward and the hooves tucked back, the hind ones folded under the belly
 // (how far the body goes down and [hip, knee] angles, front and hind, worked out from each build's leg lengths so that
@@ -614,12 +662,13 @@ export function animateAnimal(m, dt, t, e, st = null) {
   const { body, legs, type, head, tail } = u, k = Math.min(1, m.speed / 0.8);
   // Sentado (el perro y el gato): la grupa en el suelo, el cuerpo inclinado hacia arriba, las patas de atrás
   // dobladas y las de delante rectas; la cabeza derecha, mirando alrededor, y la cola barriendo el suelo
-  if (e?.sit && legs.length === 4) {
+  if ((e?.sit || (PREDATOR[type] && (e?.bedded || e?.howl >= 0))) && legs.length === 4) {
     const lean = SIT_LEAN[type] ?? -0.6;
     body.rotation.set(lean, 0, 0); body.position.y = 0; body.scale.set(1, 1, 1);
     for (const l of legs) { const hind = l.hip.position.z < 0; l.hip.rotation.x = hind ? -1.0 : -lean; l.knee.rotation.x = hind ? 1.9 : 0; }
     if (head) { head.rotation.x = -lean * 0.85; head.rotation.y = Math.sin(t * 0.6 + u.seed * 2) * 0.35; }
-    if (tail) tail.rotation.set(type === 'perro' ? -0.2 : -1.1, 0, Math.sin(t * (type === 'perro' ? 9 : 1.5) + u.seed) * (type === 'perro' ? 0.5 : 0.25));
+    if (head && e?.howl >= 0) { const k = Math.sin(Math.min(1, e.howl) * Math.PI); head.rotation.x = -lean * 0.85 - 1.05 * Math.min(1, k * 3); head.rotation.y = 0; }   // (the howl)
+    if (tail) tail.rotation.set(type === 'perro' ? -0.2 : PREDATOR[type] ? 0.9 : -1.1, 0, Math.sin(t * (type === 'perro' ? 9 : 1.5) + u.seed) * (type === 'perro' ? 0.5 : 0.25));
     return;
   }
   m.phase += dt * (3 + m.speed * 6);

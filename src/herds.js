@@ -44,7 +44,9 @@ export const AGE = { young: 0, adult: 1, prime: 2, old: 3 };
 const SIZE0 = 0.85, SIZE_STEP = 0.05;
 export const HIND_K = 0.9, YOUNG = 0.55;     // (how big a hind or a sow is by a stag's or a male's; a young one, by a grown one)
 // How big an animal's body is, by its species' (a farm one, a horse by its breed, a wild one of a herd, or on its own)
-export const scaleOf = e => (e.young ? YOUNG : 1) * (e.type === 'caballo' ? raceSize(e) : 1) * (e.traits ? (e.size || 1) * (e.female && !e.young && e.type !== 'cisne' ? HIND_K : 1) : 1);
+// (a wolf and a fox are the dog's model, three/animals.js, at their own size: Plan R3-5)
+export const PRED_SCALE = { lobo: 1.5, zorro: 0.82 };
+export const scaleOf = e => (PRED_SCALE[e.type] || 1) * (e.young ? YOUNG : 1) * (e.type === 'caballo' ? raceSize(e) : 1) * (e.traits ? (e.size || 1) * (e.female && !e.young && e.type !== 'cisne' ? HIND_K : 1) : 1);
 const TYPE = { deer: 'ciervo', boar: 'jabali', swan: 'cisne' };
 const KINDS = ['deer', 'boar', 'swan'];
 const NONE = Object.freeze([]), DAY = 864e5;
@@ -89,6 +91,7 @@ export function breedOf(type, female, young, md, size = 1, age = AGE.adult) {
 const stagBreed = (a, five) => (a === 'none' || a === 'bud' ? a : a === 'velvet' ? (five ? 'velvet5' : 'velvet') : five ? 'hard5' : undefined);
 // Its name (lang wild.*), or null: the species' own (a summoned one, or an old host's)
 export function nameKey(e) {
+  if (e.type === 'lobo' || e.type === 'zorro') return e.type;   // (Plan R3-5)
   if (!e.traits) return null;
   if (e.type === 'ciervo') return e.young ? 'calf' : e.female ? 'hind' : 'stag';
   if (e.type === 'jabali') return e.young ? 'piglet' : e.female ? 'sow' : null;

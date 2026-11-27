@@ -192,6 +192,8 @@ import { Tracks, K, CAP, TTL, S, DEAD, F_LEFT, F_FLEE, F_SECOND, STRIDE, RAIN_K 
 import { Wildlife, WOUND, trailKey, KINDS, wildF, DRINKING } from './wildlife.js';
 import * as SENSES_MOD from './senses.js';
 import * as HERDS from './herds.js';
+import * as PRED from './predators.js';
+import * as KILL3D from './three/kill3d.js';
 import { ANIMALS } from './art/farm.js';
 import { Presence } from './presence.js';
 import { windAt } from './wind.js';
@@ -12621,10 +12623,11 @@ async function soloTests(game) {
     // The arch, built with B (its plan bought from Dani), a carpenter's bench beside it; the cake, cooked
     game.craft.learnPlan('wedding_arch'); const T0 = arch(21, 31); check(T0, 'room'); w().unplace({ tile: T0, layer: 'placed', placed: 'wedding_arch' });
     w().buildAnywhere = true; w().place(T0[0] + 3, T0[1], 'banco', 0); w().place(T0[0] - 3, T0[1], 'cocina', 0);
+    const tb0 = inv().count('tablas'), mg0 = inv().count('margarita');   // (an earlier test may leave some: only the arch's are spent)
     for (const [k, n] of [['tablas', 6], ['madera', 4], ['margarita', 8], ['harina', 2], ['huevo', 2], ['leche', 1], ['miel', 1]]) inv().add(k, n);
     game.teleport(T0[0] + 1, T0[1] + 2.5); await readyGround(game, 4000); await frames(3);
     game.build.toggle(true); game.build.select('wedding_arch'); game.build.pointTo(T0); game.mousePoint = () => [T0[0] + 0.5, T0[1] + 0.5]; game.build.place(T0); await frames(2); game.build.toggle(false);
-    check(w().at('placed', ...T0)?.startsWith('wedding_arch') && !inv().count('tablas') && !inv().count('margarita'), `the arch built with B: ${w().at('placed', ...T0)} (${inv().count('tablas')} planks left)`);
+    check(w().at('placed', ...T0)?.startsWith('wedding_arch') && inv().count('tablas') === tb0 && inv().count('margarita') === mg0, `the arch built with B: ${w().at('placed', ...T0)} (${inv().count('tablas')} planks left, had ${tb0})`);
     game.craft.check(true); const R = RECIPES.find(q => q.out === 'wedding_cake'); game.teleport(T0[0] - 2, T0[1] + 1); await frames(2);
     check(game.craft.craft(R) === 1 && inv().count('wedding_cake') === 1, `the cake: ${game.craft.problem(R)}`);
     w().buildAnywhere = false;
@@ -16168,7 +16171,7 @@ async function soloTests(game) {
     keep.games = new Map([...w().deltas].filter(([, d]) => d.game).map(([k, d]) => [k, JSON.stringify(d.game)]));   // (R3-4: what the tests take is written in the chunks)
     const L = { W, hour: 18, ms: game.days.now, qs: [], q: null };
     L.q = { me: true, x: 0, y: 0, gm: 'survival', crouch: false, e: { crouch: false, gait: 0 } }; L.qs = [L.q];
-    W.list = []; W.groups = new Map(); W.herds = null; W.t = -1e9; W.presence.reset();
+    W.list = []; W.groups = new Map(); W.herds = null; W.t = -1e9; W.presence.reset(); PRED.Predators.force = false; game.predators.real.clear();   // (R3-5: no wolves or foxes about the herds)
     game.mobs.players = () => L.qs; game.days.hourAt = () => L.hour; W.now = () => L.ms; game.difficulty = 'normal';
     L.H = W.herdsNow();
     // Every group of a kind round (x, y); where one is now
@@ -16179,7 +16182,7 @@ async function soloTests(game) {
     L.run = (s, dt = 0.1, each) => { for (let t = 0; t < s; t += dt) { game.time += dt; W.update(dt); each?.(t); } };
     try { return fn(L); } finally {
       delete W.stays; delete W.now; delete W.sense; delete game.days.hourAt; game.mobs.players = keep.pl; game.time = keep.time; game.difficulty = keep.diff; game.wind.held = keep.held; game.wind.now();
-      W.list = keep.list; W.groups = keep.groups; W.herds = keep.herds; W.t = keep.t; W.gT = keep.gT; W.presence.reset(); Wildlife.herding = null;
+      W.list = keep.list; W.groups = keep.groups; W.herds = keep.herds; W.t = keep.t; W.gT = keep.gT; W.presence.reset(); Wildlife.herding = null; PRED.Predators.force = null;
       for (const [k, d] of w().deltas) { if (keep.games.has(k)) d.game = JSON.parse(keep.games.get(k)); else delete d.game; }
     }
   };
@@ -16457,6 +16460,232 @@ async function soloTests(game) {
         W0(L, g);
       });
     } finally { for (const [k, d] of w().deltas) { if (keep.has(k)) d.game = JSON.parse(keep.get(k)); else delete d.game; } }
+  });
+  // ---------- Plan R3-5: the predators (predators.js) ----------
+  const L0 = Date.UTC(2027, 0, 10, 20);
+  const predLab = fn => {
+    const W = WL(), P = game.predators, keep = { list: W.list, groups: W.groups, time: game.time, pl: game.mobs.players, diff: game.difficulty, hurt: W.hurtPlayer };
+    const L = { W, P, hour: 23, ms: Date.UTC(2027, 0, 10, 23), hurts: [], q: null };
+    L.q = { me: true, x: 0, y: 0, gm: 'survival', crouch: false, e: { crouch: false, gait: 0 } }; L.qs = [L.q];
+    W.list = []; W.groups = new Map(); W.presence.reset(); P.real.clear(); P.away.clear(); P.terr.clear(); W.t = -1e9;
+    game.mobs.players = () => L.qs; game.days.hourAt = () => L.hour; P.ms = () => L.ms; W.now = () => L.ms; game.difficulty = 'normal';
+    W.hurtPlayer = (q, dmg, w) => { L.hurts.push([dmg, w.type]); };
+    L.H = W.herdsOf();
+    // The packs round the player (reach: territories each side), the nearest first
+    L.packs = (reach = 10) => { const out = []; for (let j = -reach; j <= reach; j++) for (let i = -reach; i <= reach; i++) { const T = P.at(L.H, 'wolf', Math.floor(p().x / PRED.PCELL) + i, Math.floor(p().y / PRED.PCELL) + j); if (T) out.push(T); } return out.sort((a, b) => distOf(a.den[0], a.den[1], p().x, p().y) - distOf(b.den[0], b.den[1], p().x, p().y)); };
+    L.mid = T => PRED.whereOf(T, L.hour, L.ms, {});
+    L.run = (s, dt = 0.1, each) => { for (let t = 0; t < s; t += dt) { game.time += dt; W.update(dt); P.update(dt); each?.(t); } };
+    // Real, with the player `far` east of its middle
+    L.real = (T, far = 80) => { const o = L.mid(T); L.q.x = o.x + far; L.q.y = o.y; for (let k = 0; k < 40 && !P.real.has(T.id); k++) L.run(1, 0.25); return P.real.get(T.id); };
+    try { return fn(L); } finally {
+      delete P.ms; delete W.now; delete game.days.hourAt; delete P.meatOn; delete P.torchOf;
+      game.mobs.players = keep.pl; game.time = keep.time; game.difficulty = keep.diff; W.hurtPlayer = keep.hurt;
+      W.list = keep.list; W.groups = keep.groups; W.presence.reset(); P.real.clear(); P.away.clear(); for (const T of P.terr.values()) if (T) delete T.nipDay;
+    }
+  };
+  await test('predators (english): packs, howls and kills are the same for everybody', async () => {
+    const H = WL().herdsOf(), A = new PRED.Predators(game), B2 = new PRED.Predators(game);
+    let packs = 0, foxes = 0, n = 0;
+    for (let j = -14; j <= 14; j++) for (let i = -14; i <= 14; i++) {
+      const a = A.at(H, 'wolf', i, j), b = B2.at(H, 'wolf', i, j);
+      check(JSON.stringify(a) === JSON.stringify(b), `territory ${i},${j}`);
+      if (a) {
+        packs++; n += a.n;
+        const d = Math.hypot(Math.max(0, BOUNDS.x0 - a.den[0], a.den[0] - BOUNDS.x1), Math.max(0, BOUNDS.y0 - a.den[1], a.den[1] - BOUNDS.y1));
+        check(d >= PRED.PRED.VILLAGE && a.n >= 2 && a.n <= 5 && !w().natWater(...a.den), `${a.id}: ${d.toFixed(0)} m from the village, ${a.n} wolves`);
+        // (its howls: at night, every 3 to 8 minutes; none by day)
+        let last = null, gaps = [];
+        for (let s = 0; s < 3 * 3600; s += 1) { const k = PRED.howlPhase(a.id, L0 + s * 1000, 23); if (k >= 0 && (last === null || s - last > 10)) { if (last !== null) gaps.push(s - last); last = s; } }
+        check(gaps.length > 15 && gaps.every(g => g >= 170 && g <= 490) && PRED.howlPhase(a.id, L0 + 5e5, 12) < 0, `${a.id}: howls ${gaps.length}, ${Math.min(...gaps)}-${Math.max(...gaps)} s apart`);
+        const K = PRED.killOf(H, a, 20000), K2 = PRED.killOf(H, a, 20000);
+        check(!K || (JSON.stringify(K) === JSON.stringify(K2) && distOf(K.x, K.y, a.den[0], a.den[1]) <= PRED.PRED.KILL.R[1] + 1 && !w().natWater(K.x, K.y)), `${a.id}: its kill`);
+      }
+      if (A.at(H, 'fox', i, j)) foxes++;
+    }
+    console.log(`predators: ${packs} packs (${n} wolves) and ${foxes} foxes in ${29 * 29} territories`);
+    check(packs >= 3 && foxes >= 3, `${packs} packs, ${foxes} foxes`);
+    // (the day of a kill starts at its hour; a night has passed by 03:00; nips only on hard winter nights)
+    const D = Date.UTC(2027, 0, 11);
+    check(PRED.killDay(D + 4 * 36e5, 4) === PRED.killDay(D - 2 * 36e5, 22) && PRED.killDay(D + 6 * 36e5, 6) === PRED.killDay(D - 2 * 36e5, 22) + 1, 'the kill day');
+    check(PRED.nightPassed(D - 4 * 36e5, D + 10 * 36e5, 10) && !PRED.nightPassed(D + 5 * 36e5, D + 10 * 36e5, 10) && !PRED.nightPassed(D - 9 * 864e5, D, 10), 'a night passed');
+    check(PRED.mayNip('hard', 110, 23) && !PRED.mayNip('normal', 110, 23) && !PRED.mayNip('easy', 110, 23) && !PRED.mayNip('hard', 701, 23) && !PRED.mayNip('hard', 110, 13), 'when they may nip');
+    // (a wolf and a fox: their model, their size, their names)
+    for (const [type, s] of [['lobo', 1.5], ['zorro', 0.82]]) {
+      const root = ANIMALS3D.animalModel(type), u = root.userData; check(u.head && u.tail && u.legs.length === 4 && HERDS.scaleOf({ type }) === s, `${type}: its model`);
+      ANIMALS3D.animateAnimal({ root, speed: 0, phase: 0 }, 0.1, 1, { type, bedded: true, howl: 0.5 }); check(u.head.rotation.x < -0.4, `${type}: the howl ${u.head.rotation.x.toFixed(2)}`);
+      ANIMALS3D.disposeAnimal(root);
+      check(kindName({ type }) === t('wild.' + type) && bodyBox({ type, x: 0, y: 0, dir: [0, 1] }).y1 > (type === 'lobo' ? 0.8 : 0.4), `${type}: its name and box`);
+    }
+    const K3 = KILL3D.killModel(false), K4 = KILL3D.killModel(true); let m3 = 0, m4 = 0; K3.traverse(o => { if (o.isMesh) m3++; }); K4.traverse(o => { if (o.isMesh) m4++; }); check(m3 > 10 && m4 > 10, `kill models ${m3} ${m4}`);
+  });
+  await test('predators (english): wolves never damage on easy/normal', async () => {
+    predLab(L => {
+      const { W, P } = L, T = L.packs()[0]; check(T, 'no pack round here'); if (!T) return;
+      const G = L.real(T); check(G && G.list.length === T.n && G.list.every(e => e.type === 'lobo' && e.pack === G), `it does not appear (${G?.list.length} of ${T.n})`);
+      if (!G) return;
+      check(G.list.every(e => distOf(e.x, e.y, L.q.x, L.q.y) >= PRED.PRED.MIN - 8), 'they appear on the player');
+      P.meatOn = () => true;
+      for (const diff of ['easy', 'normal']) {
+        game.difficulty = diff;
+        L.run(2); const o = G.list[0]; L.q.x = o.x + 14; L.q.y = o.y; W.presence.reset();
+        L.run(40, 0.1, () => { L.q.x += 0.12; });
+        check(!L.hurts.length, `${diff}: bitten ${L.hurts.length}`);
+      }
+      // (they noticed and went off: they watch from about WATCH m, then leave; not met again for a while)
+      check(!P.real.has(T.id) || ['watch', 'leave', 'flee'].includes(P.real.get(T.id).mode), `still ${P.real.get(T.id)?.mode}`);
+      L.run(60); check(!P.real.has(T.id) && P.away.get(T.id) > game.time, 'they stay');
+    });
+  });
+  await test('predators (english): a pack nips once on a hard winter night, a torch sends it off', async () => {
+    predLab(L => {
+      const { W, P } = L, T = L.packs()[0]; if (!T) { check(false, 'no pack'); return; }
+      game.difficulty = 'hard'; P.meatOn = () => true;
+      let G = L.real(T); check(G, 'no pack');
+      L.run(1); const o = G.list[0]; L.q.x = o.x + 20; L.q.y = o.y; W.presence.reset();
+      L.run(40);
+      check(L.hurts.length === 1 && L.hurts[0][0] === PRED.PRED.NIP.DMG && L.hurts[0][1] === 'lobo', `bites: ${JSON.stringify(L.hurts)}`);
+      check(!P.real.has(T.id) || ['leave', 'flee'].includes(P.real.get(T.id).mode), `after the nip: ${P.real.get(T.id)?.mode}`);
+      // (in summer, or carrying nothing, they never follow)
+      L.hurts.length = 0; P.away.clear(); P.real.clear(); W.list = []; delete T.nipDay; P.torchOf = () => true;
+      G = L.real(T); L.run(1); const o2 = G.list[0]; L.q.x = o2.x + 20; L.q.y = o2.y; L.run(3);
+      check(!L.hurts.length && (!P.real.has(T.id) || P.real.get(T.id).mode === 'flee'), `the torch: ${P.real.get(T.id)?.mode}, ${L.hurts.length}`);
+      delete P.torchOf; L.hurts.length = 0; P.away.clear(); P.real.clear(); W.list = []; delete T.nipDay; L.ms = Date.UTC(2027, 6, 10, 23);
+      G = L.real(T); if (G) { L.run(1); const o3 = G.list[0]; L.q.x = o3.x + 20; L.q.y = o3.y; L.run(30); } check(!L.hurts.length, 'in summer');
+    });
+  });
+  await test('predators (english): a gut pile in a wolf cell is gone after a night; a carcass on a table is untouched', async () => {
+    predLab(L => {
+      const { P } = L, T = L.packs()[0]; if (!T) { check(false, 'no pack'); return; }
+      L.ms = Date.UTC(2027, 0, 11, 10); L.hour = 10;
+      const tx = Math.floor(T.den[0] / 16) * 16 + 2, ty = Math.floor(T.den[1] / 16) * 16 + 3,   // (all in one chunk)
+        cx = Math.floor(tx / 16), cy = Math.floor(ty / 16), d = w().delta(cx, cy, true), k = (x, y) => `${x},${y}`;
+      const was = JSON.stringify({ gut: d.gut, carcass: d.carcass, cq: d.cq, placed: d.placed, wolf: d.wolf });
+      try {
+        d.gut = { [k(tx, ty)]: L.ms - 14 * 36e5, [k(tx, ty + 1)]: L.ms - 36e5 };
+        const rec = at => [80, 0, 0, 0, at, 1, 0], gutted = at => [80, at + 1000, 0, 0, at, 1, 0];
+        d.carcass = { [k(tx + 2, ty)]: 1, [k(tx + 4, ty)]: 1, [k(tx + 6, ty)]: 1 };
+        d.cq = { [k(tx + 2, ty)]: rec(L.ms - 13 * 36e5), [k(tx + 4, ty)]: rec(L.ms - 13 * 36e5), [k(tx + 6, ty)]: gutted(L.ms - 13 * 36e5) };
+        d.placed = { ...(d.placed || {}), [k(tx + 5, ty)]: 'mesa' };
+        P.scavenge(L.H);
+        check(!d.gut?.[k(tx, ty)] && d.gut?.[k(tx, ty + 1)] && d.wolf?.[k(tx, ty)], `the gut piles: ${JSON.stringify(d.gut)}`);
+        check(d.cq[k(tx + 2, ty)][0] === 80 - PRED.PRED.SCAV_Q && d.wolf[k(tx + 2, ty)], `left out: ${d.cq[k(tx + 2, ty)]}`);
+        check(d.cq[k(tx + 4, ty)][0] === 80 && !d.wolf[k(tx + 4, ty)], 'by the table');
+        check(d.cq[k(tx + 6, ty)][0] === 80, 'gutted');
+        P.scavenge(L.H); check(d.cq[k(tx + 2, ty)][0] === 80 - PRED.PRED.SCAV_Q, 'twice');
+        // (far from any pack, or in the village: nothing)
+        const vx = Math.floor((BOUNDS.x0 + BOUNDS.x1) / 2), vy = Math.floor((BOUNDS.y0 + BOUNDS.y1) / 2), dv = w().delta(Math.floor(vx / 16), Math.floor(vy / 16), true), g0 = dv.gut;
+        dv.gut = { [k(vx, vy)]: L.ms - 14 * 36e5 }; P.scavenge(L.H); check(dv.gut?.[k(vx, vy)], 'in the village'); if (g0) dv.gut = g0; else delete dv.gut;
+        // ?depredadores=0
+        PRED.Predators.force = false; d.gut = { [k(tx, ty)]: L.ms - 14 * 36e5 }; P.update(PRED.PRED.SCAV_EVERY + 1); check(d.gut[k(tx, ty)], 'switched off'); PRED.Predators.force = null;
+      } finally {
+        PRED.Predators.force = null;
+        const o = JSON.parse(was); for (const key of ['gut', 'carcass', 'cq', 'placed', 'wolf']) { if (o[key] === undefined) delete d[key]; else d[key] = o[key]; }
+      }
+    });
+  });
+  await test('predators (english): two clients, the horse and the dog', async () => {
+    predLab(L => {
+      const { W, P } = L, live = game.live, sent = [], was = { net: live.net, joined: live.joined, role: live.role }, T = L.packs()[0];
+      if (!T) { check(false, 'no pack'); return; }
+      const guestLive = Object.create(live, { guest: { value: true }, joined: { value: true } }), other = new Wildlife(Object.create(game, { live: { value: guestLive } }));
+      try {
+        live.net = { send: m => sent.push(m) }; live.joined = true; live.role = 'host';
+        L.hour = 12; const G = L.real(T); check(G && G.mode === 'rest', `by day: ${G?.mode}`);
+        L.run(8);
+        const m = sent.filter(q => q.t === 'wild').at(-1); other.netList(JSON.parse(JSON.stringify(m.w)));
+        const mine = W.list.filter(e => e.type === 'lobo'), theirs = other.list.filter(e => e.type === 'lobo');
+        check(mine.length === T.n && theirs.length === mine.length && theirs.every(o => { const e = mine.find(q => q.id === o.id); return e && distOf(e.x, e.y, o.x, o.y) < 0.5 && !!o.bedded === !!e.bedded; }), `the guest's wolves: ${theirs.length} of ${mine.length}`);
+        check(mine.filter(e => e.bedded).length >= 1, 'none resting at the den');
+        // (an old guest without wolves drops them; the howl pose is worked out the same by both)
+        const old = m.w.filter(e => e[1] !== 'lobo' && e[1] !== 'zorro'); check(old.length === m.w.length - mine.length, 'the others');
+        L.hour = 23; let both = 0; for (const e of mine) e.vx = e.vy = 0; for (let s = 0; s < 600; s += 1) { L.ms += 1000; P.howlPoses(); if (mine.some(e => e.howl >= 0)) both++; }
+        check(both > 0, 'nobody howls');
+        // The horse shies at a wolf within 15 m; the dog growls at one upwind
+        const hx = mine[0].x + 10, hy = mine[0].y;
+        check(game.horseacts.boarAt({ x: hx, y: hy }) === mine[0] && !game.horseacts.boarAt({ x: hx + 10, y: hy }), 'the horse');
+        check(game.horse.boarAt({ x: hx, y: hy }) && !game.horse.boarAt({ x: hx + 20, y: hy }), 'the ridden horse');
+        check(!W.near(mine[0].x + 1, mine[0].y, 6), 'the dog barks at a wolf');
+      } finally { live.net = was.net; live.joined = was.joined; live.role = was.role; }
+    });
+  });
+  await test('predators (english): a fox at an open coop at night, and its prints in the morning', async () => {
+    predLab(L => {
+      const { P, W } = L, R = game.ranch, keep = { placed: R.placed, animals: R.animals };
+      // (a coop on dry land, out of the village, with dry land all round it)
+      const dry = (x, y) => !w().water(x, y) && !w().natWater(x, y) && !inBounds(x, y);
+      let tx = 0, ty = 0;
+      for (let r = 80; r < 600 && !tx; r += 20) for (let a = 0; a < 8 && !tx; a++) { const x = Math.floor(p().x + Math.cos(a * 0.785) * r), y = Math.floor(p().y + Math.sin(a * 0.785) * r); if ([...Array(12)].every((_, i) => [...Array(14)].every((_, j) => dry(x + Math.cos(i * 0.52) * j * 2, y + Math.sin(i * 0.52) * j * 2)))) { tx = x; ty = y; } }
+      const hen = { type: 'gallina', home: [tx, ty], x: tx, y: ty };
+      try {
+        R.placed = kind => (kind === 'gallinero' ? [{ tile: [tx, ty], d: {}, k: `${tx},${ty}` }] : []); R.animals = [hen];
+        L.q.x = tx + 20; L.q.y = ty; L.hour = 23;
+        let came = null;
+        for (let n = 0; n < 30 && !came; n++) { L.ms = Date.UTC(2027, 0, 10 + n, 23); for (let k = 0; k < 9 && !came; k++) { W.warm(tx, ty); P.coopTick(L.H); came = P.real.get(`c${tx}.${ty}`); } }
+        check(came && came.mode === 'coop' && came.list[0]?.type === 'zorro', 'no fox comes in 30 nights');
+        if (came) {
+          const f = came.list[0], d0 = distOf(f.x, f.y, tx + 0.5, ty + 0.5); L.run(12, 0.1);
+          check(distOf(f.x, f.y, tx + 0.5, ty + 0.5) < d0 - 5 || came.mode !== 'coop', `it does not come: ${d0.toFixed(1)} → ${distOf(f.x, f.y, tx + 0.5, ty + 0.5).toFixed(1)}`);
+          L.ms += 9 * 36e5; L.hour = 8; check(P.foxCame([tx, ty], Math.floor(L.ms / 864e5)), 'the morning says nothing');
+        }
+        // (a dog, or the door shut: no fox)
+        R.animals = [hen, { type: 'perro' }]; check(!P.coopOpen({ tile: [tx, ty], d: {}, k: 'x' }), 'with a dog');
+        R.animals = [hen]; check(!P.coopOpen({ tile: [tx, ty], d: { door: { x: 0 } }, k: 'x' }), 'shut');
+      } finally { R.placed = keep.placed; R.animals = keep.animals; }
+    });
+  });
+  await test('predators (english): a short run with real keys (a howl, a kill, the horse and the dog)', async () => {
+    const P = game.predators, H = WL().herdsOf(), keep = { howl: GameAudio.howl, growl: GameAudio.growl, hourAt: game.days.hourAt, x: p().x, y: p().y, rnd: Math.random, animals: game.ranch.animals };
+    const press = code => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true })); dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true })); };
+    const aimAt = (x, h, y) => { const v = new THREE.Vector3(x, game.view3d.groundY(game.world, x, y) + h, y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; };
+    let T = null; P.budget = Infinity;
+    for (let r = 0; r < 12 && !T; r++) for (let j = -r; j <= r && !T; j++) for (let i = -r; i <= r && !T; i++) if (Math.max(Math.abs(i), Math.abs(j)) === r) T = P.at(H, 'wolf', Math.floor(p().x / PRED.PCELL) + i, Math.floor(p().y / PRED.PCELL) + j);
+    check(T, 'no pack'); if (!T) return;
+    const heard = [], growls = [], base = Date.UTC(2027, 0, 12, 22);
+    try {
+      game.days.hourAt = () => 23; GameAudio.howl = (pan, k, n) => heard.push([pan, k, n]); GameAudio.growl = () => growls.push(game.time);
+      // A howl: 250 m from the pack, a moment before its next one
+      let s0 = 1; while (s0 < 900 && !(PRED.howlPhase(T.id, base + s0 * 1000, 23) >= 0 && PRED.howlPhase(T.id, base + (s0 - 1) * 1000, 23) < 0)) s0++;
+      P.ms = () => base;   // (there first, then the clock a moment before the howl)
+      const mid = PRED.whereOf(T, 23, base + s0 * 1000, {}); await goTo(game, mid.x + 250, mid.y);
+      const t0 = performance.now(); P.howled.clear(); P.ms = () => base + (s0 - 1.5) * 1000 + (performance.now() - t0);
+      for (let k = 0; k < 300 && !heard.length; k++) await frames(2);
+      check(heard.length && heard[0][1] > 0 && heard[0][1] < 1 && heard[0][2] === T.n, `no howl heard: ${JSON.stringify(heard)}`);
+      // The kill of today: walk up to it, it is found; aim at it, E takes a little meat (once)
+      const K = PRED.killOf(H, T, PRED.killDay(P.ms(), 23)); check(K, 'no kill today');
+      if (K) {
+        P.taken = P.taken.filter(k => k !== K.key);
+        await goTo(game, K.x + 2, K.y + 0.3); await frames(80);
+        check(P.kills.some(k => k.key === K.key && !k.bones), `not found: ${P.kills.map(k => k.key)}`);
+        aimAt(K.x, 0.25, K.y); const act = game.nearest(); check(act?.text === t('pred.kill.take'), `E says ${act?.text}`);
+        const n0 = game.inv.count('carne_venado'); press('KeyE'); await frames(4);
+        check(game.inv.count('carne_venado') === n0 + 1 && P.taken.includes(K.key), 'no meat');
+        aimAt(K.x, 0.25, K.y); check(game.nearest()?.text !== t('pred.kill.take'), 'twice'); game.inv.remove('carne_venado', 1);
+        draw(); draw(); check(game.view3d.kills.pool.some(o => o.visible), 'the kill is not drawn');
+        check(game.tracks?.near?.(K.x, K.y, 6)?.length > 0 || !game.tracks, 'no wolf prints round it');
+      }
+      // A wolf near: the loose horse shies, the dog growls (without a bark)
+      const W = WL(), wolf = W.summon('lobo', p().x + 8, p().y), dog = { type: 'perro', x: p().x + 1, y: p().y, faceTo() {} }, horse = { type: 'caballo', def: { ride: true }, x: p().x + 4, y: p().y, love: 0, race: '', trick: null };
+      game.ranch.animals = [dog, horse];
+      Math.random = () => 0; game.horseacts.t = 1; game.horseacts.update(0.3); Math.random = keep.rnd;
+      check(horse.shyAt === game.time, 'the horse does not shy');
+      P.t = 1; P.update(0.1); check(growls.length === 1 && dog.growlAt === game.time, 'the dog does not growl');
+      W.list = W.list.filter(e => e !== wolf);
+    } finally {
+      delete P.ms; Math.random = keep.rnd; GameAudio.howl = keep.howl; GameAudio.growl = keep.growl; game.days.hourAt = keep.hourAt; game.ranch.animals = keep.animals; game.mouse = { x: 0, y: 0, in: false };
+      await goTo(game, keep.x, keep.y);
+    }
+  });
+  await test('predators (english): cost', async () => {
+    predLab(L => {
+      const { P } = L, T = L.packs()[0]; if (!T) { check(false, 'no pack'); return; }
+      const G = L.real(T, 70); check(G, 'no pack');
+      const mv = P.move, up = P.update; let ms = 0, n = 0;
+      P.move = function (...a) { const t0 = performance.now(); mv.apply(this, a); ms += performance.now() - t0; };
+      P.update = function (...a) { const t0 = performance.now(); up.apply(this, a); ms += performance.now() - t0; n++; };
+      try { L.run(60, 1 / 60); } finally { delete P.move; delete P.update; }
+      const per = ms / n; console.log(`predators: ${per.toFixed(4)} ms a frame with a pack of ${G.list.length} by the player (worst second ${P.stats.ms.toFixed(3)} ms)`);
+      check(per < 0.15, `${per.toFixed(3)} ms a frame`);
+    });
   });
   await test('code (english): breaches, clean kills and Paco\'s respect', async () => {
     const C = game.huntcode, R = game.rep, keepV = C.v, keepR = JSON.stringify(R.v), gm = game.gamemode, floats = [];
@@ -16769,7 +16998,7 @@ async function soloTests(game) {
     });
   });
   await test('nature (english): every species has names, facts and a model', async () => {
-    check(SPECIES_IDS.length === 71 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
+    check(SPECIES_IDS.length === 73 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
     const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
     const miss = SPECIES_IDS.flatMap(id => ['name', 'note'].flatMap(k => [en, es].filter(L => !L[`nature.${k}.${id}`]).map(L => `${L === en ? 'en' : 'es'} nature.${k}.${id}`)));
     check(!miss.length, `missing: ${miss.slice(0, 8)}`);

@@ -24,7 +24,7 @@ export function repairMat(id) {
 // Mending clothes (Plan E §3.2): what each garment is mended with at the loom (one unit sets its tear back to 0, no xp):
 // wool with wool, leather with leather, the straw hat with fiber, the rest with cloth. MEND_MIN: less tear than this is
 // not worth a mend (it is not listed)
-const MEND_MAT = { wool_coat: 'lana', wool_socks: 'lana', gorro: 'lana', sheepskin_jacket: 'cuero', lined_boots: 'cuero', botas: 'cuero', leather_apron: 'cuero', sombrero: 'fibra' };
+const MEND_MAT = { wolf_lined_coat: 'lana', wool_coat: 'lana', wool_socks: 'lana', gorro: 'lana', sheepskin_jacket: 'cuero', lined_boots: 'cuero', botas: 'cuero', leather_apron: 'cuero', sombrero: 'fibra' };
 export const MEND_MIN = 1;
 export const mendMat = id => MEND_MAT[id] || 'tela';
 const torn = it => !!it && !!GARMENTS[it.id] && !GARMENTS[it.id].noTear && (it.tear || 0) >= MEND_MIN;

@@ -200,6 +200,37 @@ export const Audio = {
     ng.gain.setValueAtTime(0.0001, t0); ng.gain.exponentialRampToValueAtTime(0.09, t0 + 0.2); ng.gain.exponentialRampToValueAtTime(0.0001, t0 + n * 0.95 + 0.6);
     src.connect(f).connect(ng).connect(out); src.start(t0, Math.random() * 0.4, n * 0.95 + 0.7);
   },
+  // (Plan R3-5, predators.js) A wolf's howl, far off: a long sine glide up from about 400 to 700 Hz, held with a slow
+  // vibrato and falling away; with a pack (n), others join in a moment later, a little higher or lower. Panned
+  howl(pan = 0, k = 1, n = 1) {
+    if (!ac || !on || !(k > 0.01)) return;
+    const t0 = ac.currentTime, P = ac.createStereoPanner ? ac.createStereoPanner() : null, out = ac.createGain(), lp = ac.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 900 + 1600 * k; out.gain.value = 0.32 * k;
+    if (P) { P.pan.value = Math.max(-1, Math.min(1, pan)); out.connect(lp).connect(P).connect(sfx); } else out.connect(lp).connect(sfx);
+    const voices = Math.max(1, Math.min(4, n | 0));
+    for (let i = 0; i < voices; i++) {
+      const t = t0 + (i ? 0.8 + i * 0.9 + Math.random() * 0.6 : 0), d = 3.2 + Math.random() * 1.2, f0 = 380 + Math.random() * 40 + i * 25 * (i % 2 ? 1 : -1), top = f0 * (1.7 + Math.random() * 0.15);
+      const o = ac.createOscillator(), g = ac.createGain(), vib = ac.createOscillator(), vg = ac.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(top, t + d * 0.3); o.frequency.setValueAtTime(top, t + d * 0.7); o.frequency.exponentialRampToValueAtTime(f0 * 0.82, t + d);
+      vib.frequency.value = 4.5 + Math.random() * 1.5; vg.gain.value = 6 + i * 2; vib.connect(vg); vg.connect(o.frequency);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22 / (1 + i * 0.3), t + 0.6); g.gain.setValueAtTime(0.2 / (1 + i * 0.3), t + d * 0.75); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g).connect(out);
+      for (const x of [o, vib]) { x.start(t); x.stop(t + d + 0.05); }
+    }
+  },
+  // A dog's low growl (a wolf about): a rough, pulsing hum under 120 Hz; and a wolf's snarl as it nips, short and harsh
+  growl(k = 1) {
+    if (!ac || !on) return;
+    const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), am = ac.createOscillator(), ag = ac.createGain(), f = ac.createBiquadFilter();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(95, t); o.frequency.linearRampToValueAtTime(82, t + 1.4);
+    f.type = 'lowpass'; f.frequency.value = 420;
+    am.frequency.value = 26; ag.gain.value = 0.5; am.connect(ag); ag.connect(g.gain);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09 * k, t + 0.15); g.gain.setValueAtTime(0.08 * k, t + 1.2); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    o.connect(f).connect(g).connect(sfx);
+    for (const x of [o, am]) { x.start(t); x.stop(t + 1.55); }
+  },
+  snarl(k = 1) { tone([[180, 0.08, 'sawtooth', 0.07 * k], [140, 0.12, 'sawtooth', 0.06 * k]]); Audio.noiseHit(900, 0.18, 0.3 * k, 'bandpass'); },
   deerCall() {
     if (!ac || !on) return;
     const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();

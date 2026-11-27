@@ -65,7 +65,7 @@ const TREAT_GAIN = { zanahoria: 'carrot', manzana: 'apple', heno: 'hay', trigo: 
 export const RIDE_CHUNK = 20;        // s in the saddle per GAIN.ride20s
 const WADE_WASH = 0.6, WASH = 0.02;  // wading deeper than this (m) washes the legs: −0.2 per 10 s
 const DIRT_KM = 0.1, DIRT_WET_KM = 0.15, DIRT_WRITE = 10, DIRT_STEP = 0.05;   // §1.7; a.dirt at most every 10 s, by 0.05
-const SPOOK_TICK = 0.25, MOB_R = 5, BOAR_R = 4, THUNDER_K = 0.25, CALM_WINDOW = 3, CALM_FOR = 60;
+const SPOOK_TICK = 0.25, MOB_R = 5, BOAR_R = 4, WOLF_R = 15, THUNDER_K = 0.25, CALM_WINDOW = 3, CALM_FOR = 60;
 const SLIDE_S = 0.85, SAY_EVERY = 4;   // s: the sliding stop's pose; between two texts about the same refusal
 const REAR_S = 1.2, TOSS_S = 0.6, FALL_S = 1.1, PAT_S = 1.3;   // (PAT_S: the gesture's length, between two pats in the saddle)
 const PROMPT_S = 4, PROMPT_STILL = 1, CLAIM_AFTER = 1;   // s: the get-off prompt after mounting, or standing; a claim of the seat after coming out of a cave
@@ -502,7 +502,7 @@ export class Horse {
   }
 
   // ---------- spooks (§1.5) ----------
-  // Every SPOOK_TICK, only the ridden horse: a monster within 5 m, a boar within 4 m or a thunderbolt, each one roll when it
+  // Every SPOOK_TICK, only the ridden horse: a monster within 5 m, a boar within 4 m, a wolf within 15 m (Plan R3-5) or a thunderbolt, each one roll when it
   // starts (its rising edge), at most one spook per SPOOK_EVERY. Survival only, never peaceful
   spookCheck(a, p) {
     const g = this.game;
@@ -516,7 +516,7 @@ export class Horse {
     if (Math.random() < k) this.spook(src);
   }
   boarAt(p) {
-    for (const w of this.game.wildlife?.list || []) if (w.type === 'jabali' && !w.dead && distOf(w.x, w.y, p.x, p.y) < BOAR_R) return true;
+    for (const w of this.game.wildlife?.list || []) if (((w.type === 'jabali' && distOf(w.x, w.y, p.x, p.y) < BOAR_R) || (w.type === 'lobo' && distOf(w.x, w.y, p.x, p.y) < WOLF_R)) && !w.dead) return true;
     return false;
   }
   // The ridden horse gets scared: it rears (no control for REAR_S) and, at level 1, may throw you when it lands

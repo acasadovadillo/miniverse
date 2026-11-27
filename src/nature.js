@@ -64,7 +64,7 @@ const LIST = [
   ['ciervo', 'animal', 'deer'], ['jabali', 'animal', 'boar'], ['cisne', 'animal', null], ['gallina', 'animal', null],
   ['pato', 'animal', null], ['vaca', 'animal', null], ['oveja', 'animal', null], ['cabra', 'animal', null],
   ['cerdo', 'animal', null], ['conejo', 'animal', null], ['caballo', 'animal', null], ['perro', 'animal', null],
-  ['gato', 'animal', null],
+  ['gato', 'animal', null], ['lobo', 'animal', 'dog'], ['zorro', 'animal', 'dog'],   // (Plan R3-5, predators.js)
   ...['carpa', 'perca', 'trucha', 'salmon', 'lucio', 'anguila', 'sardina', 'lubina', 'pez_globo', 'cangrejo', 'pez_hielo',
     'siluro', 'pulpo', 'atun', 'esturion', 'tench', 'barbel', 'crayfish', 'mackerel', 'sea_bream', 'squid', 'pez_dorado'].map(id => [id, 'fish', null]),
   ...['mariposa', 'mariquita', 'saltamontes', 'libelula', 'luciernaga', 'escarabajo', 'grillo', 'polilla'].map(id => [id, 'bug', null]),
@@ -78,7 +78,8 @@ export const SPECIES_IDS = LIST.map(([id]) => id);
 export const REWARDS = [[15, 500, 'semilla_manzano', 2], [35, 1500, 'pocion', 2], [SPECIES_IDS.length, 5000, 'vitrina', 1]];
 
 // ---------- the facts ----------
-const WILD_IDS = new Set(['ciervo', 'jabali', 'cisne']);
+const WILD_IDS = new Set(['ciervo', 'jabali', 'cisne', 'lobo', 'zorro']);
+const PREDATOR_IDS = new Set(['lobo', 'zorro']);
 const FARM_IDS = new Set(['gallina', 'pato', 'vaca', 'oveja', 'cabra', 'cerdo', 'conejo', 'caballo', 'perro', 'gato']);
 const TREE_IDS = new Set(['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'palm', 'cactus']);
 const FLOWER_IDS = new Set(['margarita', 'diente_leon']);
@@ -87,6 +88,8 @@ const WILD_COPY = {
   ciervo: { biomes: [B.FOREST, B.PINES, B.MEADOW], hours: [6, 20], fear: 7 },
   jabali: { biomes: [B.FOREST, B.PINES], hours: [5, 23], fear: 4.5 },
   cisne: { water: true, biomes: [B.LAKE], hours: [6, 21], fear: 4 },
+  lobo: { biomes: [B.PINES, B.FOREST, B.SNOW], hours: [19, 8], fear: 30 },
+  zorro: { biomes: [B.MEADOW], hours: [20, 6], fear: 20 },
 };
 const wildKind = id => WILD.KINDS?.[id] ?? WILD_COPY[id];
 const creep = () => WILD.CREEP ?? 0.3;
@@ -121,13 +124,14 @@ function animalFacts(id, g) {
   if (WILD_IDS.has(id)) {
     const k = wildKind(id);
     if (k) {
-      const herd = WILD.herdsOn?.() && `nature.fact.herd.${id}`;   // (Plan R3-2: its herd's places and hours)
+      const pred = PREDATOR_IDS.has(id), herd = (pred || WILD.herdsOn?.()) && `nature.fact.herd.${id}`;   // (Plan R3-2: its herd's places and hours)
       out.push(['nature.fact.habitat', { list: biomeNames(k.biomes) }, 1], ...(herd ? [[herd, null, 2]] : hoursFact(k.hours, 2)));
-      if (herd && id !== 'cisne') out.push(['nature.fact.alarm', null, 3]);
+      if (herd && id !== 'cisne' && !pred) out.push(['nature.fact.alarm', null, 3]);
+      if (id === 'lobo') out.push(['nature.fact.howl', null, 2], ['nature.fact.scavenge', null, 3]);
       // (the year of Plan R3-4: the rut, the antlers, the young; and that a hunted place fills again)
       if (herd && id === 'ciervo') out.push(['nature.fact.rut', null, 2], ['nature.fact.antlers', null, 2], ['nature.fact.calves', null, 2]);
       if (herd && id === 'jabali') out.push(['nature.fact.piglets', null, 2], ['nature.fact.charge', null, 3]);
-      if (herd && id !== 'cisne') out.push(['nature.fact.comeback', { days: 4 }, 3]);
+      if (herd && id !== 'cisne' && !pred) out.push(['nature.fact.comeback', { days: 4 }, 3]);
       const K = WILD.sensesOn?.() && SENSES[id];   // (the senses of Plan R3: what it sees and smells of you, on a fine day)
       if (K) {
         out.push(['nature.fact.notices', { m: Math.round(K.sight * EXPO.walk), c: Math.round(K.sight * EXPO.crouch) }, 2]);

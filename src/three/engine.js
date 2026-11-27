@@ -28,6 +28,7 @@ import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { GutView } from './gut3d.js';
 import { ShedView } from './sheds3d.js';
+import { KillView } from './kill3d.js';
 import { LandTint } from './landtint3d.js';
 import { Tracks3D } from './tracks3d.js';
 import { Landmarks } from './landmarks3d.js';
@@ -138,6 +139,7 @@ export class View3D {
     this.arrows = new ArrowsView(this);
     this.guts = new GutView(this);
     this.sheds = new ShedView(this);   // (the cast antlers of spring: huntcode.js)
+    this.kills = new KillView(this);   // (the wolves' kill sites: predators.js)
     this.landTint = new LandTint(this);   // (the village's land on the ground, with B or a shovel in hand: landtint3d.js)
     this.law3d = new LawView(this);   // (the posters on the village's board)
     this.business3d = new BusinessView(this);   // (the goods on sale in the players' shops, and their slates)
@@ -575,6 +577,7 @@ export class View3D {
     this.arrows.update(game, scene);
     this.guts.update(game, scene);
     this.sheds.update(game, scene);
+    this.kills.update(game, scene);
     this.landTint.update(game, scene);
     this.tracks3d.update(game, scene);
     this.updateWater(t);

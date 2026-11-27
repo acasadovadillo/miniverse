@@ -18,6 +18,9 @@ const HEAR_M = 40, SMELL_M = 45, CONE = Math.cos(35 * Math.PI / 180), TOUCH = 1.
 export const SENSES = {
   ciervo: { sight: 50, fov: Math.cos(150 * Math.PI / 180), hear: 1, smell: 1, whiff: 1, night: 0.5, eye: 1.4, run: [40, 90], look: 0.6, burst: 1.3, trot: 30, cover: true },
   jabali: { sight: 22, fov: Math.cos(130 * Math.PI / 180), hear: 0.9, smell: 1.4, whiff: 1.5, night: 0.6, eye: 0.7, run: [60, 120], look: 0.15, burst: 1, trot: 20, cover: true },
+  // (Plan R3-5: the wolf sees as far as a deer and better by night, hears and smells more; the fox, nearer to the ground)
+  lobo: { sight: 45, fov: Math.cos(150 * Math.PI / 180), hear: 1.2, smell: 1.6, whiff: 1.5, night: 0.85, eye: 0.75, run: [80, 150], look: 0.5, burst: 1.3, trot: 40, cover: false },
+  zorro: { sight: 25, fov: Math.cos(140 * Math.PI / 180), hear: 1.3, smell: 1.4, whiff: 1.4, night: 0.85, eye: 0.35, run: [30, 60], look: 0.3, burst: 1.1, trot: 20, cover: true },
   cisne: { sight: 35, fov: Math.cos(150 * Math.PI / 180), hear: 0.5, smell: 0, whiff: 0, night: 0.5, eye: 0.6, run: [15, 25], look: 0, burst: 1, trot: 0, cover: false },
 };
 export const HEAD_DOWN = 0.35, STARING = 1.3, BEDDED = 0.6;

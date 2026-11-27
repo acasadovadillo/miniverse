@@ -64,6 +64,7 @@ import { VillageSites } from './villagesites.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
 import { Hunt, bodyBox, kindName } from './hunt.js';
 import { Code } from './huntcode.js';
+import { Predators } from './predators.js';
 import { Archery } from './archery.js';
 import { reportFault } from './faults.js';
 import { ANIMALS } from './art/farm.js';
@@ -231,6 +232,7 @@ export class Game {
     this.rodrest = this.addSystem(new RodRest(this));   // the rod laid on its rest, with its bell (src/rodrest.js)
     this.wind = this.addSystem(new Wind(this));   // the wind, the same for everyone (src/wind.js, Plan R3: it carries the scent; before wildlife, which reads it)
     this.wildlife = this.addSystem(new Wildlife(this));
+    this.predators = this.addSystem(new Predators(this));   // wolves and foxes: packs, howls, kill sites, scavengers (src/predators.js, Plan R3-5; after wildlife, whose list holds them)
     this.visitors = this.addSystem(new Visitors(this));   // the birds and the rabbits seen coming to the garden (src/visitors.js; after wildlife: they count together)
     this.rest = this.addSystem(new Rest(this));
     this.doorWalk = this.addSystem(new DoorWalk(this));   // walking up to a door and pushing it (src/doorwalk.js)

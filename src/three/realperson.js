@@ -48,7 +48,7 @@ export function toReal(look, kid = false) {
   const L = fullLook(look), W = look.wear || clothesFor(L), girl = L.sex === 'chica', g = [];
   const col = it => it && it.color, torn = (o, it) => { if (it && it.r > 0) o.rota = Math.min(2, it.r | 0); return o; };
   const torso = W.torso?.id, top = W.encima?.id, legs = W.piernas?.id, outer = W.outer?.id;
-  const tunic = torso === 'tunica' || torso === 'tunica_larga', coat = outer === 'wool_coat', jacket = outer === 'sheepskin_jacket';
+  const tunic = torso === 'tunica' || torso === 'tunica_larga', coat = outer === 'wool_coat' || outer === 'wolf_lined_coat', jacket = outer === 'sheepskin_jacket';
   if (tunic) g.push(torn({ id: 'tunica', color: col(W.torso) }, W.torso));
   else if (torso) {
     const shirt = torso === 'linen_shirt' ? { id: 'camisa', color: col(W.torso), fino: true, manga: 'corta' } : { id: 'camisa', color: col(W.torso) };

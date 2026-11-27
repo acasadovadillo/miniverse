@@ -51,6 +51,7 @@ const BODY = {
   vaca: [0.34, 0.69, 1.03, 1.26], oveja: [0.36, 0.5, 0.72, 1.01], cabra: [0.22, 0.48, 0.73, 1.19], cerdo: [0.29, 0.49, 0.68, 0.73],
   caballo: [0.29, 0.79, 1.12, 1.55], perro: [0.2, 0.36, 0.46, 0.59], gato: [0.2, 0.36, 0.34, 0.61],
   ciervo: [0.24, 0.53, 0.92, 1.93], jabali: [0.27, 0.52, 0.85, 0.85], cisne: [0.22, 0.35, 0.48, 0.73],
+  lobo: [0.16, 0.36, 0.46, 0.62], zorro: [0.14, 0.4, 0.42, 0.56],   // (the dog's, at their own size: herds.js PRED_SCALE)
 };
 // Lo que aguanta (en golpes de puño: la espada pega 3) y lo que suelta: [objeto, mínimo, máximo, probabilidad]. Lo
 // primero, la carne
@@ -65,6 +66,9 @@ export const PREY = {
   vaca: { hp: 12, drops: [['carne_vaca', 2, 4], ['piel', 1, 2], ['hueso', 1, 2]] },
   ciervo: { hp: 8, drops: [['carne_venado', 2, 3], ['piel', 1, 2], ['asta', 1, 1, 0.6]] },
   jabali: { hp: 10, drops: [['carne_jabali', 2, 3], ['piel', 1, 1], ['colmillo', 1, 2]] },
+  // (Plan R3-5: a wolf's hide is worth having; a fox gives an ordinary one. Nobody eats them)
+  lobo: { hp: 9, drops: [['wolf_hide', 1, 1], ['hueso', 1, 1, 0.5]] },
+  zorro: { hp: 4, drops: [['piel', 1, 1]] },
 };
 
 // La caja de un animal en el mundo, girada hacia donde mira (el cisne flota: la suya llega hasta el agua)
@@ -139,7 +143,7 @@ export class Hunt {
     return Math.min(VITAL_CAP, base * (HIT_MUL[zone] || 1));
   }
   // Can this animal bleed? (wild ones on land: deer and boar; never farm animals or pets, nor the swan on its lake)
-  bleeds(e) { const A = ANIMALS[e.type]; return !!A?.wild && !A.swims && woundsOn(); }
+  bleeds(e) { const A = ANIMALS[e.type]; return !!A?.wild && !A.swims && !A.predator && woundsOn(); }   // (a hit wolf or fox just runs: predators.js)
   // (quien lleva el mundo) from: desde dónde; by: la conexión de quien ha pegado (null: tú); zone: where an arrow hit;
   // peer: the profile id of whoever hit (by a guest), for the carcass of a bled-out animal; arrow: an arrow (stays: left in it)
   damage(e, dmg, from, by, { zone = ZONE.body, peer = null, arrow = false, stays = false } = {}) {
@@ -164,12 +168,12 @@ export class Hunt {
     return true;
   }
   // (host) The record of the carcass of a wild land animal, or null (quality.js)
-  recordOf(e, cl = 0) { const A = ANIMALS[e.type]; if (!(A?.wild && !A.swims && qualityOn())) return null; const q = recordOf(e, this.game); if (cl) q[6] |= F.CLEAN; return q; }
+  recordOf(e, cl = 0) { const A = ANIMALS[e.type]; if (!(A?.wild && !A.swims && !A.predator && qualityOn())) return null; const q = recordOf(e, this.game); if (cl) q[6] |= F.CLEAN; return q; }
   // (host) A clean kill? 1: one arrow and nothing else, in the chest or the spine; 2: one in the liver (clean if its carcass is
   // found soon: huntcode.js); 0. Deer and boar only, grown ones
   cleanOf(e) {
     const A = ANIMALS[e.type], s = e.shot;
-    if (!A?.wild || A.swims || e.young || !s || s.n !== 1 || s.melee || s.gut) return 0;
+    if (!A?.wild || A.swims || A.predator || e.young || !s || s.n !== 1 || s.melee || s.gut) return 0;
     return e.lastZone === ZONE.vital || e.lastZone === ZONE.spine ? 1 : e.lastZone === ZONE.liver ? 2 : 0;
   }
   // (quien lleva el mundo) It survived the hit: it bleeds (wildlife.js runs the wound). Heavy at HEAVY_AT of its hp or after
@@ -231,7 +235,7 @@ export class Hunt {
     g.stats?.add('cazados', 1);
     g.xp?.add(roll(1, 3));
     g.nature?.harvested(type);   // (the nature book: hunted → Known; also through killed and bledOut, which come here)
-    if (ANIMALS[type].wild) g.huntcode?.killed({ type, young: !!young, female: !!female, x, y, bled: !!bled, placed: !!placed || (!young && !!g.carry?.bigNow && !bled), mo, cl, cq });   // (the hunter's code: huntcode.js)
+    if (ANIMALS[type].wild && !ANIMALS[type].predator) g.huntcode?.killed({ type, young: !!young, female: !!female, x, y, bled: !!bled, placed: !!placed || (!young && !!g.carry?.bigNow && !bled), mo, cl, cq });   // (the hunter's code: huntcode.js)
     g.onSave?.();
   }
   // (host) A heavily wounded wild animal died of its wound: removed like a kill; the host places its carcass where it lies

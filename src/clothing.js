@@ -116,6 +116,7 @@ export const GARMENTS = {
   // new (E2 adds them to items.js; the slot `outer` is new too)
   wool_coat: { warm: 3, rain: 0.3, slot: 'outer' },
   sheepskin_jacket: { warm: 4, slot: 'outer' },
+  wolf_lined_coat: { warm: 5, rain: 0.3, slot: 'outer' },
   linen_shirt: { warm: 0.3, slot: 'torso' },
   wool_socks: { warm: 1, slot: 'calcetines' },
   lined_boots: { warm: 1.5, slot: 'pies' },
@@ -139,7 +140,7 @@ export const TEAR_RATE = {
   hit: 0.6,                        // one random worn piece, once per hit taken
 };
 // Leather wears slower than cloth (× this on every source): the leather apron takes the work's wear and lasts
-export const TEAR_TOUGH = { leather_apron: 0.5, sheepskin_jacket: 0.6, lined_boots: 0.6, botas: 0.6 };
+export const TEAR_TOUGH = { leather_apron: 0.5, sheepskin_jacket: 0.6, wolf_lined_coat: 0.7, lined_boots: 0.6, botas: 0.6 };
 export const tearStage = t => (!(t >= TEAR.worn) ? 0 : t < TEAR.torn ? 1 : 2);
 export const tearMul = t => (t >= TEAR.rags ? TEAR.ragsWarm : t >= TEAR.torn ? TEAR.tornWarm : 1);
 

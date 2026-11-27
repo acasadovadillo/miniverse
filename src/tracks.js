@@ -50,7 +50,8 @@ export const KINDS = ['deer', 'boar', 'horse', 'dog', 'cat', 'rabbit', 'boot', '
 export const BLOOD_KINDS = new Set(['blood', 'bloodLong', 'bloodPool']);
 export const SURFACES = ['none', 'snow', 'mud', 'sand', 'soil', 'grass'];
 // The print kind of each wild species (and the species of each print kind, for the tag and the book)
-export const PRINT_OF = { ciervo: 'deer', jabali: 'boar' };
+export const PRINT_OF = { ciervo: 'deer', jabali: 'boar', lobo: 'dog', zorro: 'dog' };   // (Plan R3-5: a wolf's are a big dog's, a fox's small ones)
+const PRINT_K = { lobo: 1.45, zorro: 0.8 };
 export const SPECIES_OF = { deer: 'ciervo', boar: 'jabali' };
 export const CAP = 3200;     // marks kept at most (the oldest go first)
 export const READ_R = 8;     // m: the crouch aid's radius
@@ -63,8 +64,8 @@ export const BLOOD_TTL = [360, 360, 720], NONE_K = 0.6;
 export const RAIN_K = 2.5, SNOW_K = 2;   // how much faster marks age while it rains (all) and snows (prints only)
 export const FRESH = 120, RECENT = 600;  // seconds: the age words, and "fresh" for the tip
 // Stride in metres, walking and fleeing, and the walking speed above which a gait counts as flight (×1.5)
-export const STRIDE = { ciervo: [0.9, 1.6], jabali: [0.6, 1.1] };
-const WALK = { ciervo: 0.8, jabali: 0.9 };
+export const STRIDE = { ciervo: [0.9, 1.6], jabali: [0.6, 1.1], lobo: [0.8, 1.6], zorro: [0.45, 0.9] };
+const WALK = { ciervo: 0.8, jabali: 0.9, lobo: 1.1, zorro: 1.2 };
 
 // Internal indices (the arrays hold numbers, not strings)
 export const K = Object.fromEntries(KINDS.map((k, i) => [k, i]));
@@ -219,7 +220,7 @@ export class Tracks {
           st.acc -= stride;
           st.side = -st.side;
           const bx = a.x - ux * st.acc, by = a.y - uy * st.acc, o = SIDE * st.side;
-          this.lay(rec, k, bx - uy * o, by + ux * o, yaw, -1, flee, 1, 0, 0, st.side < 0);
+          this.lay(rec, k, bx - uy * o, by + ux * o, yaw, -1, flee, PRINT_K[a.type] || 1, 0, 0, st.side < 0);
         }
         const bl = a.gutshot ? 1 : Math.min(2, a.bleed | 0);   // (shot in the gut it bleeds little, however bad it is: wildlife.js)
         if (bl > 0) {
