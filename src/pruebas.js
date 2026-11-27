@@ -117,7 +117,9 @@ import * as BREEDS from './horsebreeds.js';   // (R4-3: the breeds)
 import * as HR from './horse.js';   // (Plan F: the horse's pure rules; as a namespace, levelOf and settle are taken)
 import { HORSE_ACTS as LIVE_HORSE_ACTS } from './live.js';
 import { screenToWorld } from './camera.js';
-import { makeCave } from './world/underground.js';
+import { makeCave, ORES } from './world/underground.js';
+import { makeCave2, makeMine, caveScene, caveLevels, downOf, CAVE_ENDS, rampAt } from './world/cavegen.js';
+import { Caves } from './caves.js';
 import { CROPS, START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
 import { REMARKS, GOOD_REMARKS, remarkKey, remarkLines } from './remarks.js';
 import { PEOPLE } from './neighbors.js';
@@ -6364,10 +6366,13 @@ async function soloTests(game) {
     try {
       const near = kind => ex.nearest(CENTER.x, CENTER.y, [kind], 900);
       // (aim: como con el ratón, lo que dice la escalera apuntada, que es como se juega en el ordenador; si no, con E)
+      // (R7-5: natural caves go out by their mouth and down by a pit or a slope; the ladders are in the mines. dir: 'up', 'down' or
+      // 'mouth'; the player stands beside it, on its floor)
       const ladder = async (dir, want, aim = false) => {
-        const o = game.scene.live().find(o => o.ladder === dir);
-        check(o, `no hay escalera para ${dir === 'up' ? 'subir' : 'bajar'}`);
-        p().x = o.x + 0.6; p().y = o.y; await frames(1);
+        const o = game.scene.live().find(o => (dir === 'mouth' ? o.mouth : o.ladder === dir));
+        check(o, `no hay escalera para ${dir === 'up' ? 'subir' : dir === 'down' ? 'bajar' : 'salir'}`);
+        const [dx, dy] = [[0.6, 0], [-0.6, 0], [0, -0.6], [0, 0.6]].find(([a, b]) => !game.scene.blocked(o.x + a, o.y + b)) || [0.6, 0];
+        p().x = o.x + dx; p().y = o.y + dy; await frames(1);
         const a = aim ? game.aimTargets(p(), game.scene).filter(t => t.kind === 'sys' && t.sys === ex && Math.hypot(t.box.x - o.x, t.box.y - o.y) < 0.1).map(t => game.actionFor(t))[0]
           : ex.interact(p(), game.scene);
         check(a?.text === want, `la escalera dice «${a?.text}» y no «${want}»`);
@@ -6379,13 +6384,24 @@ async function soloTests(game) {
       const enter = ex.interact(p(), w());
       check(enter?.text === 'Entrar en la cueva', `en la entrada dice «${enter?.text}»`);
       await enter.run(); await frames(2);
-      check(game.scene !== w() && game.scene.depth === 1, 'no se entra en la cueva');
-      await ladder('down', 'Bajar al nivel 2', true);
-      check(game.scene.depth === 2 && game.stats.get('profundidad') >= 2, `después de bajar, en el nivel ${game.scene.depth}`);
-      await ladder('up', 'Subir al nivel 1', true);
-      check(game.scene.depth === 1, `después de subir, en el nivel ${game.scene.depth}`);
-      await ladder('up', 'Salir');
+      check(game.scene !== w() && game.scene.depth === 1 && game.scene.id === `k${cave.id}_1`, 'no se entra en la cueva');
+      await ladder('mouth', t('cave.out'), true);
       check(game.scene === w() && Math.hypot(p().x - cave.x, p().y - cave.y) < 3, 'no se sale a la entrada de la cueva');
+      // (the mine: down its ladder shaft, up again and out by its adit)
+      const mi = near('mina'), L = mi && ex.planOf(mi);
+      if (!mi || !L?.mine) console.log('cuevas: no hay mina cerca del pueblo (no se prueba)');
+      else {
+        await goTo(game, L.mine[0], L.mine[1]);
+        const go = ex.formedAct({ x: L.mine[0], y: L.mine[1] }, mi).find(a => a.act().text === t('place.mine.enter'));
+        check(go, 'no se entra en la mina'); await go.act().run(); await frames(2);
+        check(game.scene.id === `m${mi.id}_1` && game.scene.mine, `no es una mina: ${game.scene.id}`);
+        await ladder('down', t('cave.down', { n: 2 }), true);
+        check(game.scene.depth === 2 && game.stats.get('profundidad') >= 2, `después de bajar, en el nivel ${game.scene.depth}`);
+        await ladder('up', t('cave.up', { n: 1 }), true);
+        check(game.scene.depth === 1, `después de subir, en el nivel ${game.scene.depth}`);
+        await ladder('mouth', t('cave.out'));
+        check(game.scene === w(), 'no se sale de la mina');
+      }
       check(game.stats.get('faros') === faros && ![...game.explored].some(k => k.includes('NaN')), 'las escaleras suben a un faro');
       // (el templo y el faro, si hay alguno cerca del pueblo; si no, se dice, para que no pase por probado)
       const tem = near('templo');
@@ -6401,6 +6417,188 @@ async function soloTests(game) {
         check(p().floor > 8, 'no se sube al faro');
       }
     } finally { v.whenReady = wr; hud.say = say; if (game.scene !== w()) game.teleport(CENTER.x, CENTER.y + 3); }
+  });
+  // ---------- R7-5: natural caves and mines (world/cavegen.js, caves.js, three/cave3d.js; plan PLAN-R7-mundo.md §3.8) ----------
+  const caveSites = (n, salt = 0) => Array.from({ length: n }, (_, i) => ({ id: 100003 + i * 7919 + salt, kind: 'cueva', key: `t${i},${salt}`, x: p().x, y: p().y, legacy: true, biome: i % 3 ? B.ROCKY : B.SNOW, snow: i % 3 === 0 }));
+  // Every floor tile reached from (x, y), as a Set of indices
+  const reach = (sc, x, y) => { const W = sc.w, out = new Set(), todo = [Math.floor(y) * W + Math.floor(x)]; if (sc.wall(Math.floor(x), Math.floor(y))) return out; out.add(todo[0]); while (todo.length) { const j = todo.pop(), tx = j % W, ty = (j / W) | 0; for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = (ty + b) * W + tx + a; if (!sc.wall(tx + a, ty + b) && !out.has(k)) { out.add(k); todo.push(k); } } } return out; };
+  const caveFast = async fn => { const v = game.view3d, wr = v.whenReady; v.whenReady = () => sleep(30); try { return await fn(); } finally { v.whenReady = wr; if (game.scene !== w()) game.teleport(CENTER.x, CENTER.y + 3); } };
+  await test('caves (english): structure: one cave from the mouth to its end, 1 to 3 levels, pools, shafts, pits and slopes; mines go past level 10', async () => {
+    const S = sitesFor(WORLD_SEED), real = S.near(CENTER.x, CENTER.y, 3000, ['cueva']).slice(0, 12), sites = [...real, ...caveSites(48)], seed = w().seed;
+    check(real.length >= 3, `only ${real.length} caves within 3 km`);
+    const levels = [0, 0, 0, 0], ends = new Set(), seen = { pool: 0, swim: 0, shaft: 0, pit: 0, slope: 0, chest: 0 };
+    let tiles = 0, ms = 0;
+    for (const site of sites) {
+      const n = caveLevels(seed, site);
+      check(n >= 1 && n <= 3, `${n} levels`); levels[n]++;
+      for (let L = 1; L <= n; L++) {
+        const t0 = performance.now(), sc = makeCave2(game, site, L); ms = Math.max(ms, performance.now() - t0);
+        const where = `${site.id} level ${L}`, at = (x, y) => Math.floor(y) * sc.w + Math.floor(x), all = reach(sc, sc.entry.x, sc.entry.y);
+        check(sc.id === `k${site.id}_${L}` && sc.depth === L && sc.natural, `${where}: id ${sc.id}`);
+        check(sc.w >= (L === 1 ? 40 : 36) && sc.w <= 60 && sc.h >= 26 && sc.h <= 40, `${where}: ${sc.w}×${sc.h}`);
+        let floor = 0; for (let ty = 0; ty < sc.h; ty++) for (let tx = 0; tx < sc.w; tx++) if (!sc.wall(tx, ty)) floor++;
+        check(all.size === floor && floor > 120, `${where}: ${all.size} of ${floor} floor tiles reached from the entry`);
+        tiles = Math.max(tiles, floor);
+        for (const o of sc.items) if (o.tile) { check(!sc.wall(...o.tile), `${where}: something in a wall`); check(!(sc.waterDepth?.(o.x, o.y) > 0), `${where}: ${o.kind || Object.keys(o).find(k => o[k] === true)} in the water`); }
+        const mouth = sc.items.find(o => o.mouth), pit = sc.items.find(o => o.pit), up = sc.items.find(o => o.rope === 'up'), down = sc.ramps.find(R => R.sign < 0), climb = sc.ramps.find(R => R.sign > 0);
+        if (L === 1) check(mouth && mouth.tile[1] === sc.h - 2 && !up && !climb, `${where}: no mouth on its outer edge`);
+        else check(!mouth && (downOf(seed, site, L - 1) === 'pit' ? up : climb), `${where}: no way up the way the level above comes down`);
+        if (L < n) { check(!sc.end && (pit || down) && !(pit && down) && all.has(at(sc.fromBelow.x, sc.fromBelow.y)), `${where}: no way down`); seen[pit ? 'pit' : 'slope']++; }
+        else check(sc.end && CAVE_ENDS.includes(sc.end.kind) && !pit && !down, `${where}: no end`);
+        if (sc.end) { ends.add(sc.end.kind); check([...all].some(i => Math.hypot(i % sc.w + 0.5 - sc.end.x, ((i / sc.w) | 0) + 0.5 - sc.end.y) < sc.end.r + 0.5 && !sc.pool?.[i]), `${where}: its end cannot be reached dry`); }
+        if (sc.pool) { seen.pool++; if (sc.pool.some(d => d >= 10)) seen.swim++; check(sc.waterDepth(sc.entry.x, sc.entry.y) === 0 && sc.water(sc.entry.x, sc.entry.y) === null, `${where}: water at the entry`); }
+        if (sc.shaft) { seen.shaft++; check(L === 1, 'a shaft deeper down'); }
+        if (sc.items.some(o => o.chest)) seen.chest++;
+        if (down) check(rampAt(down, down.x, down.y) === 0 && sc.floorY(down.x + down.dx * 3, down.y + down.dy * 3) < -1.4, `${where}: the slope does not go down`);
+        check(sc.spawns?.every(([k]) => k === 'murcielago'), `${where}: slimes or skeletons in a natural cave`);
+      }
+      // (the same twice: every game makes the same cave)
+      const a = makeCave2(game, site, 1), b = makeCave2(game, site, 1);
+      check(a.grid.join('') === b.grid.join('') && JSON.stringify(a.items) === JSON.stringify(b.items) && String(a.pool) === String(b.pool), `${site.id}: not the same twice`);
+    }
+    console.log(`caves: levels ${levels.slice(1).join('/')}, ends ${[...ends]}, ${JSON.stringify(seen)}, up to ${tiles} floor tiles, slowest level ${ms.toFixed(1)} ms`);
+    check(levels[1] > levels[2] && levels[2] > 0 && levels[3] > 0, `levels ${levels}`);
+    check(ends.size === CAVE_ENDS.length && seen.pool > 3 && seen.swim > 0 && seen.shaft > 0 && seen.pit > 0 && seen.slope > 0 && seen.chest > 0, `not all of it: ${JSON.stringify(seen)} ${[...ends]}`);
+    check(ms < 60, `a level takes ${ms.toFixed(1)} ms to make`);
+    // Mines: a ladder shaft at the end of every level, down past 10, timber and rails, the ores of the depth
+    const mine = { ...real[0], kind: 'mina', id: 4242 };
+    for (const L of [1, 2, 3, 10, 11, 14]) {
+      const sc = caveScene(game, mine, L), all = reach(sc, sc.entry.x, sc.entry.y), down = sc.items.find(o => o.ladder === 'down'), where = `mine level ${L}`;
+      check(sc.id === `m4242_${L}` && sc.mine && sc.depth === L, `${where}: ${sc.id}`);
+      check(down && all.has(Math.floor(down.y) * sc.w + Math.floor(down.x)) && all.has(Math.floor(sc.fromBelow.y) * sc.w + Math.floor(sc.fromBelow.x)), `${where}: no shaft down`);
+      check(L === 1 ? sc.items.some(o => o.mouth) : sc.items.some(o => o.ladder === 'up'), `${where}: no way up`);
+      check(sc.timbers.length > 8 && sc.rails.x1 - sc.rails.x0 > 30 && !sc.pool, `${where}: no timber or rails`);
+      const veins = sc.items.filter(o => o.kind?.startsWith('veta_'));
+      check(veins.length > 12, `${where}: ${veins.length} veins`);
+      if (L >= 10) check(veins.every(o => ORES.find(r => 'veta_' + r[0] === o.kind)[1] <= L), 'an ore too deep');
+    }
+    // (with fewer veins in a natural cave than in a mine)
+    const nat = caveSites(10, 3).map(s => makeCave2(game, s, 1).items.filter(o => o.kind).length), min = [1, 2, 3].map(L => makeMine(game, mine, L).items.filter(o => o.kind).length);
+    check(nat.reduce((a, b) => a + b) / nat.length < min.reduce((a, b) => a + b) / min.length / 2, `veins: caves ${nat}, mines ${min}`);
+  });
+  await test('caves (english): ropes stay and come back, slopes take you down, the end is told once and the tiles you saw are kept', async () => {
+    await caveFast(async () => {
+      const seed = w().seed, sites = caveSites(80, 11), ex = game.places, C = game.caves;
+      const pitOne = sites.find(s => caveLevels(seed, s) >= 2 && downOf(seed, s, 1) === 'pit'), slopeOne = sites.find(s => caveLevels(seed, s) >= 2 && downOf(seed, s, 1) === 'slope' && makeCave2(game, s, 1).ramps.some(R => R.sign < 0));
+      check(pitOne && slopeOne, 'no cave with a pit or with a slope');
+      const I = inv(), ropes = () => I.count('cuerda');
+      // The pit: without a rope you are told; with one, it is tied and you climb down
+      await ex.enterCave(pitOne, 1); await frames(2);
+      const sc1 = game.scene, pit = sc1.live().find(o => o.pit);
+      check(sc1.id === `k${pitOne.id}_1` && pit, 'not in the cave, or no pit');
+      I.remove('cuerda', ropes());
+      check(ex.gridAction(sc1, pit, p()).text === t('cave.rope.need'), 'no rope, and it lets you down');
+      I.add('cuerda', 2);
+      const a = ex.gridAction(sc1, pit, p()); check(a.text === t('cave.rope.down'), `the pit says ${a.text}`);
+      await a.run(); await frames(2);
+      check(game.scene.depth === 2 && game.scene.id === `k${pitOne.id}_2` && ropes() === 1 && sc1.state.flags.rope === 1, `down: level ${game.scene.depth}, ${ropes()} ropes`);
+      const sc2 = game.scene, hang = sc2.live().find(o => o.rope === 'up');
+      check(hang && Math.hypot(p().x - hang.x, p().y - hang.y) < 2, 'no rope hanging where you come down');
+      const aims = ex.aimables(p(), sc2, (x, y, hx, hy, z0, z1) => ({ x, y, hx, hy, z0, z1 })) || [];
+      check(aims.some(q => q.grid && q.grid[0] === hang.tile[0] && q.grid[1] === hang.tile[1]), 'the rope cannot be aimed at');
+      const upA = ex.gridAction(sc2, hang, p()); check(upA.text === t('cave.rope.up'), upA.text);
+      await upA.run(); await frames(2);
+      check(game.scene.depth === 1 && Math.hypot(p().x - pit.x, p().y - pit.y) < 3, 'not back by the pit');
+      // Tied, it stays (E climbs down again) and holding X takes it back
+      const again = ex.gridAction(game.scene, game.scene.live().find(o => o.pit), p());
+      check(again.text === t('cave.rope.climb_down') && again.alt?.hold > 0 && again.alt.text === t('cave.rope.take'), 'the tied rope does not stay');
+      again.alt.run();
+      check(!game.scene.state.flags.rope && ropes() === 2, `taken back: ${ropes()}`);
+      // The tiles you saw: on the map, in the state and in the next visit
+      for (let i = 0; i < 6; i++) { C.update(0.25); await frames(1); }
+      const seenN = game.scene.seenMask().bits.reduce((s, b) => s + b, 0);
+      check(seenN > 20, `${seenN} tiles seen`);
+      game.scene.flushSeen();
+      check(typeof game.scene.state.seen === 'string' && makeCave2(game, pitOne, 1).seenMask().bits.reduce((s, b) => s + b, 0) === seenN, 'the seen tiles are not kept');
+      // The minimap draws the cave, without the world's blips (always shown)
+      const was = Settings.v.mini; Settings.v.mini = 'always';
+      try { game.minimap.kick(); game.minimap.frame(); check(game.minimap.inCave && game.minimap.caveSc === game.scene, 'the minimap does not draw the cave'); } finally { Settings.v.mini = was; }
+      await ex.climb(game.scene, -1); await frames(2);
+      check(game.scene === w(), 'not out');
+      // A slope: walking down it is going down
+      await ex.enterCave(slopeOne, 1); await frames(2);
+      const R = game.scene.ramps.find(q => q.sign < 0);
+      p().x = R.x + R.dx * 2.8; p().y = R.y + R.dy * 2.8;
+      C.t = 1; C.update(0.01);
+      await until(() => game.scene.depth === 2 && !game.busy, 6000, 'down the slope');
+      check(game.scene.ramps.some(q => q.sign > 0), 'no slope up on the level below');
+      const U = game.scene.ramps.find(q => q.sign > 0); p().x = U.x + U.dx * 2.8; p().y = U.y + U.dy * 2.8; C.t = 1; C.update(0.01);
+      await until(() => game.scene.depth === 1 && !game.busy, 6000, 'up the slope');
+      await ex.climb(game.scene, -1); await frames(2);
+      // The end of a one-level cave: XP and a line, once; the journal says it
+      const one = sites.find(s => caveLevels(seed, s) === 1), xp = game.skills.xp.explore || 0;
+      await ex.enterCave(one, 1); await frames(2);
+      const E = game.scene.end, spot = [...reach(game.scene, game.scene.entry.x, game.scene.entry.y)].find(i => Math.hypot(i % game.scene.w + 0.5 - E.x, ((i / game.scene.w) | 0) + 0.5 - E.y) < E.r && !game.scene.pool?.[i]);
+      p().x = spot % game.scene.w + 0.5; p().y = ((spot / game.scene.w) | 0) + 0.5; C.t = 1; C.update(0.01);
+      check(C.ends.has(one.key) && (game.skills.xp.explore || 0) > xp, 'the end is not reached');
+      const xp2 = game.skills.xp.explore; C.t = 1; C.update(0.01); check(game.skills.xp.explore === xp2, 'told twice');
+      const out = {}; C.save(out); check(out.caveEnds.includes(one.key), 'not saved');
+      check(ex.describe({ ...one, kind: 'cueva' }).end === true, 'the journal does not know');
+      C.ends.delete(one.key);
+    });
+  });
+  await test('caves (english): old saves: an old u:c… cave keeps its record, its torches come back once, and ?cuevas=1 would not draw them twice', async () => {
+    const D = w().deltas, I = inv(), torch = () => I.count('antorcha'), wood = () => I.count('madera');
+    const st1 = { removed: { '4,4': 1 }, opened: {}, placed: { '3,4': 'antorcha', '5,6': 'antorcha', '7,7': 'log' }, flags: {} }, st2 = { removed: {}, opened: {}, placed: { '2,2': 'antorcha' }, flags: {} };
+    const keep = JSON.stringify([st1, st2]);
+    D.set('u:c777_1', st1); D.set('u:c777_2', st2); D.set('u:k777_1', { removed: {}, opened: {}, placed: { '1,1': 'antorcha' }, flags: {} });
+    const t0 = torch(), w0 = wood();
+    try {
+      const C = new Caves(game); C.reset({});
+      check(torch() === t0 + 3 && wood() === w0 + 4 && C.refunded === 1, `back: ${torch() - t0} torches, ${wood() - w0} wood`);
+      check(JSON.stringify([D.get('u:c777_1'), D.get('u:c777_2')]) === keep, 'the old record changed');
+      const out = {}; C.save(out); check(out.caveRefund === 1, 'the refund is not saved');
+      const C2 = new Caves(game); C2.reset({ caveRefund: 1 }); check(torch() === t0 + 3 && C2.refunded === 1, 'given back twice');
+      check(game.snapshot().caveRefund === 1, 'the game does not save it');
+      // (the old cave, made again as with ?cuevas=1: the record is there, the torches not drawn)
+      const old = makeCave(game, 777, 1, false);
+      check(!old.live().some(o => o.placed) && old.state.removed['4,4'] === 1, 'an old cave draws its torches again');
+    } finally { D.delete('u:c777_1'); D.delete('u:c777_2'); D.delete('u:k777_1'); I.remove('antorcha', Math.max(0, torch() - t0)); I.remove('madera', Math.max(0, wood() - w0)); }
+  });
+  await test('caves (english): water: you wade the shallows of a cave pool and swim the deep, and nothing is put in it', async () => {
+    await caveFast(async () => {
+      let sc = null, deep = null, shallow = null;
+      for (const s of caveSites(80, 23)) {
+        for (let L = 1; L <= caveLevels(w().seed, s) && !sc; L++) {
+          const q = makeCave2(game, s, L); if (!q.pool) continue;
+          const all = [...reach(q, q.entry.x, q.entry.y)], d = all.find(i => q.pool[i] >= 12 && [1, -1, q.w, -q.w].every(k => q.pool[i + k] >= 10)), h = all.find(i => q.pool[i] >= 3 && q.pool[i] <= 6);
+          if (d !== undefined && h !== undefined) { sc = q; deep = d; shallow = h; }
+        }
+        if (sc) break;
+      }
+      check(sc, 'no cave with a pool to swim');
+      sc.exitTo = { x: CENTER.x, y: CENTER.y + 3 };
+      const tileXY = i => [i % sc.w + 0.5, ((i / sc.w) | 0) + 0.5];
+      await game.goTo(sc, ...tileXY(shallow)); await frames(20);
+      check(p().wading && !p().swim && p().depth > 0.2, `shallow: wading ${p().wading} swim ${p().swim} depth ${p().depth}`);
+      check(!sc.canPlace(...tileXY(shallow).map(Math.floor), 'antorcha'), 'a torch in the water');
+      [p().x, p().y] = tileXY(deep); await frames(20);
+      check(p().swim && p().depth >= 1, `deep: swim ${p().swim} depth ${p().depth}`);
+      draw();
+      check(game.view3d.groundY(sc, p().x, p().y) === 0 && game.view3d.cave?.sc === sc, 'not drawn');
+      [p().x, p().y] = [sc.entry.x, sc.entry.y]; await frames(20);
+      check(!p().swim && !p().wading, 'still in the water');
+    });
+  });
+  await test('caves (english): each player their own: caves and mines never travel, and two games make the same ones', async () => {
+    const live = game.live, site = { id: 31337, kind: 'cueva', key: 'x', x: 900, y: 900, legacy: true, biome: B.ROCKY }, fake = () => ({ world: { seed: w().seed, deltas: new Map(), dirty: new Set() }, places: game.places });
+    const A = makeCave2(fake(), site, 1), B3 = makeCave2(fake(), site, 1), M1 = makeMine(fake(), site, 3), M2 = makeMine(fake(), site, 3);
+    check(A.grid.join('') === B3.grid.join('') && JSON.stringify(A.items) === JSON.stringify(B3.items) && JSON.stringify(M1.items) === JSON.stringify(M2.items) && JSON.stringify(M1.timbers) === JSON.stringify(M2.timbers), 'two games make different caves');
+    const D = new Map([['0,0', {}], ['u:k31337_1', { flags: { rope: 1 } }], ['u:m31337_3', {}], ['u:c1_1', {}]]), shared = live.worldOf(game.snapshot(), D);
+    check(shared.deltas.length === 1 && shared.deltas[0][0] === '0,0', `sent: ${shared.deltas.map(d => d[0])}`);
+    const was = live.joined; live.joined = true; live.pending.clear();
+    try { live.touched('u:k31337_1'); live.touched('u:m31337_3'); check(!live.pending.size, 'a cave change goes by the network'); } finally { live.joined = was; live.pending.clear(); }
+    // (a peer in a cave is out of the world: hidden; back in it, seen again)
+    const ents = live.entities;
+    try {
+      live.receive('c7', { t: 'hi', id: 'id-c7', name: 'c7', playing: true, look: LOOK });
+      live.receive('c7', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0 });
+      const peer = live.peers.get('c7'); check(peer?.sc === 'world', 'the peer is not in the world');
+      live.receive('c7', { t: 'st', sc: null });
+      check(peer.sc !== 'world', 'a peer in a cave is still in the world');
+      live.receive('c7', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0 });
+      check(peer.sc === 'world', 'out of the cave it is not seen');
+    } finally { live.entities = ents; live.peers.delete('c7'); }
   });
   await test('fallos: un sistema que falla no para a los que van detrás, no inunda la consola y se ve', async () => {
     let behind = 0;
@@ -14609,6 +14807,7 @@ async function soloTests(game) {
     try {
       await game.places.enterCave(poi, 1);
       const cave = game.scene; check(cave !== w(), 'not in the cave');
+      const dr0 = game.gather.drops.length;   // what the cave itself has lying about (R7-5 caves keep finds)
       // (nobody is in the world, and it stays, because whoever wounded it is in a cave: then it bleeds out by its own clock)
       await frames(30);
       check(W.list.includes(d), 'it went when its hunter entered a cave');
@@ -14619,7 +14818,7 @@ async function soloTests(game) {
       const c = near('carcass_deer', tx + 0.5, ty + 0.5, 2), k = String(c.tile);
       check(w().delta(Math.floor(c.tile[0] / CHUNK), Math.floor(c.tile[1] / CHUNK))?.carcass?.[k] !== undefined, 'the carcass has no day (it would not rot)');
       check(!(cave.placedNear?.(p().x, p().y, 6) || []).some(o => BULKY[o.placed]?.prey), 'a carcass in the cave');
-      check(game.stats.get('cazados') === k0 + 1 && !game.gather.drops.length, `in the cave: hunt ${game.stats.get('cazados') - k0}, drops ${game.gather.drops.length}`);
+      check(game.stats.get('cazados') === k0 + 1 && game.gather.drops.length === dr0, `in the cave: hunt ${game.stats.get('cazados') - k0}, drops ${game.gather.drops.length} (was ${dr0})`);
     } finally {
       if (game.scene !== w()) await game.places.climb(game.scene, -1);
       if (game.scene !== w()) await game.goTo(w(), tx + 0.5, ty + 3.5, { inside: false });

@@ -10,6 +10,7 @@ import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from '.
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, inChapel, inLawOffice, houseStands, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { BUILDABLE } from './buildables.js';
+import { Caves } from './caves.js';
 import { Profile } from './accounts.js';
 import { BIOMES } from './world/biomes.js';
 import { CHUNK, WORLD_SEED } from './world/gen.js';
@@ -246,6 +247,7 @@ export class Game {
     this.route = this.addSystem(new Route(this));   // the marked route: a pin on the big map and the way to it (Plan J)
     this.marks = this.addSystem(new MapMarks(this));   // your own marks on the map, and your couple's
     this.places = this.addSystem(new Explore(this));
+    this.caves = this.addSystem(new Caves(this));   // the caves and mines of now: the cave map, ropes, slopes, their ends, the refund of the old ones (src/caves.js)
     this.collection = this.addSystem(new Collection(this));
     this.nature = this.addSystem(new NatureBook(this));   // the nature book (src/nature.js, Plan G; after collection: its backfill reads it)
     this.achievements = this.addSystem(new Achievements(this));

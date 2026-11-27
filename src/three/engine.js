@@ -494,9 +494,9 @@ export class View3D {
     if (p.boat || p.aboard) return Math.max(this.groundY(scene, p.x, p.y), WATER_Y - 0.3);
     return this.groundY(scene, p.x, p.y) + (p.floor || 0);   // (subido a algo: a una roca, a la torre)
   }
-  // Altura del suelo donde pisa algo (en cuevas, el suelo es plano)
+  // Altura del suelo donde pisa algo (en cuevas, el suelo es plano; but for the steep slopes of a natural cave, cavegen.js floorY)
   groundY(scene, x, y) {
-    if (scene?.kind === 'grid') return 0;
+    if (scene?.kind === 'grid') return scene.floorY ? scene.floorY(x, y) : 0;
     const L = scene?.levelAt?.(x, y);   // (sobre lo construido: a su altura; ver scenes.js)
     if (L !== null && L !== undefined) return L + (this.world.floorAt(x, y) ? 0.03 : 0);
     if (this.world.floorAt(x, y)) return 0.03;

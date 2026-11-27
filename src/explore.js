@@ -14,6 +14,7 @@ import { torParts, greatR } from './world/treedims.js';
 import { B, WATER_Y } from './world/biomes.js';
 import { residentsOf, updateResidents, talkTo } from './hamletfolk.js';
 import { makeCave, makeDungeon } from './world/underground.js';
+import { caveScene } from './world/cavegen.js';
 import { sitesFor, LegacyPlaces, hamletSlots, READY, LATER, SITE_SIZE as SIZE } from './world/sites.js';
 import { nameOf, stateOf, storyOf } from './world/names.js';
 import { roadsFor } from './world/roads.js';
@@ -234,7 +235,7 @@ export class Explore {
       C.set(p.key, (q = { state: p.hito === 'faro' ? 'lived' : stateOf(p, d), ...storyOf(p, h && nameOf(h)) }));
     }
     const story = p.hito ? t(`landmark.${p.hito}.story`) : t(`place.story.${p.kind}.${q.line}`, { year: String(q.year), name: nameOf(p), builder: t(`place.builder.${q.builder}`, { name: q.hamlet || '' }) });
-    return { title: this.title(p), kind: placeKind(p.kind), state: q.state && t(`place.state.${q.state}`), story, at: this.foundAt[p.key] };
+    return { title: this.title(p), kind: placeKind(p.kind), state: q.state && t(`place.state.${q.state}`), story, at: this.foundAt[p.key], end: !!this.game.caves?.ends.has(p.key) };
   }
   // What a place of now is laid out like (hamlets.js), worked out once: { …its plan, chunks, objs: "cx,cy" → [things], clear (a Set of
   // the tiles no tree grows on) }, or null
@@ -715,6 +716,9 @@ export class Explore {
   }
   // Lo que se hace con algo de una cueva o de un templo (o null)
   gridAction(scene, o, p) {
+    if (o.mouth) return { text: t('cave.out'), run: () => this.climb(scene, -1) };
+    if (o.pit) return this.game.caves?.pitAction(scene, o) || null;
+    if (o.rope === 'up') return { text: t('cave.rope.up'), run: () => this.climb(scene, -1) };
     if (o.ladder === 'up') return { text: scene.depth > 1 ? t('cave.up', { n: scene.depth - 1 }) : t('cave.out'), run: () => this.climb(scene, -1) };
     if (o.ladder === 'down') return { text: t('cave.down', { n: scene.depth + 1 }), run: () => this.climb(scene, 1) };
     if (o.chest) return scene.state.opened[o.key] ? null : { text: t('place.chest.open'), run: () => this.openGridChest(scene, o) };
@@ -764,7 +768,7 @@ export class Explore {
     if (scene.kind !== 'grid') return null;
     for (const o of scene.live()) {
       if (!o.tile || Math.abs(o.x - p.x) > 4 || Math.abs(o.y - p.y) > 4 || !this.gridAction(scene, o, p)) continue;
-      out.push({ kind: 'sys', grid: o.tile, box: box(o.x, o.y, 0.48, 0.48, 0, o.ladder ? 2 : o.gate !== undefined ? 1.8 : 1), act: () => this.gridAction(scene, o, g.player) });   // (grid: its outline is what the cave draws on that tile)
+      out.push({ kind: 'sys', grid: o.tile, box: box(o.x, o.y, o.pit ? 0.7 : 0.48, o.pit ? 0.7 : 0.48, 0, o.ladder || o.rope || o.mouth ? 2 : o.gate !== undefined ? 1.8 : 1), act: () => this.gridAction(scene, o, g.player) });   // (grid: its outline is what the cave draws on that tile)
     }
     return out;
   }
@@ -772,7 +776,7 @@ export class Explore {
   // (pushing the wheelbarrow, no: park it first. A big thing in the arms goes down with you, as before: carry.js refuse)
   async enterCave(poi, depth) {
     if (this.game.carry?.refuse('cave')) return;
-    const g = this.game, sc = makeCave(g, poi.id, depth, poi.snow);
+    const g = this.game, sc = caveScene(g, poi, depth);   // (a natural cave or a mine, world/cavegen.js; with ?cuevas=1, the blob of before)
     const M = poi.mouth, a = M?.yaw || 0;
     sc.exitTo = M ? { x: M.x + Math.sin(a) * 2.2, y: M.y + Math.cos(a) * 2.2 } : { x: poi.x, y: poi.y + 2.2 };
     g.combat.spawn(sc);
@@ -801,14 +805,16 @@ export class Explore {
   async climb(scene, dir) {
     const g = this.game;
     if (g.carry?.refuse('cave')) return;
-    if (dir < 0 && scene.depth <= 1) { await g.goTo(this.world, scene.exitTo.x, scene.exitTo.y, { inside: false }); g.onSave?.(); return; }
-    const sc = makeCave(g, scene.caveId, scene.depth + dir, scene.style === 'ice');
+    if (dir < 0 && scene.depth <= 1) { scene.flushSeen?.(); await g.goTo(this.world, scene.exitTo.x, scene.exitTo.y, { inside: false }); g.onSave?.(); return; }
+    const sc = scene.next ? scene.next(scene.depth + dir) : makeCave(g, scene.caveId, scene.depth + dir, scene.style === 'ice');
     sc.exitTo = scene.exitTo;
+    scene.flushSeen?.();   // (what you saw of the level you leave: caves.js)
     g.combat.spawn(sc);
     const at = dir > 0 ? sc.entry : sc.fromBelow;
     await g.goTo(sc, at.x, at.y);
     this.deeper(sc.depth);
-    hud.toast(t('cave.level', { title: this.current?.kind === 'cueva' ? this.title(this.current) : placeKind('cueva'), n: sc.depth }));
+    const k = this.current?.kind === 'mina' ? 'mina' : 'cueva';
+    hud.toast(t(k === 'mina' ? 'mine.level' : 'cave.level', { title: this.current?.kind === k ? this.title(this.current) : placeKind(k), n: sc.depth }));
   }
 
   // Botín de los cofres

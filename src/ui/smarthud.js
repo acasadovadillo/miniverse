@@ -449,6 +449,9 @@ export class SmartHud {
     if (outside && (riding ? this.moveT > 0.3 : this.moveT > 1 && !inBounds(p.x, p.y))) show('mini', SHOW.mini);
     const mode = miniMode();
     if (mode === 'compass' && !outside && this.moveT > 1) show('mini', SHOW.mini);
+    // (in a cave or mine of now, the cave map while you go: ui/minimap.js)
+    const cave = g.scene?.kind === 'grid' && !!g.scene.seenMask;   // (in a cave you are 'inside': game.goTo)
+    if (cave && mode !== 'compass' && this.moveT > 1) show('mini', SHOW.mini);
     // (with a marked route it stays, as in GTA: where to turn is on it)
     const R = g.route;
     if (R?.active && outside) show('mini', SHOW.held);
@@ -508,10 +511,10 @@ export class SmartHud {
     this.mapGoal = g.map.goal = goal;
     // The route's pin over its target (routemark.js; in the full HUD route.js moves it), like the goal's mark
     try { R?.mark?.frame(g, outside && free && !wins && !g.build.on, GOAL_NEAR); } catch (e) { reportFault(e, 'RouteMark.frame'); }
-    const mini = free && mode !== 'off' && (up('mini') || !!goal || (mode === 'always' && outside));
+    const mini = free && mode !== 'off' && (up('mini') || !!goal || (mode === 'always' && (outside || cave)));
     this.set('mini', mini);
     this.set('strip', mini);
-    this.set('miniBody', (mini || all) && outside, document.body, 'hm-mini');
+    this.set('miniBody', (mini || all) && (outside || cave), document.body, 'hm-mini');
     this.mini = mini || all || !!g.quick?.open;   // (minimap.js draws only then)
     this.set('all', all, document.body, 'hud-all');
     // The bow: the ring, and its long text only the first times

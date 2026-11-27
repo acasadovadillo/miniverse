@@ -1,4 +1,4 @@
-// Escenas de rejilla: cuevas (niveles infinitos hacia abajo) y mazmorras de los templos (salas en fila
+// Escenas de rejilla: las cuevas de antes (niveles infinitos hacia abajo; las de ahora y las minas, world/cavegen.js) y mazmorras de los templos (salas en fila
 // con puzles: palanca, llave y bloque sobre placa, y el tesoro al final). Se generan con la semilla y
 // lo que cambia (vetas picadas, cofres abiertos, rejas abiertas) se guarda con el resto del mundo.
 import { ihash } from '../util.js';
@@ -37,7 +37,8 @@ export class GridScene {
       const [tx, ty] = st.flags['b' + b.room] || b.home;
       out.push({ x: tx + 0.5, y: ty + 0.5, tile: [tx, ty], solid: true, box: { x0: tx + 0.05, y0: ty + 0.05, x1: tx + 0.95, y1: ty + 0.95 }, block: b });
     }
-    for (const [k, id] of Object.entries(st.placed)) { const [tx, ty] = k.split(',').map(Number); out.push({ x: tx + 0.5, y: ty + 0.5, placed: id, tile: [tx, ty], layer: 'placed' }); }
+    // (a cave of before whose torches were given back, caves.js refund: only with ?cuevas=1 is one made again, and then without them)
+    if (!(this.id[0] === 'c' && this.game.caves?.refunded)) for (const [k, id] of Object.entries(st.placed)) { const [tx, ty] = k.split(',').map(Number); out.push({ x: tx + 0.5, y: ty + 0.5, placed: id, tile: [tx, ty], layer: 'placed' }); }
     this.cache = out; this.cacheV = this.game.frameNo;
     return out;
   }
@@ -61,7 +62,8 @@ export class GridScene {
   // Solo se pueden poner antorchas (y quitarlas)
   at(layer, tx, ty) { return layer === 'placed' ? this.state.placed[`${tx},${ty}`] : undefined; }
   // (and a big thing carried in the arms, carry.js: never on the stairs nor next to them, where it would block them)
-  canPlace(tx, ty, id) { const big = !!BULKY[id]; return (id === 'antorcha' || big) && !this.wall(tx, ty) && !this.state.placed[`${tx},${ty}`] && !this.live().some(o => o.tile && (big && o.ladder ? Math.abs(o.tile[0] - tx) <= 1 && Math.abs(o.tile[1] - ty) <= 1 : o.tile[0] === tx && o.tile[1] === ty)); }
+  // (nor in the water of a cave, nor beside its mouth, its pit or its rope, cavegen.js)
+  canPlace(tx, ty, id) { const big = !!BULKY[id]; return (id === 'antorcha' || big) && !this.wall(tx, ty) && !this.pool?.[ty * this.w + tx] && !this.state.placed[`${tx},${ty}`] && !this.live().some(o => o.tile && (big && (o.ladder || o.pit || o.rope || o.mouth) ? Math.abs(o.tile[0] - tx) <= 1 && Math.abs(o.tile[1] - ty) <= 1 : o.tile[0] === tx && o.tile[1] === ty)); }
   place(tx, ty, id) { this.state.placed[`${tx},${ty}`] = id; this.touched(); }
   unplace(o) { delete this.state.placed[`${o.tile[0]},${o.tile[1]}`]; this.touched(); }
   placedNear(x, y, r) { return this.live().filter(o => o.placed && Math.hypot(o.x - x, o.y - y) < r); }
@@ -78,6 +80,43 @@ export class GridScene {
     this.touched();
     return true;
   }
+  // The height of the vault over a tile (cavegen.js ceil; 2.5 m in the caves of before)
+  ceilAt(tx, ty) { return this.ceil && tx >= 0 && ty >= 0 && tx < this.w && ty < this.h ? this.ceil[ty * this.w + tx] / 10 : 2.5; }
+  // The tiles you have seen, for the cave map (plan R7-5 §3.8: the minimap draws them, ui/minimap.js): every tile within r of where
+  // you have been (your lamp lights that far). In the scene's state as text, st.seen, saved with it; seenMask() for the map
+  seenBits() {
+    if (this._seen) return this._seen;
+    const b = (this._seen = new Uint8Array(this.w * this.h)), s = this.state.seen;
+    if (typeof s === 'string') try { const raw = atob(s); for (let i = 0; i < b.length; i++) b[i] = (raw.charCodeAt(i >> 3) >> (i & 7)) & 1; } catch { /* (a broken one: seen again) */ }
+    this.seenV = (this.seenV || 0) + 1;
+    return b;
+  }
+  see(x, y, r = 4, extra = null) {
+    const b = this.seenBits(), W = this.w, r2 = r * r;
+    let n = 0;
+    for (let ty = Math.max(0, Math.floor(y - r)); ty <= Math.min(this.h - 1, Math.floor(y + r)); ty++) for (let tx = Math.max(0, Math.floor(x - r)); tx <= Math.min(W - 1, Math.floor(x + r)); tx++) {
+      const i = ty * W + tx;
+      if (!b[i] && (tx + 0.5 - x) ** 2 + (ty + 0.5 - y) ** 2 <= r2) { b[i] = 1; n++; }
+    }
+    if (extra) for (let ty = Math.max(0, Math.floor(extra.y - extra.r - 1)); ty <= Math.min(this.h - 1, extra.y + extra.r + 1); ty++) for (let tx = Math.max(0, Math.floor(extra.x - extra.r - 1)); tx <= Math.min(W - 1, extra.x + extra.r + 1); tx++) {
+      const i = ty * W + tx;
+      if (!b[i] && Math.hypot(tx + 0.5 - extra.x, ty + 0.5 - extra.y) <= extra.r + 1) { b[i] = 1; n++; }
+    }
+    if (n) { this.seenV++; this.seenDirty = true; }
+    return n;
+  }
+  // (written to the state now and then and on leaving, not at every step: caves.js)
+  flushSeen() {
+    if (!this.seenDirty || !this._seen) return;
+    const b = this._seen, bytes = new Uint8Array((b.length + 7) >> 3);
+    for (let i = 0; i < b.length; i++) if (b[i]) bytes[i >> 3] |= 1 << (i & 7);
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    this.state.seen = btoa(s);
+    this.seenDirty = false;
+    this.game.world.dirty.add('u:' + this.id);
+  }
+  seenMask() { return { w: this.w, h: this.h, bits: this.seenBits(), v: this.seenV }; }
   // Una casilla de suelo libre al azar (determinista)
   freeTiles() { const out = []; for (let ty = 1; ty < this.h - 1; ty++) for (let tx = 1; tx < this.w - 1; tx++) if (!this.wall(tx, ty)) out.push([tx, ty]); return out; }
 }

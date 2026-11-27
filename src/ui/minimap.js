@@ -44,6 +44,9 @@ const ZOOM_S = 0.8, SCALE = { walk: 2.6, jog: 2.3, sprint: 2.0, ride: 1.9, gallo
 const PATH_COL = 'rgba(226, 212, 182, .5)', PATH_W = 1.9;   // (the village's paths over their pictures: a pale ribbon, its tiles wide)
 const RISE = 0.85, ROOF_RISE = 0.5, FEET_MAX = 60, FEET_STEP = 8, FEET_ROOM = 10;   // (how much of a metre of wall and of roof shows, in tiles of the map; footprints drawn at most)
 const DZ = 4;                  // metres over or under you before a blip says so
+// In a cave or a mine of now (plan R7-5): the tiles you have seen (scene.seenMask(), world/underground.js), closer in, with what
+// you go in and out by; nothing of what is hidden
+const CAVE_K = 1.6, CAVE_COL = { fog: '#100e0c', rock: '#3a332c', floor: '#8e8478', slope: '#6a6258', water: '#3e6a7a', exit: '#f2e2a8', edge: '#14110e' };
 const TURN_DEG = 32, TURN_NEAR = 5, TURN_FAR = 160;   // (what is a turn of the route, and from and up to where it is looked for, in tiles)
 
 // The strings: turns of a quarter of a degree, slides of half a pixel, scales of two thousandths
@@ -56,7 +59,7 @@ export const HEADINGS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
 
 const CSS = `
 #minimap { position: fixed; left: 16px; bottom: 16px; z-index: 4; width: var(--mm); height: calc(var(--mm) + 18px); cursor: pointer; }
-body.indoors #minimap, body.mini-none #minimap { display: none; }
+body.indoors:not(.underground) #minimap, body.mini-none #minimap { display: none; }
 #minimap .mm-box { position: absolute; left: 0; top: 0; width: var(--mm); height: var(--mm); transform-origin: left bottom; transition: transform .2s cubic-bezier(.2, .8, .2, 1); }
 #minimap .mm-clip { position: absolute; inset: 0; padding: 0; overflow: hidden; contain: strict; border-radius: calc(var(--mm) * .16); background: ${FOG}; box-shadow: 0 4px 14px rgba(0, 0, 0, .4); }
 #minimap .mm-turn { position: absolute; left: 0; top: 0; width: 100%; height: 100%; will-change: rotate, scale; }
@@ -172,19 +175,20 @@ export class Minimap {
     this.last = now; this.now = now; g.map.now = now;
     if (mode !== this.mode) { this.mode = mode; document.body.classList.toggle('mini-none', mode === 'compass' || mode === 'off'); document.body.classList.toggle('mini-compass', mode === 'compass'); this.force = true; }
     if (!this.S || this.sizeKey !== Settings.v.miniSize || this.blipKey !== Settings.v.blipSize) this.measure();
-    const outside = !g.indoors && g.scene === g.world, play = g.mode === 'play';
+    const cave = g.scene?.kind === 'grid' && !!g.scene.seenMask, outside = (!g.indoors && g.scene === g.world) || cave, play = g.mode === 'play';
+    if (cave !== !!this.inCave) { this.inCave = cave; this.force = true; this.overCave = null; }
     // (it goes on while it fades away)
     if (!g.smartHud || g.smartHud.mini !== false) this.wantAt = now;
     const want = play && now - this.wantAt < FADE_S, on = want && outside && (mode === 'fade' || mode === 'always');
     this.compass.frame(now, play && mode === 'compass' && (g.smartHud ? !!g.smartHud.mini : true));
     if (on !== this.shown) { this.shown = on; if (on) this.force = true; }
-    const w = this.wanted();
+    const w = this.wanted() * (cave ? CAVE_K : 1);
     this.a = on ? this.a + (w - this.a) * (1 - Math.exp(-dt / ZOOM_S)) : w;
     if (Math.abs(this.a - w) < 0.002) this.a = w;
-    if (!on) { if (outside && play && mode !== 'off') this.warm(); return; }
+    if (!on) { if (outside && !cave && play && mode !== 'off') this.warm(); return; }
     const t0 = performance.now(), yi = stepOf(CAM.yaw);
-    this.groundTurn(now, yi);
-    this.overTurn(now, yi);
+    if (cave) this.caveTurn(now, yi);
+    else { this.groundTurn(now, yi); this.overTurn(now, yi); }
     this.force = false;
     this.base.place(p.x, p.y, yi, this.a);
     this.over.place(p.x, p.y, yi, this.a);
@@ -209,6 +213,43 @@ export class Minimap {
     if (key === this.distKey) return;
     this.distKey = key;
     this.dist.textContent = key === null ? '' : distText(key);
+  }
+
+  // ---------- in a cave ----------
+  caveTurn(now, yi) {
+    const g = this.game, sc = g.scene, B = this.base, O = this.over, p = g.player, M = sc.seenMask();
+    const due = this.force || sc !== this.caveSc || M.v !== this.caveV || Math.hypot(p.x - B.x, p.y - B.y) > BASE_MOVE || Math.abs(this.a / B.a - 1) > BASE_ZOOM;
+    if (due && (this.force || now - B.at >= 1 / BASE_HZ)) {
+      const t0 = performance.now();
+      this.drawCave(sc, M);
+      B.drawn(now, p.x, p.y, 0, this.a);
+      this.caveSc = sc; this.caveV = M.v;
+      this.stats.base++; this.stats.baseMs += performance.now() - t0;
+    }
+    // (nothing stands upright down there: the upper canvas, empty, once; drawn again on the way out)
+    if (this.overCave !== sc) { this.overCave = sc; O.g.setTransform(1, 0, 0, 1, 0, 0); O.g.clearRect(0, 0, O.canvas.width, O.canvas.height); O.drawn(now, p.x, p.y, yi, this.a); this.overV = -1; }
+    this.force = false;
+  }
+  drawCave(sc, M) {
+    const p = this.game.player, B = this.base, g = B.g, k = B.k, a = this.a, n = B.side, e = n / 2 - a * p.x, f = n / 2 - a * p.y, C = CAVE_COL;
+    g.setTransform(k, 0, 0, k, 0, 0);
+    g.fillStyle = C.fog; g.fillRect(0, 0, n, n);
+    const half = n / 2 / a + 1, x0 = Math.max(0, Math.floor(p.x - half)), x1 = Math.min(M.w - 1, Math.ceil(p.x + half)), y0 = Math.max(0, Math.floor(p.y - half)), y1 = Math.min(M.h - 1, Math.ceil(p.y + half));
+    const paths = { rock: new Path2D(), floor: new Path2D(), slope: new Path2D(), water: new Path2D() };
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+      const i = ty * M.w + tx;
+      if (!M.bits[i]) continue;
+      const kind = sc.wall(tx, ty) ? 'rock' : sc.pool?.[i] ? 'water' : sc.floorY && sc.floorY(tx + 0.5, ty + 0.5) !== 0 ? 'slope' : 'floor';
+      paths[kind].rect(e + tx * a, f + ty * a, a + 0.4, a + 0.4);
+    }
+    for (const kind of ['rock', 'floor', 'slope', 'water']) { g.fillStyle = C[kind]; g.fill(paths[kind]); }
+    // (the mouth, the pit, the rope and the ladders you have seen)
+    g.lineWidth = 1.5; g.strokeStyle = C.edge;
+    for (const o of sc.items) {
+      if (!(o.mouth || o.pit || o.rope || o.ladder) || !o.tile || !M.bits[o.tile[1] * M.w + o.tile[0]]) continue;
+      g.beginPath(); g.arc(e + o.x * a, f + o.y * a, Math.max(2.6, a * 0.7), 0, Math.PI * 2);
+      g.fillStyle = o.mouth ? C.exit : '#1c1814'; g.fill(); g.strokeStyle = o.mouth ? C.edge : C.exit; g.stroke();
+    }
   }
 
   // ---------- the ground ----------

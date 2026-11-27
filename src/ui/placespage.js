@@ -15,7 +15,7 @@ export function placesHtml(game) {
   const note = (seen ? `<p class="j-note">${tHtml('journal.places.spotted', { n: seen })}</p>` : '') + (gone > 0 ? `<p class="j-note">${tHtml('journal.places.gone', { n: gone })}</p>` : '');
   if (!list.length) return `<p class="j-note">${tHtml('journal.places.none')}</p>${note}`;
   const card = q => {
-    const line = [q.state, t('journal.places.away', { dist: away(q.d) }), q.at > 0 ? t('journal.places.found', { date: fmt.date(q.at * 86400000, { day: 'numeric', month: 'short', timeZone: 'UTC' }) }) : ''].filter(Boolean).join(' · ');
+    const line = [q.state, t('journal.places.away', { dist: away(q.d) }), q.at > 0 ? t('journal.places.found', { date: fmt.date(q.at * 86400000, { day: 'numeric', month: 'short', timeZone: 'UTC' }) }) : '', q.end ? t('journal.places.cave_end') : ''].filter(Boolean).join(' · ');   // (end: a cave whose end you reached, caves.js)
     return `<div class="j-row j-place" data-place="${esc(q.p.key)}"><b>${esc(q.title)}</b><small>${esc(q.story)}</small><small>${esc(line)}</small></div>`;
   };
   return `<p class="j-note">${tHtml('journal.places.count', { n: list.length })}</p>` + ORDER.map(kind => {
