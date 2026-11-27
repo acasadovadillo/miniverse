@@ -7,6 +7,9 @@ import { target, proxy } from './data.js';
 export const BODY_SLIDERS = ['height', 'weight', 'muscle', 'age', 'chest', 'prop'];
 export const ORIGINS = ['af', 'as', 'ca'];
 const ORIGIN_NAME = { af: 'african', as: 'asian', ca: 'caucasian' };
+// (MakeHuman's height goes from a dwarf to a giant: the slider takes the part that keeps doors, beds and the saddle right,
+// about 1.55 to 1.80 m for a woman and 1.65 to 1.92 m for a man)
+const HEIGHT_K = 0.45;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 
@@ -29,7 +32,7 @@ export function weightsFor(D, mh, sex) {
     }
     ORIGINS.forEach((k, i) => { if (o[i] > 1e-4) out.push([`${ORIGIN_NAME[k]}-${S}-${age}`, wa * o[i]]); });
     const h = clamp(num(m.height) / 100, -1, 1), p = clamp(num(m.prop) / 100, -1, 1);
-    if (h) out.push([`height-${S}-${age}-averagemuscle-averageweight-${h > 0 ? 'max' : 'min'}height`, wa * Math.abs(h)]);
+    if (h) out.push([`height-${S}-${age}-averagemuscle-averageweight-${h > 0 ? 'max' : 'min'}height`, wa * Math.abs(h) * HEIGHT_K]);
     if (p) out.push([`prop-${S}-${age}-averagemuscle-averageweight-${p > 0 ? 'ideal' : 'uncommon'}proportions`, wa * Math.abs(p)]);
   }
   const f = mh?.face || {};

@@ -98,6 +98,9 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // scavengers at night, and the fox of the night news is a roll as before)
 // Plan R5-4 (sites, crew and house plans, src/works.js): cuadrilla (?cuadrilla=0: Nilo's reforms are at once as before, he offers no crew,
 // upkeep or house plans, and B has no Plans tab nor Copy tool. Whoever runs the world goes on with the sites there are)
+// Plan CR (the character creator in depth, docs/planes/PLAN-creador-realista.md): creador (not a part: ?creador=nuevo opens the new
+// creator for a new character, MakeHuman people with starting heads and fine sliders, src/ui/creatornew.js; the game, the mirror
+// and the barber stay as they are)
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',

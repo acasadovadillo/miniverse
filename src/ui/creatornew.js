@@ -207,6 +207,7 @@ export function newStyles() {
   s.textContent = `
   #cr-rows h4.cr-group { margin: 14px 4px 4px; font: 600 13px/1.2 var(--font-title); letter-spacing: .12em; text-transform: uppercase; opacity: .7; }
   #cr-rows .cr-heads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 6px 4px 10px; }
+  #cr-rows .cr-heads[hidden], #cr-rows h4.cr-group[hidden] { display: none; }
   #cr-rows .cr-heads button { position: relative; padding: 0; border: 2px solid transparent; border-radius: 6px; background: rgba(0, 0, 0, .25); cursor: pointer; overflow: hidden; }
   #cr-rows .cr-heads button.on { border-color: var(--accent, #e8c050); }
   #cr-rows .cr-heads canvas { display: block; width: 100%; height: auto; }

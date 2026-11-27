@@ -101,7 +101,9 @@ export class MhPreview {
   focus(shot) { this.shot = shot; }
   resize(w, h) { this.renderer.setSize(w, h, false); this.canvas.style.width = w + 'px'; this.canvas.style.height = h + 'px'; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
   // Straight to a shot and an angle, without easing (for pictures)
-  snap(shot, angle = this.want) { this.shot = shot; this.want = this.angle = angle; this.frame(); const [p, a] = this.shots[shot]; this.cam[0].set(...p); this.cam[1].set(...a); }
+  snap(shot, angle = this.want) { this.shot = shot; this.want = this.angle = angle; this.frame(); const [p, a] = this.shots[shot], o = this.faceOff(); this.cam[0].set(...p).add(o); this.cam[1].set(...a).add(o); }
+  // (near the head, the camera follows the face as the person turns: the face is a hand in front of the turning axis)
+  faceOff() { return this.shot === 'body' ? new THREE.Vector3() : new THREE.Vector3(Math.sin(this.angle) * 0.085, 0, (Math.cos(this.angle) - 1) * 0.085); }
   // A portrait of a look (for the grid of heads): drawn in a corner of this canvas just before a frame, which then paints
   // over it, and copied out at once. done(canvas) gets it; a newer request for the same canvas replaces an older one
   portrait(look, done, w = 84, h = 100) {
@@ -144,8 +146,8 @@ export class MhPreview {
     this.angle += d * Math.min(1, dt * 8);
     if (this.person) this.person.root.rotation.y = this.angle;
     if (!this.shots) this.frame();
-    const [pos, at] = this.shots[this.shot] || this.shots.body, k = Math.min(1, dt * 7);
-    this.cam[0].lerp(new THREE.Vector3(...pos), k); this.cam[1].lerp(new THREE.Vector3(...at), k);
+    const [pos, at] = this.shots[this.shot] || this.shots.body, k = Math.min(1, dt * 7), o = this.faceOff();
+    this.cam[0].lerp(new THREE.Vector3(...pos).add(o), k); this.cam[1].lerp(new THREE.Vector3(...at).add(o), k);
     this.camera.position.copy(this.cam[0]);
     this.camera.lookAt(this.cam[1]);
     this.renderer.render(this.scene, this.camera);

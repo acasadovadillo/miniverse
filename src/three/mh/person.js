@@ -49,7 +49,7 @@ function skinMaterial(sex) {
   const young = tex(`skin-${s}-young.jpg`, { onLoad: img => U.meanY.value.copy(meanLinear(img)) });
   tex(`skin-${s}-old.jpg`, { onLoad: img => U.meanO.value.copy(meanLinear(img)) });
   // (the photo is its own bump map: the pores and wrinkles catch the light)
-  const m = new THREE.MeshPhysicalMaterial({ map: young, bumpMap: young, bumpScale: 0.9, roughness: 0.52, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color('#a8442a'), specularIntensity: 0.45 });
+  const m = new THREE.MeshPhysicalMaterial({ map: young, bumpMap: young, bumpScale: 0.9, roughness: 0.52, sheen: 0.3, sheenRoughness: 0.55, sheenColor: new THREE.Color('#a8442a'), specularIntensity: 0.45 });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, U);
     // (scalp: where the hair is bound, the skin takes the hair's colour, so no bare skin shows between the cards)
@@ -59,7 +59,8 @@ uniform sampler2D mapOld; uniform float age; uniform vec3 tone, meanY, meanO, ha
 vec3 ty = texture2D(map, vMapUv).rgb / meanY, to = texture2D(mapOld, vMapUv).rgb / meanO;
 vec3 dt = mix(ty, to, age);
 float dl = dot(dt, vec3(0.2126, 0.7152, 0.0722));
-vec3 tn = mix(vec3(dot(tone, vec3(0.2126, 0.7152, 0.0722))), tone, 0.72);   // (a little less saturated: the curve adds it back)
+float tl = dot(tone, vec3(0.2126, 0.7152, 0.0722));
+vec3 tn = mix(vec3(tl), tone, 0.74 + 0.4 * clamp(tl, 0.0, 0.5));   // (the darker, a little less saturated: the curve adds it back)
 diffuseColor.rgb *= tn * mix(vec3(dl), dt, 0.35);
 diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.45 + 0.4 * dl), vScalp * 0.9);
 // (the beard, painted for now (P4 makes it of cards): its zones, moustache, chin and jaw, with the look's style; hairs from
@@ -294,6 +295,8 @@ export class MhPerson {
   colour(look) {
     const S = this.mats[`skin:${look.sex === 'chico' ? 'chico' : 'chica'}`]?.userData.U, hairC = new THREE.Color(look.hair || '#4a2c1c');
     const bw = look.sex === 'chico' ? BEARD[look.beard] : null;
+    const skinMat = this.mats[`skin:${look.sex === 'chico' ? 'chico' : 'chica'}`];
+    if (skinMat) skinMat.sheenColor.set(look.skin || '#e8b07a').multiplyScalar(0.55);   // (the soft light at the edges, of the skin's own colour)
     if (S) { S.beard.value.set(...(bw || [0, 0, 0]), look.beard === 'larga' ? 1 : 0.4); S.hairC.value.copy(hairC); S.tone.value.set(look.skin || '#e8b07a'); S.age.value = Math.min(1, Math.max(0, (yearsOf(look.mh) - 30) / 45)); }
     this.mats.eyes?.userData.U.iris.value.set(look.eyes || '#3a2a1e');
     for (const [k, m] of Object.entries(this.mats)) {
