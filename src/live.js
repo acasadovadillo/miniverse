@@ -458,7 +458,8 @@ export class Live {
           const BZ = g.business?.arbitrate(peer, m.c, free), open = BZ ? BZ.ok : free;   // (the businesses, and what stands in them: business.js)
           const LW = g.law?.arbitrate(m.c, open), lawful = LW ? LW.ok : open;   // (what was taken from the stalls, and the office while somebody is in the cell: law.js)
           const TG = g.tables?.arbitrate(m.c, lawful), tab = TG ? TG.ok : lawful;   // (the table games are only whoever decides': tablegames.js)
-          const PA = g.plans?.arbitrate(peer, m.c, tab), rest = PA ? PA.ok : tab, mine = A ? A.ok : [];
+          const WK = g.works?.arbitrate(m.c, tab), built = WK ? WK.ok : tab;   // (the crew's sites are only whoever decides': works.js)
+          const PA = g.plans?.arbitrate(peer, m.c, built), rest = PA ? PA.ok : built, mine = A ? A.ok : [];
           const W = edit ? g.wear?.arbitrate(m.c, rest) : null, ok = W ? W.ok : rest;   // (what they build is stamped here: wear.js)
           if (edit) { if (ok.length || mine.length) this.applyChunk(m.c, [...ok, ...mine]); if (W?.back.length) this.net.send({ t: 'w', c: m.c, ops: W.back }, conn); }
           else { if (mine.length) this.applyChunk(m.c, mine); if (rest.length) this.refuse(conn, peer, m.c, rest); }
@@ -467,6 +468,7 @@ export class Live {
           if (LW) this.net.send({ t: 'w', c: m.c, ops: LW.back }, conn);
           if (TG) this.net.send({ t: 'w', c: m.c, ops: TG.back }, conn);
           if (PA?.back.length) this.net.send({ t: 'w', c: m.c, ops: PA.back }, conn);   // (plans of a building: plans.js)
+          if (WK?.back.length) this.net.send({ t: 'w', c: m.c, ops: WK.back }, conn);
           if (A) { if (A.back.length) this.net.send({ t: 'w', c: m.c, ops: A.back }, conn); B.afterArbitrate(m.c, A, peer); }
         }
         break;
@@ -859,7 +861,7 @@ export class Live {
     applyOps(w.delta(cx, cy, true), ops);
     if (this.guest) { const s = this.synced.get(k) || {}; applyOps(s, ops); this.synced.set(k, s); }
     // (only a pushed wheelbarrow's record, a plan of a building, a fish trap, a business, the stock of a spot or a request: nothing new to draw, the chunks are not made again; barrow.js)
-    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished' || f === 'shop' || f === 'pilfer' || f === 'tg' || f === 'tgkit' || f === 'game')) w.note(cx, cy);
+    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished' || f === 'shop' || f === 'pilfer' || f === 'tg' || f === 'tgkit' || f === 'game' || f === 'site')) w.note(cx, cy);
     else {
       w.touch(cx, cy);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) w.merged.delete(`${cx + dx},${cy + dy}`);   // (tejados y vallas miran a sus vecinas)
@@ -867,6 +869,7 @@ export class Live {
     try { this.game.business?.onOps(k, ops); } catch (e) { reportFault(e, 'Business.onOps'); }   // (a sale, a new business)
     try { this.game.tables?.onOps(k, ops); } catch (e) { reportFault(e, 'TableGames.onOps'); }   // (a table game)
     try { this.game.plans?.onOps(k, ops); } catch (e) { reportFault(e, 'Plans.onOps'); }   // (plans drawn or gone, or built over)
+    try { this.game.works?.onOps(k, ops); } catch (e) { reportFault(e, 'Works.onOps'); }   // (a crew site, a reform, an upkeep contract)
     if (this.guest) try { this.game.barrow?.onHostOps(k, ops); this.game.cart?.onHostOps(k, ops); } catch (e) { console.warn(e); }   // (is the wheelbarrow still yours? a request answered)
   }
 

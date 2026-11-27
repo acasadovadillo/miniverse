@@ -2,6 +2,7 @@
 import { ITEMS, TIERS, LEGACY_ITEMS, clothesText } from '../items.js';
 import { STATIONS } from '../recipes.js';
 import { BUILDABLE, PLANS } from '../buildables.js';
+import { HOUSE_PLANS, WORKS_ON, housePlan, planCost, footprintIcon } from '../houseplans.js';
 import { SHOPS, priceOf, buyPrice, stackPrice } from '../economy.js';
 import { tracked } from '../catch.js';
 import { catchMark, catchText } from './catchmark.js';
@@ -24,7 +25,7 @@ export function initShopUI(game, { onClose }) {
 
   function stock() {
     const s = SHOPS[shop], season = game.days.season;
-    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (e.animal || (e.horse ? !racesOff() : e.plan ? PLANS.has(e.plan) : ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende, ya no es un objeto: se vende su plano)
+    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (e.animal || (e.horse ? !racesOff() : e.house ? WORKS_ON && !!HOUSE_PLANS[e.house] : e.plan ? PLANS.has(e.plan) : ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende, ya no es un objeto: se vende su plano)
   }
   const animalIcon = type => animalSprite(type, 0).toDataURL();
 
@@ -53,7 +54,15 @@ export function initShopUI(game, { onClose }) {
     $('sh-list').textContent = '';
     if (tab === 'buy') {
       for (const e of stock()) {
-        const price = Math.round((e.price ?? buyPrice(e.id)) * discount());
+        const price = Math.round((e.price ?? (e.house ? HOUSE_PLANS[e.house].price : buyPrice(e.id))) * discount());
+        if (e.house) {   // (a house plan: bought once, laid out with B › Plans: houseplans.js)
+          const bp = housePlan(e.house), has = game.houseplans.has(e.house), c = planCost(bp);
+          row(footprintIcon(bp).toDataURL(), t(`plan.${e.house}`), has ? t('shop.plan.has') : t('shop.house.offer', { price, n: c.n, w: bp.w, h: bp.h }), [[has ? t('shop.plan.learned_btn') : t('shop.buy'), () => {
+            game.addMoney(-price); game.houseplans.learn(e.house);
+            note = t('shop.house.learned', { plan: t(`plan.${e.house}`) }); Audio.unlock();
+          }, !has && game.money >= price]]);
+          continue;
+        }
         if (e.animal) {
           row(animalIcon(e.animal), e.name, `${price} 🪙 · vive en: ${ITEMS[ANIMALS[e.animal].home].name.toLowerCase()}`, [['Comprar', () => {
             const why = game.ranch.add(e.animal);

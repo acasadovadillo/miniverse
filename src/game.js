@@ -26,6 +26,8 @@ import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
 import { Plans } from './plans.js';
 import { Wear } from './wear.js';
+import { Works } from './works.js';
+import { HousePlans } from './houseplans.js';
 import { watchtower } from './world/tower.js';
 import { TimeSystem } from './time.js';
 import { Farm } from './farm.js';
@@ -208,6 +210,8 @@ export class Game {
     this.barrow = this.addSystem(new Barrow(this));   // the wheelbarrow, pushed with both hands (before carry: its hint wins)
     this.plans = this.addSystem(new Plans(this));   // what is drawn with B, and the hammer that builds it (src/plans.js; before whatever else offers a target)
     this.wear = this.addSystem(new Wear(this));   // what is built ages, and the hammer repairs it (src/wear.js)
+    this.works = this.addSystem(new Works(this));   // the crew's sites, hiring it and the upkeep (src/works.js; after plans and wear: its hammer target is the last)
+    this.houseplans = this.addSystem(new HousePlans(this));   // house plans to lay out with B, and the Copy tool (src/houseplans.js)
     this.carry = this.addSystem(new Carry(this));   // weight and things in the arms (the default; ?inventario=casillas: the slots. Before the bow, so its hint wins)
     this.archery = this.addSystem(new Archery(this));   // el arco (antes que lo que se haga con E o con la herramienta)
     this.villageSites = this.addSystem(new VillageSites(this));   // where the village's buildings stand in this world, chosen once (src/villagesites.js)
@@ -983,26 +987,51 @@ export class Game {
   }
   // Nilo amplía la casa del pueblo a cambio de materiales
   async offerReform() {
+    if (await this.reformBusy()) return;
     const cost = [['tablas', 40], ['piedra', 30]], ok = cost.every(([id, n]) => this.inv.count(id) >= n);
     const pick = await hud.ask('Nilo', t('npc.nilo.reform'), ok ? [t('npc.nilo.reform.yes'), t('npc.nilo.not_now')] : [t('npc.nilo.later')]);
     if (!ok || pick !== 0) return;
     for (const [id, n] of cost) this.inv.remove(id, n);
-    this.house.big = true;
-    this.layHouse(true, false);
+    if (this.reformSite('big')) return;
+    this.applyReform('big');
     await hud.say('Nilo', [t('npc.nilo.reform.done')]);
+    this.onSave?.();
+  }
+  // A reform already under way: when it will be done
+  async reformBusy() {
+    const e = this.works?.reformOf();
+    if (!e) return false;
+    await hud.say('Nilo', [t('npc.nilo.reform.busy', { when: this.works.whenOf(e.s) })]);
+    return true;
+  }
+  // With the crew (works.js): a site of one working day round the house instead of at once. true: it has started
+  reformSite(to) {
+    if (!this.works?.on || this.live?.guest) return false;
+    const id = this.works.startReform(to), e = this.works.reformOf();
+    hud.say('Nilo', [t('npc.nilo.reform.site', { when: this.works.whenOf(e?.s) })]);
+    this.onSave?.();
+    return !!id;
+  }
+  // The house is bigger: 'big' or 'family' (at once, or when its site is done)
+  applyReform(to) {
+    if (to === 'family') {
+      this.house.family = true;
+      setFamilyHouse(true);
+      this.world.rebuildVillage();   // (los árboles y arbustos que había donde va la casa ya no están)
+      this.layHouse('family', false);
+    } else { this.house.big = true; this.layHouse(true, false); }
     this.onSave?.();
   }
   // Nilo convierte la casa ampliada en la casa familiar: más grande, con dormitorio, cuarto de los niños, baño,
   // cocina y salón (los muebles, de cada uno)
   async offerFamily() {
+    if (await this.reformBusy()) return;
     const cost = [['tablas', 80], ['piedra', 60], ['lingote_hierro', 6]], ok = cost.every(([id, n]) => this.inv.count(id) >= n);
     const pick = await hud.ask('Nilo', t('npc.nilo.family'), ok ? [t('npc.nilo.family.yes'), t('npc.nilo.not_now')] : [t('npc.nilo.later')]);
     if (!ok || pick !== 0) return;
     for (const [id, n] of cost) this.inv.remove(id, n);
-    this.house.family = true;
-    setFamilyHouse(true);
-    this.world.rebuildVillage();   // (los árboles y arbustos que había donde va la casa ya no están)
-    this.layHouse('family', false);
+    if (this.reformSite('family')) return;
+    this.applyReform('family');
     await hud.say('Nilo', [t('npc.nilo.family.done')]);
     this.onSave?.();
   }

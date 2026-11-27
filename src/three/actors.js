@@ -444,6 +444,7 @@ export class Actors {
         m.boat = boatModel(); m.boat.visible = false; root.add(m.boat);
         if (e.remote) root.add(m.tag = nameTag(e.name));   // (m.tag: fx.js keeps the speech bubbles clear of it)
       }
+      if (e.tool && !m.hand) { m.hand = new THREE.Group(); m.hand.position.set(0, -0.07, 0.03); m.hand.scale.x = -1; person.hand.add(m.hand); }   // (a hired hand's hammer: works.js)
       if (isPlayer) {
         m.mats = []; m.body = [];
         person.root.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
@@ -964,6 +965,7 @@ export class Actors {
     // (después de andar: el golpe manda sobre el balanceo del brazo)
     if (game) this.hold(m, { held: (game.plans?.handId() ?? game.inv.held?.id) || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose() || null, bowPull: game.archery?.k || 0, brush: e.emote?.k === 'brush' }, dt);
     else if (e.remote) this.hold(m, e, dt);
+    else if (e.tool) this.hold(m, e.tool, dt);   // (a hired hand's hammer: works.js)
     const casting = m.anim?.kind === 'lanzar' ? P.arms[P.toolArm].rotation.x : null;
     // (the arms busy: something big in them, or the wheelbarrow's grips; riding or rowing with a big thing, the hands are free. carry3d.js)
     const busy = e.pushing ? 'push' : e.mount || e.boat || e.aboard ? null : e.armsBusy || (e.carrying && BULKY[e.carrying] ? BULKY[e.carrying].hold : null);

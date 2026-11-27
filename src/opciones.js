@@ -94,6 +94,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // for them; their schedule needs nothing of anybody, so the others' games are the same)
 // Plan R7-5 (caves and mines, src/world/cavegen.js): cuevas (?cuevas=1 or =0: the caves of before, a blob with ladders down for
 // ever, for caves and mines alike, with their old states; nothing is given back while it is on). Local only: caves are never shared
+// Plan R5-4 (sites, crew and house plans, src/works.js): cuadrilla (?cuadrilla=0: Nilo's reforms are at once as before, he offers no crew,
+// upkeep or house plans, and B has no Plans tab nor Copy tool. Whoever runs the world goes on with the sites there are)
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
@@ -101,7 +103,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null, razas: null, riendas: null, carro: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, calidad: null, routines: null,
-  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null, shops: null, caminos: null, viajeros: null, law: null, juegos: null, misiones: null, codigo: null, viento3d: null, cuevas: '1', boda: null };
+  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null, shops: null, caminos: null, viajeros: null, law: null, juegos: null, misiones: null, codigo: null, viento3d: null, cuevas: '1', boda: null, cuadrilla: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

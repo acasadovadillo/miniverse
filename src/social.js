@@ -157,6 +157,7 @@ export class Social {
     for (const n of g.neighbors.people) if (!n.hidden) out.push({ kind: 'npc', id: n.id, e: n, name: n.def.name });
     for (const [id, e] of g.family.ents) if (!e.baby && !e.lying) out.push({ kind: 'kid', id, e, name: e.name });
     for (const e of g.travellers?.people || []) if (!e.hidden) out.push({ kind: 'traveller', id: e.tid, e, name: e.name });   // (the roads': travellers.js)
+    for (const e of g.works?.workers || []) out.push({ kind: 'traveller', id: e.wid, e, name: e.name });   // (the crew's hired hands answer as strangers do: works.js)
     if (g.live.joined) for (const [conn, peer] of g.live.peers) if (peer.playing && !peer.server && peer.sc === 'world' && peer.entity && peer.entity.gm !== 3) out.push({ kind: 'player', id: peer.id, e: peer.entity, name: peer.name, conn, peer });
     return out;
   }

@@ -65,6 +65,8 @@ export class BuildMode {
     this.erase = false;          // la "pieza" de quitar (para móvil)
     this.move = false;           // la herramienta de mover: coge un mueble o una estación y lo deja en otro sitio, sin coste
     this.carry = null;           // lo que se lleva al mover: { id }
+    this.tool = null;            // 'copy' (save what you built as a plan) or 'stamp' (lay out the plan stampRef): houseplans.js
+    this.stampRef = null;
     this.cursor = null;          // casilla apuntada con el ratón o el dedo, [x, y]
     this.cursorAt = 0;
     this.painted = null;         // al arrastrar, no repetir la misma casilla
@@ -87,9 +89,15 @@ export class BuildMode {
     this.onChange?.();
     return true;
   }
-  select(id) { this.dropCarry(); this.release(); this.erase = id === 'quitar'; this.move = id === 'mover'; if (!this.erase && !this.move) this.piece = id; this.onChange?.(); }
+  select(id) {
+    this.dropCarry(); this.release(); this.erase = id === 'quitar'; this.move = id === 'mover';
+    const plan = typeof id === 'string' && id.startsWith('plano:');
+    this.tool = id === 'copiar' ? 'copy' : plan ? 'stamp' : null; this.stampRef = plan ? id : null;
+    if (!this.erase && !this.move && !this.tool) this.piece = id;
+    this.onChange?.();
+  }
   cycle(d) {
-    const list = ['quitar', 'mover', ...BUILD_IDS.filter(id => this.available(id))], cur = this.erase ? 0 : this.move ? 1 : list.indexOf(this.piece);
+    const list = ['quitar', 'mover', ...BUILD_IDS.filter(id => this.available(id))], cur = this.erase ? 0 : this.move ? 1 : this.tool ? -1 : list.indexOf(this.piece);
     this.select(list[(cur + d + list.length) % list.length]);
   }
   // ¿Sale en la barra? Las piezas, siempre; los muebles y las estaciones, cuando se conoce su receta (como al fabricar)
@@ -99,7 +107,7 @@ export class BuildMode {
   heldItem() {
     if (!this.on) return null;
     if (this.carry) return { id: this.carry.id };
-    return !this.erase && !this.move && BUILDABLE[this.piece] ? { id: this.piece } : null;
+    return !this.erase && !this.move && !this.tool && BUILDABLE[this.piece] ? { id: this.piece } : null;
   }
   // Soltar lo que se movía sin haberlo colocado: vuelven sus materiales
   dropCarry() {
@@ -160,6 +168,7 @@ export class BuildMode {
   // Qué pasaría en la casilla: { ok, why, code, swap }
   check(t) {
     const g = this.game, sc = g.scene, no = (code, args) => ({ ok: false, code, why: tr('build.why.' + code, args) });
+    if (this.tool) return sc === g.world ? { ok: true } : no('indoors');   // (a house plan or Copy: houseplans.js says the rest)
     if (this.erase) {
       const hit = this.eraseTarget(t);
       if (!hit) return no('nothing');
@@ -296,6 +305,7 @@ export class BuildMode {
 
   place(t = this.target(), drag = false, at = null) {
     if (!this.on) return;
+    if (this.tool) return this.game.scene === this.game.world ? this.game.houseplans?.press(t, drag) : undefined;
     if (this.erase) return this.removeAt(t, drag, at);
     const held = this.heldItem();
     if (held) {   // (un mueble o una estación: lo coloca gather, que cobra con paid())
@@ -472,6 +482,7 @@ export class BuildMode {
     const h = this.held;
     this.painted = null; this.dragLayer = null; this.held = null; this.stroke = undefined; this.drawing = null;
     this.game.plans?.release();
+    this.game.houseplans?.release();
     if (h) this.game.gather?.float(tr('build.hold_on'), '#fff3c0');
   }
   // Each frame: what is being taken down, holding. Aiming at something else (or out of reach) stops it
@@ -570,6 +581,7 @@ export class BuildMode {
   }
   hint() {
     if (!this.on) return '';
+    if (this.tool) return this.game.houseplans?.hint(this.game.mouseTile() || this.target()) || '';
     const held = this.heldItem();
     if (held) { const c = this.check(), item = DEF(held.id); return c.ok ? tr(this.carry ? 'build.hint.drop' : 'build.hint.place', { item }) : tr('build.hint.why', { why: c.why || tr('build.hint.no_fit') }); }
     if (this.move) { const c = this.check(this.target()), a = c.ok && this.aimedThing(); return c.ok ? (a?.item ? tr('build.hint.move', { item: a.item }) : a?.newer ? tr('build.hint.newer') : tr('build.hint.move_any')) : c.why || ''; }

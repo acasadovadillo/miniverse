@@ -310,7 +310,7 @@ export class Fx {
         if (tt) {
           const c = b.check(tt);
           this.showTile(tt, ay, c.ok ? (c.plan ? '#9ad2ff' : pulse) : '#ff7a6a');
-          if (!b.erase && !b.move && c.plan !== 'hammer' && !game.plans?.holding) { plan = !!c.plan; ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; swap = !!c.swap && c.ok; if (swap) yaw = wallYaw(game.scene, tt[0], tt[1]); }
+          if (!b.erase && !b.move && !b.tool && c.plan !== 'hammer' && !game.plans?.holding) { plan = !!c.plan; ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; swap = !!c.swap && c.ok; if (swap) yaw = wallYaw(game.scene, tt[0], tt[1]); }
         }
       } else {
         const tg = game.gather.target;

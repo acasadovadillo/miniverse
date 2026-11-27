@@ -85,7 +85,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     // Lo que se coloca libre gira poco a poco mientras se mantiene R; lo que va contra un muro (cuadros, hogar), en
     // cuatro giros desde el que se ve
     // (with the rod in the hand there is nothing to turn: R changes the bait, fishing.js)
-    rotate: dir => { const g = game.gather; if (game.fishing.ownsR()) game.fishing.cycleBait(dir); else if (game.traps.ownsR()) game.traps.cycle(dir); else if (freePlace(b.on ? b.heldItem()?.id : game.inv?.held?.id)) g.turnStart(dir); else g.rot = ((g.target?.rot ?? g.rot ?? 0) + 1) % 4; },
+    rotate: dir => { const g = game.gather; if (b.on && b.tool === 'stamp') game.houseplans.turn(dir); else if (game.fishing.ownsR()) game.fishing.cycleBait(dir); else if (game.traps.ownsR()) game.traps.cycle(dir); else if (freePlace(b.on ? b.heldItem()?.id : game.inv?.held?.id)) g.turnStart(dir); else g.rot = ((g.target?.rot ?? g.rot ?? 0) + 1) % 4; },
     rotateEnd: () => game.gather.turnEnd(),
     size: () => game.gather.nextSize(),
     erase: () => { if (b.on) b.remove(); else game.altAction(); },

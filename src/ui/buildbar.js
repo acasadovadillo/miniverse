@@ -6,6 +6,7 @@ import { pieceSprite, BUILD_IDS, ALL_CATS, DEF, matText } from '../build.js';
 import { BUILDABLE, PLANS } from '../buildables.js';
 import { hitsOf, planned } from '../plans.js';
 import { SHOPS } from '../economy.js';
+import { WORKS_ON, footprintIcon, planCost } from '../houseplans.js';
 import { t, has } from '../i18n.js';
 import { pieceIcon } from '../art/build.js';
 import { itemIcon } from '../art/items.js';
@@ -18,33 +19,39 @@ export function initBuildBar(game) {
   let pinned = null;   // una pestaña abierta para mirarla sin tener aún nada suyo que elegir (todo pide plano): { cat, piece }
   const icons = {};
   const iconOf = id => (icons[id] ||= (BUILDABLE[id] ? itemIcon(id) : pieceIcon(pieceSprite(id))).toDataURL());
-  const TOOLS = { Mover: 'mover', Quitar: 'quitar' };
+  const TOOLS = { Mover: 'mover', Quitar: 'quitar', ...(WORKS_ON ? { Copiar: 'copiar' } : {}) };
+  const PLANS_TAB = 'Planos';
+  const plansIcons = new Map();
+  const plansIcon = q => { const k = q.ref + '|' + q.name + '|' + planCost(q.bp).n; if (!plansIcons.has(k)) plansIcons.set(k, footprintIcon(q.bp).toDataURL()); return plansIcons.get(k); };
   // Dónde se compra el plano de lo que lo pide (la primera tienda que lo vende)
   const planAt = id => Object.values(SHOPS).find(s => s.title && s.stock.some(e => e.plan === id))?.title.split(' de ').pop();   // (a shop with a name: the hamlets' and the pedlar's have none)
 
   function render() {
-    const tool = b.erase ? 'Quitar' : b.move ? 'Mover' : null;
+    const tool = b.erase ? 'Quitar' : b.move ? 'Mover' : b.tool === 'copy' ? 'Copiar' : null;
+    if (b.tool === 'stamp') { pinned = null; cat = PLANS_TAB; }
     if (pinned && (tool || b.piece !== pinned.piece)) pinned = null;
     if (pinned) cat = pinned.cat;
-    else if (!tool && DEF(b.piece).cat !== cat) cat = DEF(b.piece).cat;
+    else if (!tool && !b.tool && DEF(b.piece).cat !== cat) cat = DEF(b.piece).cat;
     const shown = c => BUILD_IDS.filter(id => DEF(id).cat === c && b.available(id));
     const locked = c => BUILD_IDS.filter(id => DEF(id).cat === c && PLANS.has(id) && !b.available(id));
     $('bb-cats').textContent = '';
-    for (const c of [...ALL_CATS, 'Mover', 'Quitar']) {
-      if (!TOOLS[c] && !shown(c).length && !locked(c).length) continue;   // (una categoría de la que aún no se conoce nada no sale, salvo que lo suyo pida plano)
+    for (const c of [...ALL_CATS, ...(WORKS_ON ? [PLANS_TAB] : []), 'Mover', 'Quitar', ...(WORKS_ON ? ['Copiar'] : [])]) {
+      if (c !== PLANS_TAB && !TOOLS[c] && !shown(c).length && !locked(c).length) continue;   // (una categoría de la que aún no se conoce nada no sale, salvo que lo suyo pida plano)
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = has('build.cat.' + c) ? t('build.cat.' + c) : c;
       btn.className = (TOOLS[c] ? tool === c : !tool && c === cat) ? 'on' : '';
-      btn.onclick = () => { if (TOOLS[c]) b.select(TOOLS[c]); else if (shown(c).length) { pinned = null; cat = c; b.select(shown(c)[0]); } else { if (tool) b.select(b.piece); pinned = { cat: c, piece: b.piece }; render(); } };
+      if (c === PLANS_TAB) btn.className = b.tool === 'stamp' || (!tool && cat === PLANS_TAB) ? 'on' : '';
+      btn.onclick = () => { if (c === PLANS_TAB) { const first = game.houseplans.list()[0]; if (first) b.select(first.ref); else { if (tool) b.select(b.piece); pinned = { cat: c, piece: b.piece }; render(); } } else if (TOOLS[c]) b.select(TOOLS[c]); else if (shown(c).length) { pinned = null; cat = c; b.select(shown(c)[0]); } else { if (tool) b.select(b.piece); pinned = { cat: c, piece: b.piece }; render(); } };
       $('bb-cats').append(btn);
     }
     const box = $('bb-pieces');
     box.textContent = '';
     if (tool) {
-      box.innerHTML = `<div class="bb-note">${tool === 'Quitar' ? t('build.bar.remove') : b.carry ? t('build.bar.carrying', { item: DEF(b.carry.id) }) : t('build.bar.move')}</div>`;
+      box.innerHTML = `<div class="bb-note">${tool === 'Copiar' ? t('build.bar.copy', { n: game.houseplans.mine.length, max: 6 }) : tool === 'Quitar' ? t('build.bar.remove') : b.carry ? t('build.bar.carrying', { item: DEF(b.carry.id) }) : t('build.bar.move')}</div>`;
       return;
     }
+    if (cat === PLANS_TAB) { plansTab(box); return; }
     if (game.plans?.active && game.plans.slot() < 0 && shown(cat).some(planned)) box.innerHTML = `<div class="bb-note">${t('build.bar.no_hammer')}</div>`;
     for (const id of shown(cat)) {
       const p = DEF(id);
@@ -64,6 +71,28 @@ export function initBuildBar(game) {
       box.append(btn);
     }
   }
+  // The house plans you have: their footprint, name and pieces; yours, with a pencil and a cross
+  function plansTab(box) {
+    const list = game.houseplans.list();
+    if (!list.length) { box.innerHTML = `<div class="bb-note">${t('build.bar.plans_none')}</div>`; return; }
+    for (const q of list) {
+      const btn = document.createElement('button'), c = planCost(q.bp);
+      btn.type = 'button'; btn.className = 'bb-piece bb-plan' + (b.stampRef === q.ref ? ' on' : ''); btn.title = q.name;
+      btn.innerHTML = `<img alt="" src="${plansIcon(q)}"><span>${escape(q.name)}</span><small>${t('build.bar.plan_size', { n: c.n, w: q.bp.w, h: q.bp.h })}</small>`;
+      btn.onclick = () => b.select(q.ref);
+      if (q.mine) {
+        const edit = document.createElement('i'), del = document.createElement('i');
+        edit.className = 'bb-plan-act'; edit.textContent = '\u270e'; edit.title = t('build.bar.rename');
+        del.className = 'bb-plan-act del'; del.textContent = '\u00d7'; del.title = t('build.bar.delete');
+        edit.onclick = e => { e.stopPropagation(); game.houseplans.rename(q.i); };
+        del.onclick = e => { e.stopPropagation(); game.houseplans.remove(q.i); };
+        btn.append(edit, del);
+      }
+      box.append(btn);
+    }
+    box.insertAdjacentHTML('beforeend', `<div class="bb-note">${t('build.bar.plans_turn')}</div>`);
+  }
+  const escape = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
   b.onChange = render;
   const prev = game.onInventory;
   game.onInventory = () => { prev?.(); if (b.on) render(); };

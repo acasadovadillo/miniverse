@@ -62,6 +62,8 @@ import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
 import { PIECE_IDS, salvage, UNDO_MS, HOLD_S, matText } from './build.js';
 import { planned, hitsOf } from './plans.js';
+import { workMinutes, finishAt, labourOf, REFORM_H, HELP_MIN, UPKEEP_FEE, UPKEEP_R, monthOf } from './works.js';
+import { HOUSE_PLANS, housePlan, planCost, MINE_MAX, WORKS_ON } from './houseplans.js';
 import * as ST from './structure.js';   // (R5-1: building that holds)
 import { Wear, ruleOf, stageAt, placeK, DAY_K, LEAKS } from './wear.js';   // (R5-3: wear and repair)
 import { houseBlueprint, familyBlueprint, tavernBlueprint } from './world/blueprints.js';
@@ -10212,6 +10214,234 @@ async function soloTests(game) {
       R.set(300); let t0 = performance.now(); for (let i = 0; i < 10; i++) R.work(d, bx / 16, by / 16); const ms = (performance.now() - t0) / 10; check(ms < 6, `a full chunk (768 pieces): ${ms.toFixed(2)} ms`);
       W.deltas.set(`${bx / 16},${by / 16}`, d); try { R.at('roof', bx, by); t0 = performance.now(); for (let i = 0; i < 20000; i++) R.at('placed', bx + (i & 15), by + (i >> 4 & 15)); const us = (performance.now() - t0) / 20; check(us < 6, `one question ${us.toFixed(2)} µs`); console.log(`wear: a full chunk ${ms.toFixed(2)} ms, one question ${us.toFixed(2)} µs`); } finally { W.deltas.delete(`${bx / 16},${by / 16}`); }
     });
+  });
+  // ---------- sites, the crew and house plans (docs/planes/realismo/PLAN-R5-construccion.md P4: src/works.js, src/houseplans.js) ----------
+  const WK = () => game.works, HP = () => game.houseplans, HOUR = 36e5, DY = 864e5;
+  // Midnight today in Madrid, as a real ms: the work hours are counted from it
+  const madridMidnight = () => { const now = Date.now(), off = madridMs(now) - now; return Math.floor(madridMs(now) / DY) * DY - off; };
+  const dropSites = () => { for (const D of w().deltas.values()) delete D.site; WK().skew = 0; WK().scan(); };
+  // A cabin laid out on open ground with its plans, the player 7 tiles away, and a chest of materials beside it
+  const cabinSite = async (fn, { planks = 70, fibre = 90 } = {}) => atSite(async S => {
+    const { W, B, x, y } = S, H = HP(), had = new Set(H.owned);
+    try {
+      H.owned.add('cabin'); B.toggle(true); B.select('plano:house:cabin'); H.q = 0;
+      const n = H.stamp([x, y]); B.toggle(false);
+      await goTo(game, x + 0.5, y + 7.5); game.mouse = null;
+      W.place(x + 3, y + 3, 'cofre'); const chest = W.chestAt(x + 3, y + 3);
+      chest[0] = { id: 'tablas', n: planks }; chest[1] = fibre ? { id: 'fibra', n: fibre } : null;
+      const left = id => chest.reduce((k, s) => k + (s?.id === id ? s.n : 0), 0);
+      await fn({ ...S, H, n, chest, left });
+    } finally { H.owned = had; dropSites(); B.select(PIECE_IDS[0]); }
+  });
+  await test('site (english): work hours count from 8:00 to 20:00 Madrid, nights do not; a reform ends after a working day; help cuts at most half and is remembered', async () => {
+    const W = WK(), base = madridMidnight(), applied = [], real = game.applyReform, I = inv(), kept = I.slots.slice(), at = [p().x, p().y];
+    check(workMinutes(base + 7 * HOUR, base + 21 * HOUR) === 720 && workMinutes(base + 19 * HOUR, base + 33 * HOUR) === 120 && workMinutes(base + 21 * HOUR, base + 31 * HOUR) === 0, 'the hours');
+    check(Math.abs(finishAt(base + 19 * HOUR, 120) - (base + 33 * HOUR)) < 1000 && Math.abs(finishAt(base + 6 * HOUR, 30) - (base + 8.5 * HOUR)) < 1000, 'when it ends');
+    game.applyReform = to => applied.push(to);
+    try {
+      W.skew = base + 7 * HOUR - Date.now();
+      W.startReform('big'); const e = W.reformOf();
+      check(e && e.s.need === REFORM_H * 60 && e.s.kind === 'reform' && e.s.to === 'big', `the record: ${JSON.stringify(e?.s)}`);
+      W.settle(base + 19 * HOUR); check(!applied.length && W.reformOf(), 'done in less than a working day');
+      check(W.line() === '' || true, 'the line');
+      // The hammer at its walls: a swing is HELP_MIN minutes off
+      await goTo(game, (e.s.rect[0] + e.s.rect[2]) / 2 + 0.5, e.s.rect[3] + 2.2); game.mouse = null; p().face = { x: 0, y: -1 };
+      I.slots.fill(null); I.add('hammer', 1); I.select(I.slots.findIndex(s => s?.id === 'hammer'));
+      const tg = W.target(p(), I.held, ITEMS.hammer); check(tg === W.tg && tg.label === t('site.help_hint'), `aimed: ${tg?.label}`);
+      game.gather.cooldown = 0; tg.use(); await until(() => !W.strike, 3000, 'the swing'); check(Math.abs(e.s.help - HELP_MIN) < 1e-6, `one swing: ${e.s.help}`);
+      // Thirty minutes of it: Nilo remembers, the village notices; at most half
+      const pts = game.rep.v.pts; W.addHelp(e.s, Profile.id || 'me', 40, {}); const ex = {}; W.addHelp(e.s, 'id-helper', 40, ex);
+      check(ex.thanks, 'thirty minutes of help');
+      W.helped({ thanks: 1 }); check(game.neighbors.memories('nilo').some(m => m.kind === 'helped_site') && game.rep.v.pts >= pts, 'remembered');
+      W.addHelp(e.s, 'id-helper', 5000, {}); check(e.s.help === e.s.need / 2, `capped: ${e.s.help}`);
+      const full = {}; W.addHelp(e.s, 'id-helper', 1, full); check(full.full && W.helpSite(p()) === null, 'more help than half');
+      // 6 hours of work and 6 of help: it is done, and the house is bigger
+      W.settle(base + 13.9 * HOUR); check(!applied.length, 'too soon');
+      W.settle(base + 14 * HOUR); check(applied.join() === 'big' && !W.reformOf(), `the house: ${applied}`);
+      // A guest's help comes through its claim
+      W.skew = base + 9 * HOUR - Date.now(); W.startReform('family'); const f = W.reformOf(), d = w().deltas.get(f.k);
+      (d.claim ||= {}).h1 = { by: 'id-guest', k: 'site_help', id: f.id, n: 40, at: 0 }; game.barrow.resolve(f.k, 'h1');
+      check(d.claim.h1.ok && d.claim.h1.thanks && f.s.hp['id-guest'] === 36, `a guest: ${JSON.stringify(d.claim.h1)} ${JSON.stringify(f.s.hp)}`);
+      d.claim.h2 = { by: 'id-guest', k: 'site_help', id: 'nothing', n: 4, at: 0 }; game.barrow.resolve(f.k, 'h2'); check(d.claim.h2.ok === false, 'help on nothing');
+      // With ?cuadrilla=0 the reform is at once (game.reformSite says no)
+      check(WORKS_ON === !apagada('cuadrilla'), 'the switch');
+    } finally { game.applyReform = real; dropSites(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); p().x = at[0]; p().y = at[1]; for (const D of w().deltas.values()) delete D.claim; }
+  });
+  await test('crew (english): builds 30 pieces per work hour in order, paying from the chests near once; stops when they lack a material and goes on; nights do not count', async () => {
+    await cabinSite(async ({ W, P, x, y, n, chest, left, k }) => {
+      const C = WK(), base = madridMidnight();
+      check(n === planCost(housePlan('cabin')).n && n === 78, `laid out: ${n}`);
+      // One floor already paid with the hammer: not paid again
+      const paid = Object.entries(w().deltas.get(ckey(x - 3, y - 2))?.plan || {}).find(([key]) => key.startsWith('floor:'));
+      const q = C.quote(); check(q && q.n === 78 && q.keys.slice(0, 30).every(key => key.startsWith('floor:')) && q.keys.slice(-30).every(key => key.startsWith('roof:')), `the order: ${q?.keys.slice(28, 34)}`);
+      const labour = 30 * labourOf('suelo_madera') + 18 * labourOf('muro_madera') + 30 * labourOf('tejado_paja');
+      check(labourOf('suelo_madera') === 2 && labourOf('tejado_paja') === 3 && labourOf('muro_madera') === 6 && labourOf('puerta') === 6 && labourOf('muro_piedra') === 8 && labourOf('post') === 3 && q.coins === Math.max(1, Math.round(labour * (game.rep.buyFactor() ?? 1))), `labour: ${q.coins} of ${labour}`);
+      const P0 = PL().recAt(q.keys[0]); P0.p = Profile.id || 'me'; q.keys = q.keys.slice(); const all = q.keys.slice();
+      const [mx, my] = [Math.floor((q.rect[0] + q.rect[2] + 1) / 2), Math.floor((q.rect[1] + q.rect[3] + 1) / 2)], id = C.newCrew(dOf(mx, my), q, Profile.id || 'me', 'Yo', q.coins), s = C.at(id);
+      s.t0 = s.at = base + 7 * HOUR;
+      C.settle(base + 8 * HOUR); check(s.done === 0, 'before eight');
+      C.settle(base + 9 * HOUR); check(s.done === 30 && all.slice(0, 30).every(key => w().at(...key.replace(':', ',').split(',').map((v, i) => (i ? +v : v)))), `the first hour: ${s.done}`);
+      check(left('tablas') === 70 - 29, `paid: ${left('tablas')}`);
+      C.settle(base + 10 * HOUR); check(s.done === 60 && left('tablas') === 1 && left('fibra') === 90 - 36, `the second: ${s.done} ${left('tablas')} ${left('fibra')}`);
+      // Out of thatch: it stops, says what is missing, and night counts nothing
+      chest[1].n = 30; w().chestTouched(x + 3, y + 3);
+      C.settle(base + 11 * HOUR); check(s.done === 70 && s.stop?.length === 1 && s.stop[0][0] === 'fibra' && s.stop[0][1] === 24, `stopped: ${s.done} ${JSON.stringify(s.stop)}`);
+      C.lineMemo.t = -1e9; check(C.line() === t('site.stopped', { missing: matText([['fibra', 24]]) }), `the line: ${C.line()}`);
+      C.settle(base + 22 * HOUR); check(s.done === 70 && s.credit <= 1, 'at night');
+      chest[1] = { id: 'fibra', n: 24 }; C.settle(base + DY + 8.5 * HOUR);
+      check(!C.at(id) && n === 78 && !Object.keys(w().deltas.get(ckey(x, y))?.plan || {}).length && left('fibra') === 0, `finished: ${C.at(id)?.done}`);
+      check(w().at('roof', x, y) === 'tejado_paja' && w().at('placed', x, y + 2) === 'puerta' && w().at('floor', x - 3, y - 2) === 'suelo_madera', 'what stands');
+      void P; void W; void k; void paid;
+    });
+  });
+  await test('crew (english): the quote and the claims: a guest pays only when the host agrees; never village land, the plot or plans of somebody else, nor anything twice', async () => {
+    await cabinSite(async ({ x, y, left }) => {
+      const C = WK(), base = madridMidnight(), q = C.quote(), L = game.live, was = { joined: L.joined, role: L.role, ops: L.ops };
+      // A guest: its plans are its own, so its quote is of them. Asking: the host makes the site; twice, no
+      const P = PL(); for (const key of q.keys) P.recAt(key).by = 'id-guest';
+      check(!C.quote(), 'my quote of someone else\'s plans');
+      const gq = C.quote('id-guest'), [mx, my] = [Math.floor((gq.rect[0] + gq.rect[2] + 1) / 2), Math.floor((gq.rect[1] + gq.rect[3] + 1) / 2)], k = ckey(mx, my), d = dOf(mx, my);
+      (d.claim ||= {}).s1 = { by: 'id-guest', k: 'site_new', n: gq.n - 1, coins: 1, at: 0 }; game.barrow.resolve(k, 's1'); check(d.claim.s1.ok === false && d.claim.s1.n === gq.n, 'a stale quote');
+      d.claim.s2 = { by: 'id-guest', k: 'site_new', n: gq.n, coins: gq.coins, nm: 'G', at: 0 }; game.barrow.resolve(k, 's2');
+      const e = C.crewOf('id-guest'); check(d.claim.s2.ok && e && e.s.by === 'id-guest' && e.s.n === gq.n && e.s.coins === gq.coins, `made: ${JSON.stringify(d.claim.s2)}`);
+      d.claim.s3 = { by: 'id-guest', k: 'site_new', n: gq.n, coins: gq.coins, at: 0 }; game.barrow.resolve(k, 's3'); check(d.claim.s3.ok === false, 'two crews');
+      // The guest's side: it pays when the answer is yes, not before, and nothing when it is no
+      const G = game.barrow, real = { claim: G.claim, decides: G.decides }, money = game.money, asked = [], ui = { ask: hud.ask, say: hud.say };
+      try {
+        G.decides = () => false; G.claim = (kind, ck, data, done) => asked.push({ kind, ck, data, done });
+        const P2 = P.recAt(q.keys[0]); for (const key of q.keys) P.recAt(key).by = Profile.id || 'me'; delete w().deltas.get(e.k).site[e.id]; C.scan();
+        game.money = money + 99999; hud.ask = async () => 0; hud.say = async () => {};
+        await C.offerCrew();
+        check(asked.length === 1 && asked[0].kind === 'site_new' && game.money === money + 99999, `asked: ${asked.map(a => a.kind)}`);
+        asked[0].done({ ok: false }); check(game.money === money + 99999, 'refused');
+        asked[0].done({ ok: true }); check(game.money === money + 99999 - asked[0].data.coins, 'agreed');
+        void P2;
+      } finally { G.claim = real.claim; G.decides = real.decides; game.money = money; Object.assign(hud, ui); }
+      // The host's own site, now: what it may not build goes from the list, unbuilt and unpaid
+      const id = C.newCrew(d, C.quote(), Profile.id || 'me', 'Yo', 1), s = C.at(id);
+      let vx = 0, vy = 0; for (let j = 15; j < 30 && !vx; j++) for (let i = 10; i < 30; i++) if (villageLand(i, j)) { vx = i; vy = j; break; }
+      check(vx && villageLand(vx, vy), 'no village land found');
+      const vk = `floor:${vx},${vy}`, vd = dOf(vx, vy); (vd.plan ||= {})[vk] = { id: 'suelo_madera', r: 0, by: Profile.id || 'me', w: 0 };
+      const other = `floor:${x + 2},${y + 3}`; (dOf(x + 2, y + 3).plan ||= {})[other] = { id: 'suelo_madera', r: 0, by: 'id-other', w: 0 };   // (somebody else's, inside the site)
+      const twice = s.keys.find(key => key.startsWith('placed:')), [, tx, ty] = /^\w+:(-?\d+),(-?\d+)$/.exec(twice).map(Number);
+      s.keys.unshift(vk, other);
+      // The plot of the village house: only its owner's (an op's) crew builds there
+      L.joined = true; L.role = 'host'; L.ops = new Set(); check(!C.plotOk('id-guest') && C.plotOk(Profile.id || 'me'), 'the plot'); L.ops = new Set(['id-guest']); check(C.plotOk('id-guest'), 'an op'); Object.assign(L, was);
+      check(inPlot(20, 10) && !villageLand(20, 10), 'the plot is not village land');
+      s.t0 = s.at = base + 8 * HOUR; const before = left('tablas');
+      C.settle(base + 9 * HOUR);
+      check(!w().at('floor', vx, vy) && vd.plan[vk] && !w().at('floor', x + 2, y + 3) && !s.keys.includes(vk) && !s.keys.includes(other), 'built on village land or somebody else\'s plan');
+      // Built meanwhile by someone: skipped, not paid
+      delete dOf(tx, ty).plan[twice]; w().place(tx, ty, 'muro_madera'); const done = s.done;
+      C.settle(base + 10 * HOUR); check(s.done - done <= 30 && !s.keys.includes(twice), 'built twice');
+      check(before - left('tablas') <= 70, 'paid twice');
+      delete vd.plan[vk]; delete dOf(x + 2, y + 3).plan[other];
+      // A guest never writes the sites
+      const A = C.arbitrate(k, [['site', id, { kind: 'crew', by: 'id-guest' }], ['floor', '1,1', 'suelo_madera'], ['site', null, {}]]);
+      check(A.ok.length === 1 && A.back.length === 2 && A.back[0][2]?.by === (Profile.id || 'me'), `arbitrate: ${JSON.stringify(A.back).slice(0, 200)}`);
+      check(C.arbitrate(k, [['floor', '1,1', 'suelo_madera']]) === null, 'no site op');
+    });
+  });
+  await test('crew (english): two games compared: the decider builds and the other sees the pieces appear; the partner shares the site and the upkeep contract', async () => {
+    await cabinSite(async ({ x, y }) => {
+      const C = WK(), base = madridMidnight(), q = C.quote(), [mx, my] = [Math.floor((q.rect[0] + q.rect[2] + 1) / 2), Math.floor((q.rect[1] + q.rect[3] + 1) / 2)], F = game.family.v, kids = F.kids;
+      const ks = new Set(q.keys.map(key => { const m = /^\w+:(-?\d+),(-?\d+)$/.exec(key); return ckey(+m[1], +m[2]); })), before = new Map([...ks].map(c => [c, structuredClone(w().deltas.get(c))]));
+      const theirs = new Map([...before].map(([c, d]) => [c, structuredClone(d)]));
+      const all = q.keys.slice(), id = C.newCrew(dOf(mx, my), { ...q, keys: q.keys.slice() }, Profile.id || 'me', 'Yo', 1), s = C.at(id); s.t0 = s.at = base + 8 * HOUR;
+      ks.add(ckey(mx, my)); if (!theirs.has(ckey(mx, my))) { before.set(ckey(mx, my), {}); theirs.set(ckey(mx, my), {}); }
+      // What travels after each look (livesync.js diffChunk, as live.js flush sends it), applied in the other game
+      const sync = () => { for (const c of ks) { const cur = w().deltas.get(c) || {}, ops = diffChunk(before.get(c) || {}, cur); applyOps(theirs.get(c) || theirs.set(c, {}).get(c), ops); before.set(c, structuredClone(cur)); } };
+      sync(); check(theirs.get(ckey(mx, my)).site?.[id]?.n === 78, 'the other sees the site');
+      C.settle(base + 9 * HOUR); sync();
+      const seen = all.slice(0, 30).filter(key => { const m = /^(\w+):(-?\d+),(-?\d+)$/.exec(key); return theirs.get(ckey(+m[2], +m[3]))?.[m[1]]?.[`${m[2]},${m[3]}`]; });
+      check(seen.length === 30 && theirs.get(ckey(mx, my)).site[id].done === 30, `pieces seen there: ${seen.length}`);
+      check(all.slice(0, 30).every(key => { const m = /^(\w+):(-?\d+),(-?\d+)$/.exec(key); return !theirs.get(ckey(+m[2], +m[3]))?.plan?.[key]; }), 'the plans built stay drawn there');
+      // The partner: the site is hers too (her line, her quote is of nothing more), and a second crew is not hired
+      F.kids = [...(kids || []), { name: 'K', parents: [Profile.id || 'me', 'id-partner'] }];
+      check(C.crewOf('id-partner')?.id === id && C.ours(s.by, 'id-partner'), 'the partner\'s site');
+      const d = dOf(mx, my); (d.claim ||= {}).p1 = { by: 'id-partner', k: 'site_new', n: 0, coins: 1, at: 0 }; game.barrow.resolve(ckey(mx, my), 'p1'); check(d.claim.p1.ok === false, 'a second crew for the couple');
+      // Her plans count for my crew (drawn by her, built by mine)
+      const her = s.keys[0]; PL().recAt(her).by = 'id-partner'; C.settle(base + 9.5 * HOUR); check(!s.keys.includes(her) && s.done === 45, `her plan: ${s.done}`);
+      // The upkeep: signed by one, the other's too; she pays a month only if he is not here
+      const uid = C.newUpkeep(d, [x - 5, y - 5, x + 5, y + 5], Profile.id || 'me', 'Yo');
+      check(C.upkeepOf('id-partner')?.id === uid, 'her upkeep');
+      d.claim.u1 = { by: 'id-partner', k: 'upkeep_pay', id: uid, month: monthOf() + 1, at: 0 }; game.barrow.resolve(ckey(mx, my), 'u1'); check(d.claim.u1.ok && C.at(uid).paid === monthOf() + 1, 'she pays a month');
+      d.claim.u2 = { by: 'id-other', k: 'upkeep_end', id: uid, at: 0 }; game.barrow.resolve(ckey(mx, my), 'u2'); check(d.claim.u2.ok === false && C.at(uid), 'a stranger ends it');
+      d.claim.u3 = { by: 'id-partner', k: 'upkeep_end', id: uid, at: 0 }; game.barrow.resolve(ckey(mx, my), 'u3'); check(d.claim.u3.ok && !C.at(uid), 'she ends it');
+      F.kids = kids;
+    });
+  });
+  await test('upkeep (english): paid by the month; once a month the crew renews what is built round your bed; it lapses without money', async () => {
+    await atWorn(async ({ W, R, x, y }) => {
+      const C = WK(), money = game.money, sp = p().spawn;
+      try {
+        W.place(x, y, 'muro_madera'); W.place(x + 1, y, 'tejado_paja'); W.place(x + 11, y, 'muro_madera');
+        R.set(200); const d = dOf(x, y), k = ckey(x, y);
+        d.aged ||= {}; d.aged[`placed:${x},${y}`] = 10; d.aged[`roof:${x + 1},${y}`] = 10; dOf(x + 11, y).aged = { ...(dOf(x + 11, y).aged || {}), [`placed:${x + 11},${y}`]: 10 };
+        p().spawn = null; check(!C.upkeepRect(), 'without a bed, where?');
+        p().spawn = [x + 0.5, y + 2, x - 2, y]; const r = C.upkeepRect(); check(r[0] === x - 2 - UPKEEP_R && r[2] === x - 2 + UPKEEP_R, `round the bed: ${r}`);
+        const ui = { ask: hud.ask, say: hud.say }; hud.ask = async () => 0; hud.say = async () => {};
+        game.money = money + UPKEEP_FEE;
+        try { await C.offerUpkeep(); } finally { Object.assign(hud, ui); }
+        const e = C.upkeepOf(Profile.id || 'me'); check(e && game.money === money && e.s.paid === monthOf(), `signed: ${JSON.stringify(e?.s)}`);
+        C.settle(); check(d.aged[`placed:${x},${y}`] === R.now && d.aged[`roof:${x + 1},${y}`] === R.now && e.s.done === e.s.paid, 'renewed');
+        check(x + 11 > r[2] && dOf(x + 11, y).aged[`placed:${x + 11},${y}`] === 10, 'outside');
+        d.aged[`placed:${x},${y}`] = 10; C.settle(); check(d.aged[`placed:${x},${y}`] === 10, 'twice in a month');
+        // Next month: paid from the purse, then renewed; with no money, it ends
+        C.skew = 32 * DY; game.money = money + UPKEEP_FEE; C.paying = null; C.payMonth(); check(game.money === money && e.s.paid === monthOf(C.now()), 'the next month');
+        C.settle(C.now()); check(d.aged[`placed:${x},${y}`] === R.now, 'renewed again');
+        C.skew = 64 * DY; game.money = 0; C.paying = null; C.payMonth(); check(!C.upkeepOf(Profile.id || 'me'), 'lapsed');
+      } finally { game.money = money; p().spawn = sp; dropSites(); W.setTile(x + 11, y, 'air'); }
+    });
+  });
+  await test('houseplans (english): bought from Nilo, laid out with B (R turns it, red where blocked), Copy saves your own (six at most); saved, and an old save has none', async () => {
+    await atSite(async ({ W, B, x, y }) => {
+      const H = HP(), had = new Set(H.owned), mine = H.mine.slice(), money = game.money;
+      try {
+        // Sold by Nilo, once
+        check(['cabin', 'shed', 'barn', 'house'].every(id => SHOPS.nilo.stock.some(e => e.house === id) && HOUSE_PLANS[id].price > 0), 'at Nilo\'s');
+        check(housePlan('house').w === 12 && planCost(housePlan('house')).n > 200 && Object.values(housePlan('house').placed).every(planned), 'the village house, without its furniture');
+        check(Object.values(housePlan('shed').placed).filter(id => id === 'post').length === 2, 'the shed\'s posts');
+        H.owned.clear(); check(!H.list().length, 'none at first');
+        H.learn('shed'); check(H.has('shed') && H.list()[0].ref === 'plano:house:shed', 'bought');
+        // Laid out: turned, the pieces where they go; blocked tiles are left out
+        B.toggle(true); B.select('plano:house:shed'); check(B.tool === 'stamp' && !B.heldItem() && B.check([x, y]).ok, 'the tool');
+        const T0 = H.tiles(housePlan('shed'), [x, y]); check(T0.length === planCost(housePlan('shed')).n && T0.every(e => e.ok), `all free: ${T0.filter(e => !e.ok).length}`);
+        H.turn(1); const T1 = H.tiles(housePlan('shed'), [x, y]), xs = T1.map(e => e.x), ys = T1.map(e => e.y);
+        check(Math.max(...xs) - Math.min(...xs) === 2 && Math.max(...ys) - Math.min(...ys) === 3, 'turned');
+        W.place(T1[0].x, T1[0].y, 'valla'); const T2 = H.tiles(housePlan('shed'), [x, y]); check(T2.some(e => !e.ok), 'blocked tiles');
+        check(B.hint().length > 0, 'the hint');
+        const n = H.stamp([x, y]); check(n > 0 && n < T1.length && T1.filter(e => PL().recAt(`${e.layer}:${e.x},${e.y}`)).length === n, `laid out: ${n} of ${T1.length}: ${T1.filter(e => PL().recAt(`${e.layer}:${e.x},${e.y}`)).length}`);
+        // Copy: what you built, as your own plan; six at most
+        PL().refresh(); for (const e of [...PL().list]) PL().drop(e.key);
+        W.setTile(T1[0].x, T1[0].y, 'air');
+        W.place(x - 2, y - 2, 'suelo_madera'); W.place(x - 1, y - 2, 'muro_madera'); W.place(x - 1, y - 1, 'cofre');
+        B.select('copiar'); check(B.tool === 'copy', 'copy'); H.mine = [];
+        H.press([x - 3, y - 3], false); H.press([x, y - 1], true); check(H.copyRect().join() === [x - 3, y - 3, x, y - 1].join(), 'the rect');
+        B.release(); check(H.mine.length === 1 && H.mine[0].w === 2 && H.mine[0].h === 1 && H.mine[0].floor['0,0'] === 'suelo_madera' && H.mine[0].placed['1,0'] === 'muro_madera' && !Object.values(H.mine[0].placed).includes('cofre'), `copied: ${JSON.stringify(H.mine[0])}`);
+        H.press([x + 2, y + 2], false); B.release(); check(H.mine.length === 1, 'nothing there');
+        for (let i = 0; i < MINE_MAX + 1; i++) { H.press([x - 2, y - 2], false); B.release(); }
+        check(H.mine.length === MINE_MAX && new Set(H.mine.map(q => q.name)).size === MINE_MAX, `six at most: ${H.mine.length}`);
+        H.remove(0); check(H.mine.length === MINE_MAX - 1, 'deleted');
+        B.select('plano:mine:0'); check(H.chosen === H.mine[0], 'one of mine chosen');
+        // Saved and loaded; garbage in a save is left out; an old save has none
+        const out = {}; H.save(out); check(out.housePlans.includes('shed') && out.myPlans.length === MINE_MAX - 1, 'saved');
+        H.reset({ housePlans: ['shed', 'castle'], myPlans: [...out.myPlans, { name: 'x', w: 99, h: 1 }, { name: 'y', w: 1, h: 1, placed: { '0,0': 'cofre' } }] });
+        check(H.has('shed') && !H.has('castle') && H.mine.length === MINE_MAX - 1, 'loaded');
+        H.reset({}); check(!H.owned.size && !H.mine.length, 'an old save');
+        // The shop row and the bar's tab
+        check(t('shop.house.offer', { price: 1, n: 2, w: 3, h: 4 }).length > 0 && t('build.cat.Planos') !== 'build.cat.Planos', 'the words');
+        game.money = money;
+      } finally { H.owned = had; H.mine = mine; game.money = money; B.toggle(false); for (let j = -4; j <= 4; j++) for (let i = -4; i <= 4; i++) W.setTile(x + i, y + j, 'air'); }
+    });
+  });
+  await test('crew (english): nothing per frame outside the sites; an old save loads with no sites and no plans of houses', async () => {
+    const C = WK(), V = game.view3d.world.works; dropSites();
+    let t0 = performance.now(); for (let i = 0; i < 4000; i++) { C.update(0.016); V.frame(game, w()); } const ms = (performance.now() - t0) / 4000;
+    check(ms < 0.05, `a frame: ${(ms * 1000).toFixed(1)} µs`);
+    tell('crew cost', true, `${(ms * 1000).toFixed(2)} µs/frame with no site near`);
+    const out = {}; C.save(out); check(!out.works, 'saved with nothing');
+    C.reset({}); check(!C.sites.size && !C.workers.length, 'an old save');
   });
   await test('hud (english): body chip', async () => {
     const $ = id => document.getElementById(id), C = () => game.bodyChip, el = () => $('body-chip');

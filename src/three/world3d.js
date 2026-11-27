@@ -34,6 +34,7 @@ import { wearKind, wearTwin, LOOK, WORN } from './wear3d.js';
 import { Seabed } from './seabed3d.js';
 import { TrapsView } from './traps3d.js';
 import { Site3D } from './site3d.js';
+import { Works3D } from './works3d.js';
 import { FRUIT } from '../orchard.js';
 import { weedYaw } from '../pests.js';
 
@@ -105,6 +106,7 @@ export class World3D {
     this.seabed = new Seabed(this);
     this.traps = new TrapsView(this);   // (the fish traps: traps3d.js)
     this.site = new Site3D(this);   // (what is drawn to be built, and its scaffolding: site3d.js)
+    this.works = new Works3D(this);   // (the crew's sites, and the footprint of a house plan: works3d.js)
   }
 
   // ---------- cada fotograma ----------
@@ -187,6 +189,7 @@ export class World3D {
     this.seabed.frame(game, game.time);
     this.traps.frame(game, game.time);
     this.site.frame(game, scene);
+    this.works.frame(game, scene);
   }
   // Under the water: what is above it and far away, hidden (updateGrass shows the tufts again when the camera comes up)
   hideAbove() {

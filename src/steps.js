@@ -109,7 +109,7 @@ export class Steps {
     const el = $('quest');
     if (!el) return;
     // (with the steps done, the job you are in, or the building site around: what is left and what is missing)
-    const site = this.over && !Profile.server ? this.game.missions?.line() || this.game.plans?.line() || '' : '';
+    const site = this.over && !Profile.server ? this.game.missions?.line() || this.game.works?.line() || this.game.plans?.line() || '' : '';
     const st = this.step, p = st && this.progress(st), hide = (this.over && !site) || Profile.server;
     const key = hide ? '' : site || `${this.i}|${p || ''}|${getLang()}`;   // (and the language: it follows a switch)
     if (key === this.shown) return;

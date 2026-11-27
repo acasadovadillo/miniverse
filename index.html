@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-27.2">
+<meta name="miniverse-version" content="2026-11-27.3">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -395,6 +395,10 @@
   .bb-piece img { grid-row: span 2; width: 36px; height: 36px; image-rendering: pixelated; }
   .bb-piece span { font-size: 15px; }
   .bb-piece small { font-size: 13px; color: var(--dim); }
+  .bb-plan { position: relative; padding-right: 30px; }
+  .bb-plan img { image-rendering: auto; }
+  .bb-plan-act { position: absolute; right: 4px; font-style: normal; font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 3px; color: var(--cream); background: rgba(0, 0, 0, .35); }
+  .bb-plan-act { top: 3px; } .bb-plan-act.del { top: auto; bottom: 3px; color: #ffb0a0; }
   .bb-piece.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
   .bb-piece.poor small { color: var(--err); }
   .bb-note { font-size: 15px; color: var(--dim); padding: 6px 2px; }
@@ -1473,6 +1477,8 @@
           <dl class="ct-list">
             <dt data-i18n="key.click">Click</dt><dd data-i18n="controls.build.place">Place (drag to paint several tiles)</dd>
             <dt data-i18n-html="controls.build.remove.keys">Right click or <kbd>X</kbd></dt><dd data-i18n="controls.build.remove">Remove</dd>
+            <dt data-i18n="controls.build.plans.keys">Plans · R</dt><dd data-i18n="controls.build.plans">Lay out a whole house plan (Nilo sells them) as blueprints; R turns it</dd>
+            <dt data-i18n="controls.build.copy.keys">Copy</dt><dd data-i18n="controls.build.copy">Drag over something you built to save it as a plan of your own</dd>
           </dl>
           <h3 data-i18n="gui.controls.map">On the map</h3>
           <dl class="ct-list">
