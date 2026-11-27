@@ -203,6 +203,8 @@ Object.assign(ITEMS, {
   // (the wheelbarrow: built with B, pushed with E, a chest of 12 stacks and up to 3 big things on it; see barrow.js. Its name
   // and description come from the language files)
   wheelbarrow: { place: 'furniture' },
+  // (the horse cart: built with B, a horse put to it with E; 24 stacks and up to 4 big things on its bed; see cart.js)
+  cart: { place: 'furniture' },
   // (the barber's chair: tavern furniture, a seat like any other; Eusebio cuts hair in the tavern's, neighbors.js)
   barber_chair: { place: 'furniture' },
   // (the chapel's pew, for two: three/chapel3d.js)
@@ -221,7 +223,7 @@ Object.assign(ITEMS, {
   watchtower_tall: { place: 'furniture' },
 });
 defineNames({ cana: ITEMS.cana, cana_fibra: ITEMS.cana_fibra }, 'item', ['desc']);
-defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair, pew: ITEMS.pew, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall, shop_counter: ITEMS.shop_counter, display_shelf: ITEMS.display_shelf, goods_crate: ITEMS.goods_crate, desk: ITEMS.desk, game_table: ITEMS.game_table, dice: ITEMS.dice, tile_box: ITEMS.tile_box, map_half_a: ITEMS.map_half_a, map_half_b: ITEMS.map_half_b, rattle: ITEMS.rattle, strongbox_open: ITEMS.strongbox_open }, 'item');
+defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, cart: ITEMS.cart, barber_chair: ITEMS.barber_chair, pew: ITEMS.pew, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall, shop_counter: ITEMS.shop_counter, display_shelf: ITEMS.display_shelf, goods_crate: ITEMS.goods_crate, desk: ITEMS.desk, game_table: ITEMS.game_table, dice: ITEMS.dice, tile_box: ITEMS.tile_box, map_half_a: ITEMS.map_half_a, map_half_b: ITEMS.map_half_b, rattle: ITEMS.rattle, strongbox_open: ITEMS.strongbox_open }, 'item');
 // (the saddlebags hold 12 stacks since Plan F, saddlebags.js: their description comes from the language files; with
 // ?alforjas=0 they keep 9, and the old text)
 if (!apagada('alforjas')) defineNames({ alforjas: ITEMS.alforjas }, 'item', ['desc']);
@@ -444,7 +446,7 @@ Object.assign(ITEMS, {
   comoda: { name: 'Cómoda', desc: 'Tres cajones grandes con tiradores de latón. Guarda 18 montones de cosas: ábrela con E.', place: 'furniture' },
 });
 // Lo que guarda cosas dentro (se abre con E): cuántos montones y cómo se dice
-export const CHESTS = { cofre: [18, 'el cofre'], armario: [27, 'el armario'], mochila: [27, 'la mochila'], mesita: [9, 'la mesita'], comoda: [18, 'la cómoda'], wheelbarrow: [12, 'la carretilla'] };   // (the wheelbarrow's texts go with t(): the second value only gives its gender)
+export const CHESTS = { cofre: [18, 'el cofre'], armario: [27, 'el armario'], mochila: [27, 'la mochila'], mesita: [9, 'la mesita'], comoda: [18, 'la cómoda'], wheelbarrow: [12, 'la carretilla'], cart: [24, 'el carro'] };   // (the wheelbarrow's texts go with t(): the second value only gives its gender)
 // Armaduras: casco, peto, grebas y botas de cobre, hierro y oro, que se forjan en el yunque y se llevan puestas en
 // los huecos de la ropa (cabeza, encima, piernas y pies). armor: lo que protege (cada punto quita un 4 % del daño,
 // como en Minecraft); dur: los golpes que aguanta

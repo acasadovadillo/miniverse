@@ -11,7 +11,7 @@
 import { ITEMS, itemNoun } from './items.js';
 import { settle, perishes, sameStack, blend, unitG, canClean, canSalt, cleaned, salted, saltFor, hooks } from './catch.js';
 import { stackPrice } from './economy.js';
-import { BARROW } from './carry-items.js';
+import { BARROW, vehicleOf } from './carry-items.js';
 import { Profile } from './accounts.js';
 import { distOf } from './world/planet.js';
 import { Audio } from './audio.js';
@@ -109,7 +109,7 @@ export class Freshness {
         const [tx, ty] = tp.split(',').map(Number);
         if (!free(tx + 0.5, ty + 0.5) || !this.list(c)) continue;
         w.chestTouched(tx, ty);
-        if (d.placed?.[tp]?.split('@')[0] === BARROW.ID) g.barrow?.stacksChanged([tx, ty]);
+        if (vehicleOf(d.placed?.[tp])) g.barrow?.stacksChanged([tx, ty]);
       }
     }
     for (const a of g.ranch?.animals || []) if (Array.isArray(a.bags) && g.saddlebags?.canTouch(a) && free(a.x, a.y) && this.list(a.bags)) g.saddlebags.changed(a);
@@ -137,7 +137,7 @@ export class Freshness {
       at.n--;
       if (at.n <= 0) e.c[e.j] = null;
       if (e.o.horse) g.saddlebags.changed(e.o.horse);
-      else { g.scene.chestTouched(...e.o.tile); if (e.o.placed === BARROW.ID) g.barrow?.stacksChanged(e.o.tile); }
+      else { g.scene.chestTouched(...e.o.tile); if (vehicleOf(e.o.placed)) g.barrow?.stacksChanged(e.o.tile); }
       g.carry.near = null;
     } else I.take(e.i, 1);
     const got = [];

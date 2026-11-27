@@ -18,11 +18,11 @@ import { feedModel, compostModel } from '../soil.js';
 import { scarecrowModel } from '../pests.js';
 import { troughModel } from '../troughs.js';
 import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf, SOLIDS } from './fit.js';
-import { BARROW, BULKY, barrowKey, randomId } from '../carry-items.js';
+import { BARROW, BULKY, barrowKey, randomId, CART, cartKey } from '../carry-items.js';
 import { Gore } from '../quality.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { GLASS_ROOF } from '../greenhouse.js';
-import { PIECES, layerOf, parsePlaced, fenceReach, fenceJoins } from '../pieces.js';
+import { PIECES, layerOf, parsePlaced, fenceReach, fenceJoins, gatePair } from '../pieces.js';
 import { supportOn, roofWhy, frameOk } from '../structure.js';
 import { Person } from '../entities.js';
 import { Profile } from '../accounts.js';
@@ -98,6 +98,11 @@ const BOAT_HULL = 1.15;
 // its footprint as one box)
 const BARROW_BOX = [[-BARROW.WIDTH / 2, 0, -BARROW.LEN / 2, BARROW.WIDTH / 2, 0.7, BARROW.LEN / 2]];
 export const barrowSolids = () => SOLIDS.of?.(BARROW.ID) || BARROW_BOX;
+// The horse cart's (cart.js), the same way: its bed and its wheels, never its shafts (one walks over them, and its horse
+// stands between them)
+const CART_BOX = [[-CART.HUB, 0, CART.BED_Z0, CART.HUB, CART.BED_Y + CART.BED_H, CART.BED_Z1]];
+export const cartSolids = () => SOLIDS.of?.(CART.ID) || CART_BOX;
+export const vehicleSolids = id => (id === CART.ID ? cartSolids() : id === BARROW.ID ? barrowSolids() : null);
 // La clave de una casilla del planeta (un número: el mapa del agua se mira en cada paso de cada uno)
 const fkey = (tx, ty) => (wrapX(tx) + HALF) * PLANET_H + (ty - NORTH);
 function shifted(v, off) {
@@ -241,7 +246,7 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: x + ux * lx + vx * ly, y: y + uy * lx + vy * ly, z: lz, r: lr }); }
   if (LONG[id] === 'table') o.model = `mesa_grande:${TABLE_SIZES[(rot || 0) % TABLE_SIZES.length].join('x')}`;
   if (ITEMS[id].place === 'flat') return true;
-  const local = id === BARROW.ID ? barrowSolids() : solidsOf(o.model || id), box = placeBoxes([hull(local)], x, y, a)[0];
+  const local = vehicleSolids(id) || solidsOf(o.model || id), box = placeBoxes([hull(local)], x, y, a)[0];
   o.obb = box;
   // (en el establo con la puerta abierta se entra: chocan sus paredes, no todo él; lo alto no molesta)
   if ((id === 'establo' && o.model !== 'establo:shut') || id === 'mine_front') for (const s of placeBoxes(local.filter(l => l[1] < 1), x, y, a)) colliders.push({ ...bounds(s), obb: s, free: true });
@@ -911,7 +916,9 @@ export class Overworld {
         const f = (x, y) => fenceJoins(this, x, y);
         const alongX = f(tx - 1, ty) || f(tx + 1, ty) || !(f(tx, ty - 1) || f(tx, ty + 1));
         o.door = alongX ? 'x' : 'y'; o.gate = true;
-        for (const s of [-0.5, 0.5]) colliders.push(alongX ? { x: o.x + s, y: o.y, r: 0.12, low: true } : { x: o.x, y: o.y + s, r: 0.12, low: true });
+        // (two side by side are a double gate: no post between them, so a cart goes through; pieces.js gatePair)
+        const pair = gatePair(this, tx, ty, alongX);
+        for (const s of [-0.5, 0.5]) if (!(pair && Math.sign(s) === pair)) colliders.push(alongX ? { x: o.x + s, y: o.y, r: 0.12, low: true } : { x: o.x, y: o.y + s, r: 0.12, low: true });
         if (this.doorClosed(tx, ty)) colliders.push(alongX ? { x0: tx, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true, shut: true } : { x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: ty + 1, low: true, shut: true });
       } else if (piece?.kind === 'fence') {
         o.fence = true;
@@ -953,10 +960,12 @@ export class Overworld {
         const D = deckOfId(id, tx, ty, rot), R = deckBox(D);
         Object.assign(o, { x: D.x, y: D.y, yaw: D.yaw, rot, free: true, deck: D, model: `${id}:${D.L}`, flatY: true, fx: [R[0], R[2]], fy: [R[1], R[3]] });
         for (const c of deckColliders(D)) colliders.push(Object.assign(c, { free: true }));
-      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id) || id === BARROW.ID || HORSE_THINGS.has(id) || FIRE_MODEL[id]) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro; the wheelbarrow is always free)
+      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id) || id === BARROW.ID || id === CART.ID || HORSE_THINGS.has(id) || FIRE_MODEL[id]) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro; the wheelbarrow is always free)
         o.off = this.lightOff(tx, ty);
         // (the wheelbarrow draws what it carries: its big things and, with stacks in it, a heap. Its boxes stay the empty one's)
         if (id === BARROW.ID) { const ids = (src.barrow?.[t]?.l || []).map(e => e?.[0]).filter(i => BULKY[i]), full = !!src.chest?.[t]?.some(Boolean); if (ids.length || full) o.model = barrowKey(ids, full); }
+        // (the cart too, and with its horse in the shafts it stands level: cart.js)
+        if (id === CART.ID) { const B = src.barrow?.[t], ids = (B?.l || []).map(e => e?.[0]).filter(i => BULKY[i]), full = !!src.chest?.[t]?.some(Boolean); o.model = cartKey(ids, full, B?.h ? 'h' : ''); }
         if (BIG_HOUSE.has(id) && src.door?.[`${tx},${ty}`] === 0) o.model = `${id}:shut`;
         if (STORES[id]) o.model = STORES[id](src, t);
         if (id === 'encimera' && !fixed) o.model = this.counterModel(tx, ty);
@@ -1149,7 +1158,7 @@ export class Overworld {
     if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[`${tx},${ty}`] = true;   // (la puerta de valla empieza cerrada: el cercado ya guarda)
     if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
     // (a wheelbarrow gets its id once, here: it keeps it while pushed and parked again, and the host arbitrates by it; barrow.js)
-    if (id === BARROW.ID) (d.barrow ||= {})[`${tx},${ty}`] = { id: randomId(), l: [] };
+    if (id === BARROW.ID || id === CART.ID) (d.barrow ||= {})[`${tx},${ty}`] = { id: randomId(), l: [] };
     this.touchAround(tx, ty);
   }
   // Plans (plans.js): drawn, begun or gone, nothing the chunk is made of changes
@@ -1229,6 +1238,16 @@ export class Overworld {
     d.closed ||= {};
     if (d.closed[k]) delete d.closed[k]; else d.closed[k] = true;
     this.touchAround(tx, ty);
+    // (a double gate: its other leaf goes with it, pieces.js gatePair)
+    if (this.pieceAt(tx, ty)?.kind === 'gate') {
+      const f = (x, y) => fenceJoins(this, x, y), X = f(tx - 1, ty) || f(tx + 1, ty) || !(f(tx, ty - 1) || f(tx, ty + 1)), pair = gatePair(this, tx, ty, X);
+      if (pair) {
+        const ox = tx + (X ? pair : 0), oy = ty + (X ? 0 : pair), d2 = this.delta(Math.floor(ox / CHUNK), Math.floor(oy / CHUNK), true), k2 = `${ox},${oy}`;
+        d2.closed ||= {};
+        if (d.closed[k]) d2.closed[k2] = true; else delete d2.closed[k2];
+        this.touchAround(ox, oy);
+      }
+    }
     return !!d.closed[k];
   }
   // Luces apagadas (lámparas, antorchas, velas, hogares y candelabros): se guarda en el trozo, por su casilla ("x,y"),
@@ -1370,7 +1389,7 @@ export class Overworld {
     const def = ITEMS[id], rug = def.place === 'rug', flat = def.place === 'flat';
     let local, model = id, anchor = null;
     if (rug) { const [w, h] = RUG_SIZES[k % RUG_SIZES.length]; local = [[-w / 2 + 0.06, 0, -h / 2 + 0.06, w / 2 - 0.06, 0.05, h / 2 - 0.06]]; model = `rug:${id}:${w}x${h}`; }
-    else { if (id === 'mesa_grande') model = `mesa_grande:${TABLE_SIZES[k % TABLE_SIZES.length].join('x')}`; local = id === BARROW.ID ? barrowSolids() : solidsOf(model); }
+    else { if (id === 'mesa_grande') model = `mesa_grande:${TABLE_SIZES[k % TABLE_SIZES.length].join('x')}`; local = vehicleSolids(id) || solidsOf(model); }
     const H = hull(local), lx = (H[0] + H[3]) / 2, lz = (H[2] + H[5]) / 2, [ux, uy] = sideOf(a), [vx, vy] = dirOf(a);
     let ox = px - (ux * lx + vx * lz), oy = py - (uy * lx + vy * lz);
     const obstacles = this.obstaclesNear(px, py, rug), whole = () => placeBoxes([H], ox, oy, a)[0];

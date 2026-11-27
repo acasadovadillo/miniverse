@@ -102,8 +102,11 @@ import { Inventory, HOTBAR } from './inventory.js';
 import { WeightInventory, Carry, weightMode } from './carry.js';
 import { BULKY, BULKY_PARTS, CARCASS_OF, weightOf, BASE_CAP, BAG_CAP, BARROW, CENTER_AHEAD, WHEEL_AHEAD } from './carry-items.js';
 import { Barrow } from './barrow.js';
+import * as CARTM from './cart.js';   // (R4-5: the horse cart)
+import { CART, cartKey, parseCartKey, cleanCartKey, CART_TILT } from './carry-items.js';
+import { gatePair } from './pieces.js';
 import { GAME_VERSION } from './version.js';
-import { Player, barrowPen, GAIT } from './entities.js';
+import { Player, barrowPen, GAIT, cartPen } from './entities.js';
 import { horseModel, animateHorse, horseCadence, animalKey, setHorseDirt, disposeAnimal, HORSE_ACTS as HACTS } from './three/animals.js';
 import * as LEADS from './horselead.js';   // (R4-4: led by the reins, and tied)
 import * as CARE from './horsecare.js';   // (R4-2: looking after the horse)
@@ -13827,6 +13830,440 @@ async function soloTests(game) {
   };
   const dropCarcass = (x, y) => { const c = near('carcass_deer', x, y, 3) || near('carcass_boar', x, y, 3); if (c) w().setTile(...c.tile, 'air'); return c; };
 
+  // ---------- the horse cart (Plan R4-5, src/cart.js; docs/planes/realismo/PLAN-R4-caballo.md §1.7, §3.8, test 11) ----------
+  const CT = () => game.cart;
+  // A cart placed free with its footprint's middle on a tile's centre and heading yaw (as B places it), ours
+  const placeCart = (tx, ty, yaw = 0, owner = myId()) => {
+    const f = w().fitFree('cart', tx + 0.5, ty + 0.5, yaw, 0, null);
+    check(f.ok, `the cart does not fit: ${f.why}`);
+    w().placeFree('cart', f);
+    const o = w().placedObjectAt(...f.anchor);
+    check(o?.placed === 'cart', 'not placed');
+    if (owner) { CT().placed(o.tile); dOf(...o.tile).barrow[`${o.tile}`].o = owner; }
+    return w().placedObjectAt(...o.tile);
+  };
+  const cartNear = (x, y, r = 4) => near('cart', x, y, r);
+  const clearCarts = (x, y, r = 10) => { for (let i = 0; i < 6; i++) { const z = cartNear(x, y, r); if (!z) break; const B = dOf(...z.tile).barrow?.[`${z.tile}`]; if (B) { B.l = []; delete B.h; } w().chestAt(...z.tile)?.fill(null); w().setTile(...z.tile, 'air'); } };
+  // A driver on flat ground (a scene of its own, as the riding tests): a Player with a cart behind, its keys, a step
+  const flatCart = (o = {}) => ({ collidersNear: () => [], surfaceAt: () => 0, waterDepth: () => 0, pieceAt: () => null, ...o });
+  const KS = (o = {}) => ({ up: false, down: false, left: false, right: false, run: false, sprint: false, ...o });
+  const newDriver = () => {
+    const P = new Player({ name: 't', x: 0, y: 0, look: {} });
+    P.mount = true; P.driving = cartKey([], false, 'd'); P.face = { x: 1, y: 0 }; P.dir = [1, 0]; P.speedMul = 1;
+    P.cartPose = RIDE.cartBehind(0, 0, 1, 0); P.evs = []; P.onRide = ev => P.evs.push(ev);
+    return P;
+  };
+  const driveP = (P, scene, keys, secs, each = null, dt = 1 / 60) => { for (let i = 0; i < Math.round(secs / dt); i++) { P.update(dt, keys, scene); each?.(P, i * dt); } };
+  await test('carro plano (cart plan): a B Exterior buildable at the bench (12 planks, 2 iron, 2 leather, 2 rope), Dani sells its plan for 600, a chest of 24; ?carro=0 is a switch', async () => {
+    const b = BUILDABLE.cart;
+    check(b && b.cat === 'Exterior' && b.needs === 'banco' && JSON.stringify(b.cost) === JSON.stringify([['tablas', 12], ['lingote_hierro', 2], ['cuero', 2], ['cuerda', 2]]), `buildable: ${JSON.stringify(b && { cat: b.cat, needs: b.needs, cost: b.cost })}`);
+    check(PLANS.has('cart') && PLAN_BORN.has('cart') && CHESTS.cart?.[0] === 24 && ITEMS.cart?.name === t('item.cart'), 'its plan, chest or name');
+    check(SHOPS.dani.stock.some(s => s.plan === 'cart' && s.price === 600), 'Dani does not sell its plan for 600');
+    check('carro' in PARTES && !CT().off, 'no ?carro switch, or it is off');
+    check(CART.STACKS === 24 && CART.LOADS === 4 && Math.abs(CART_TILT - 0.308) < 0.01, `CART ${CART.STACKS} ${CART.LOADS} tilt ${CART_TILT}`);
+    // (its keys: whatever comes from the network is a valid one)
+    check(cartKey(['log', 'carcass_deer'], true, 'h') === 'cart:carcass_deer,log:f:h' && cartKey() === 'cart' && parseCartKey('cart:log::d')?.state === 'd' && !parseCartKey('cart:zzz::') && cleanCartKey('cart:zzz,log:f:') === 'cart:::d' && cleanCartKey('cart:log:f:h') === 'cart:log:f:d' && cleanCartKey(42) === 'cart:::d', `keys: ${cleanCartKey('cart:zzz,log:f:')}`);
+    for (const lang of ['es', 'en']) { await setLang(lang); for (const k of ['cart.hitch', 'cart.unhitch', 'cart.drive', 'cart.open', 'cart.get_down', 'cart.too_steep', 'cart.too_deep', 'cart.too_narrow', 'cart.seat', 'controls.cart', 'item.cart.desc']) check(t(k, { name: 'Rayo', who: 'Bea', kg: 3 }) !== k && !/[{}]/.test(t(k, { name: 'Rayo', who: 'Bea', kg: 3 })), `${lang}: ${k}`); }
+    await setLang('es');
+  });
+  await test('carro conducir (cart drive): walk 3.0, trot 5.0, canter 6.5 on the W tiers; no gallop, no jump; it follows like a trailer, cutting the corners, and the shafts make the turns wide; S backs it up at 1 m/s', async () => {
+    const sc = flatCart(), was = CAM.yaw;
+    try {
+      CAM.yaw = Math.atan2(-1, 0);   // (W goes along +x)
+      for (const [keys, v] of [[KS({ up: true }), 3.0], [KS({ up: true, run: true }), 5.0], [KS({ up: true, run: true, sprint: true }), 6.5]]) {
+        const P = newDriver(); driveP(P, sc, keys, 6);
+        check(Math.abs(P.ride.v - v) < 0.12 && Math.abs(P.y) < 0.01, `tier ${keys.run ? keys.sprint ? 2 : 1 : 0}: ${P.ride.v.toFixed(2)} m/s (want ${v})`);
+        check(Math.abs(Math.hypot(P.x - P.cartPose.x, P.y - P.cartPose.y) - CART.HITCH) < 0.01 && Math.abs(P.cartPose.yaw - Math.PI / 2) < 0.01, `the cart is not straight behind: ${P.cartPose.x.toFixed(2)},${P.cartPose.y.toFixed(2)}`);
+        check(P.gait === [0, 1, 3][keys.run ? keys.sprint ? 2 : 1 : 0], `the gait shown: ${P.gait}`);
+        P.jump(); check(P.vz === 0, 'it jumped with the cart');
+        check(P.cartPose.roll > (P.x - CART.HITCH - 1) / CART.WHEEL_R, `the wheels did not turn: ${P.cartPose.roll.toFixed(1)}`);
+      }
+      // A turn asked at the trot: the horse never turns further than the shafts let it, the circle is wide, the cart cuts inside
+      { const P = newDriver(); driveP(P, sc, KS({ up: true, run: true }), 3);
+        // (it swings inside the shafts first, then the circle is the shafts': HITCH / sin(MAXH), some 5 m)
+        let worst = 0, minR = Infinity, a0 = null, x0 = P.x, y0 = P.y, s = 0, inside = 0;
+        driveP(P, sc, KS({ left: true, run: true }), 6, (Q, t) => {
+          worst = Math.max(worst, Math.abs(Math.atan2(Math.sin(Q.ride.a - Q.cartPose.yaw), Math.cos(Q.ride.a - Q.cartPose.yaw))));
+          const a = Math.atan2(Q.face.x, Q.face.y), ds = Math.hypot(Q.x - x0, Q.y - y0);
+          if (t > 2) { a0 ??= a; s += ds; const da = Math.abs(Math.atan2(Math.sin(a - a0), Math.cos(a - a0))); if (da > 0.1) { minR = Math.min(minR, s / da); s = 0; a0 = a; } }
+          x0 = Q.x; y0 = Q.y;
+          inside = Math.max(inside, Math.hypot(Q.x - Q.cartPose.x, Q.y - Q.cartPose.y));
+        });
+        check(worst <= CART.MAXH + 1e-6, `the horse turned ${worst.toFixed(3)} rad from the shafts`);
+        check(minR > 0.9 * CART.HITCH / Math.sin(CART.MAXH), `a tight circle: ${minR.toFixed(2)} m`);
+        check(Math.abs(inside - CART.HITCH) < 0.02, `the cart left the hitch: ${inside}`);
+      }
+      // (the trailer, pure: dragged round a circle of radius r, its axle settles on the circle of sqrt(r² − HITCH²))
+      { const C = RIDE.cartBehind(10, 0, 0, 1), r = 10; for (let i = 0; i < 4000; i++) { const a = i / 4000 * 6 * Math.PI; RIDE.cartFollow(C, Math.cos(a) * r, Math.sin(a) * r); }
+        check(Math.abs(Math.hypot(C.x, C.y) - Math.sqrt(r * r - CART.HITCH * CART.HITCH)) < 0.05, `the tractrix: ${Math.hypot(C.x, C.y).toFixed(3)}`); }
+      // Backing up: S at 1 m/s, the cart goes back; and it stops first when going forwards
+      { const P = newDriver(); driveP(P, sc, KS({ up: true }), 2); const vx = P.ride.v; driveP(P, sc, KS({ down: true }), 0.15); check(P.ride.v > 0 && P.ride.v < vx, 'it reversed at once'); driveP(P, sc, KS({ down: true }), 3);
+        const ax = P.cartPose.x; driveP(P, sc, KS({ down: true }), 2);
+        check(Math.abs(P.ride.v + RIDE.BACK_V) < 0.05 && P.cartPose.x < ax - 1.8 && Math.abs(P.cartPose.yaw - Math.PI / 2) < 0.05, `back: ${P.ride.v.toFixed(2)} m/s, ${(P.cartPose.x - ax).toFixed(2)} m`); }
+    } finally { CAM.yaw = was; }
+  });
+  await test('carro límites (cart limits): a grade over 0.35 up or 0.45 down stops it (it says so); water of 0.6 m stops the horse and a wheel; a one-tile gap or a wall stops the cart; a double fence gate and a bridge let it through', async () => {
+    const was = CAM.yaw;
+    try {
+      CAM.yaw = Math.atan2(-1, 0);
+      const go = (o, secs = 6, keys = KS({ up: true, run: true })) => { const P = newDriver(); driveP(P, flatCart(o), keys, secs); return P; };
+      { const P = go({ surfaceAt: x => Math.max(0, x - 3) * 0.4 }); check(P.x < 5.2 && Math.abs(P.ride.v) < 0.2 && P.evs.includes('steep'), `up 0.4: at ${P.x.toFixed(2)}, ${P.evs}`); }
+      { const P = go({ surfaceAt: x => Math.max(0, x - 3) * 0.3 }); check(P.x > 12, `up 0.3: at ${P.x.toFixed(2)}`); }
+      { const P = go({ surfaceAt: x => -Math.max(0, x - 3) * 0.5 }); check(P.x < 5.2 && P.evs.includes('steep'), `down 0.5: at ${P.x.toFixed(2)}`); }
+      { const P = go({ surfaceAt: x => -Math.max(0, x - 3) * 0.4 }); check(P.x > 12, `down 0.4: at ${P.x.toFixed(2)}`); }
+      { const P = go({ waterDepth: x => (x > 6 ? 0.7 : 0) }); check(P.x < 6.2, `water 0.7: the horse went in, at ${P.x.toFixed(2)}`); }
+      { const P = go({ waterDepth: x => (x > 6 ? 0.5 : 0) }); check(P.x > 12, `a ford of 0.5: at ${P.x.toFixed(2)}`); }
+      // (only the wheels in deep water, the horse on a bank beyond: cartPen counts it)
+      check(cartPen(flatCart({ waterDepth: (x, y) => (Math.abs(y) > 0.5 ? 0.7 : 0) }), [], 0, 0, Math.PI / 2) >= 2 && cartPen(flatCart(), [], 0, 0, Math.PI / 2) === 0, 'a wheel in deep water');
+      // A gap of one tile (an open gate: its two posts) stops the cart; the horse alone would have gone
+      const posts = h => [{ x: 8, y: h, r: 0.12, low: true }, { x: 8, y: -h, r: 0.12, low: true }];
+      { const P = go({ collidersNear: () => posts(0.5) }, 8); check(P.cartPose.x < 8 - 0.5 && P.cartHit !== undefined, `through one tile: the axle at ${P.cartPose.x.toFixed(2)}`); }
+      { const P = go({ collidersNear: () => posts(1.0) }, 8); check(P.cartPose.x > 9, `a double gate (2 tiles): the axle at ${P.cartPose.x.toFixed(2)}`); }
+      { const P = go({ collidersNear: () => [{ x0: 7.5, x1: 7.7, y0: -0.45, y1: 0.45 }, { x0: 7.5, x1: 7.7, y0: 0.95, y1: 5 }, { x0: 7.5, x1: 7.7, y0: -5, y1: -0.95 }] }, 8); check(P.cartPose.x < 7.5, `into a wall with a doorway: ${P.cartPose.x.toFixed(2)}`); }
+      // A timber bridge: its rails 1.42 m either side of its middle
+      { const rails = [{ x0: 4, x1: 16, y0: 1.42, y1: 1.5 }, { x0: 4, x1: 16, y0: -1.5, y1: -1.42 }]; const P = go({ collidersNear: () => rails }, 6); check(P.cartPose.x > 10, `over the bridge: ${P.cartPose.x.toFixed(2)}`); }
+      // The world's gates: two side by side are a double one (no post between, opened together), one alone keeps its two posts
+      const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 3.5);
+      const W = w(), row = [[gx - 2, gy, 'valla'], [gx - 1, gy, 'puerta_valla'], [gx, gy, 'puerta_valla'], [gx + 1, gy, 'valla'], [gx + 3, gy, 'puerta_valla'], [gx + 4, gy, 'valla']];
+      try {
+        for (const [x, y, id] of row) W.place(x, y, id);
+        for (const [x, y] of row) W.touchAround(x, y);
+        check(gatePair(W, gx - 1, gy, true) === 1 && gatePair(W, gx, gy, true) === -1 && gatePair(W, gx + 3, gy, true) === 0, `pairs: ${gatePair(W, gx - 1, gy, true)} ${gatePair(W, gx, gy, true)} ${gatePair(W, gx + 3, gy, true)}`);
+        W.toggleDoor(gx - 1, gy);
+        check(!W.doorClosed(gx - 1, gy) && !W.doorClosed(gx, gy) && W.doorClosed(gx + 3, gy), 'the double gate does not open as one');
+        const postAt = (x, y) => W.collidersNear(x, y).some(c => c.r !== undefined && c.low && Math.hypot(c.x - x, c.y - y) < 0.05);
+        check(!postAt(gx, gy + 0.5) && postAt(gx - 1, gy + 0.5) && postAt(gx + 1, gy + 0.5) && postAt(gx + 3, gy + 0.5) && postAt(gx + 4, gy + 0.5), 'the posts of the double gate');
+        W.toggleDoor(gx, gy); check(W.doorClosed(gx - 1, gy) && W.doorClosed(gx, gy), 'closing one leaf leaves the other open');
+      } finally { for (const [x, y] of row) W.setTile(x, y, 'air'); }
+    } finally { CAM.yaw = was; }
+  });
+  await test('carro enganchar (cart hitch): riding or leading your horse to its shafts, E hitches it: you sit on the bench and drive; it leaves its tile as one world record (k cart, h, o); E with nothing aimed gets you down, the horse waits in the shafts; drive again; unhitch', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5); game.gamemode = 'survival';
+    const o = placeCart(tx, ty, Math.PI / 2), id = WB().idAt(o.tile), [hx, hy] = CARTM.hitchOf(o.x, o.y, o.yaw);
+    await withHorses([aHorse({ x: hx, y: hy })], async a => {
+      try {
+        game.mouse = null;
+        check(game.placedAction(w().placedObjectAt(...o.tile))?.text === t('cart.open'), `on foot, no horse at hand: ${game.placedAction(w().placedObjectAt(...o.tile))?.text}`);
+        // led by the reins to it: Hitch
+        LDR().take(a); check(LDR().mine === a, 'not led');
+        a.x = hx; a.y = hy;
+        let act = game.placedAction(w().placedObjectAt(...o.tile));
+        check(act?.text === t('cart.hitch', { name: a.name }) && act.alt?.text === t('cart.open'), `led: ${act?.text}`);
+        act.run();
+        const r = CT().record();
+        check(CT().rec && r && r.k === 'cart' && r.h === a.id && r.o === myId() && r.by === myId() && r.c.length === 24 && !w().ownAt('placed', ...o.tile), `the record: ${JSON.stringify(r && { k: r.k, h: r.h, o: r.o, c: r.c.length })}`);
+        check(p().mount && p().horseId === a.id && a.rider === myId() && a.cart === id && !LDR().mine && p().driving === 'cart:::d' && Math.hypot(p().x - hx, p().y - hy) < 0.01, `driving: ${p().driving} mount ${p().mount} cart ${a.cart}`);
+        check(Math.hypot(p().cartPose.x - o.x, p().cartPose.y - o.y) < 0.01 && Math.abs(p().cartPose.yaw - o.yaw) < 0.01, 'the cart is not where it was parked');
+        check(game.nearest()?.text === t('cart.get_down'), `E says: ${game.nearest()?.text}`);
+        check(CT().speedK() === 1 && game.carry.dropFirst('cave') === t('cart.get_down_first'), 'empty, slowed; or it goes down a cave');
+        // a few steps in the world, then down: parked where it is drawn with the same id, the horse in its shafts
+        p().ride.v = 2; p().update(0.25, KS(), w()); p().ride.v = 0;
+        const pose = { ...p().cartPose };
+        game.nearest().run();
+        const z = cartNear(pose.x, pose.y);
+        check(!CT().rec && !p().mount && !p().driving && z && WB().idAt(z.tile) === id && Math.hypot(z.x - pose.x, z.y - pose.y) < 0.15 && angle(z.yaw, pose.yaw) < 0.05, `parked: ${z && [z.x - pose.x, z.y - pose.y, z.yaw - pose.yaw]}`);
+        const B = dOf(...z.tile).barrow[`${z.tile}`], [h2x, h2y] = CARTM.hitchOf(z.x, z.y, z.yaw);
+        check(B.h === a.id && B.o === myId() && a.cart === id && !a.rider && Math.hypot(a.x - h2x, a.y - h2y) < 0.05 && z.model === 'cart:::h', `the horse in the shafts: ${B.h} ${a.cart} ${z.model} ${Math.hypot(a.x - h2x, a.y - h2y).toFixed(2)}`);
+        check(Math.hypot(p().x - h2x, p().y - h2y) > 1.2, 'the player stays on the horse\'s spot');
+        // it waits there, overnight too: whoever runs the world holds it
+        a.x += 3; for (let i = 0; i < 5; i++) { game.time += 2.5; RN().moveHorse(a, 0.5, false); }
+        check(Math.hypot(a.x - h2x, a.y - h2y) < 0.05 && a.cart === id, `it wandered: ${Math.hypot(a.x - h2x, a.y - h2y).toFixed(2)}`);
+        // E on it: Drive, Unhitch, Open (a menu); Drive takes it again with its horse
+        const opts = CT().options(z).map(q => q.k); check(JSON.stringify(opts) === JSON.stringify(['drive', 'unhitch', 'open']), `the options: ${opts}`);
+        check(CT().drive(z) && CT().rec && p().horseId === a.id && a.rider === myId(), 'Drive does not take it');
+        game.nearest().run();
+        const z2 = cartNear(h2x, h2y, 5); check(z2 && dOf(...z2.tile).barrow[`${z2.tile}`].h === a.id, 'parked again without its horse');
+        // Unhitch: tipped onto its shafts, the horse free where it stands (it stays there)
+        CT().unhitch(z2);
+        const z3 = w().placedObjectAt(...z2.tile);
+        check(!dOf(...z2.tile).barrow[`${z2.tile}`].h && a.cart === undefined && z3.model === 'cart' && a.stay, `unhitched: ${z3.model} ${a.cart}`);
+        check(!game.pickUp(z3) === false || !CT().isAt(z2.tile), '(taken down empty)');
+      } finally { if (CT().rec) CT().getDown(true); LDR().letGo?.(); clearCarts(tx, ty); }
+    });
+  });
+  await test('carro carga (cart load): 24 stacks and 4 big things (logs, carcasses, the strongbox) that never weigh on the driver; B and C pay from it within 16 tiles; its window says its kg; Remove refuses it loaded or hitched; the load slows it over 150 kg, 300 for a draft horse', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5); game.gamemode = 'survival';
+    const o = placeCart(tx, ty, 0), k = `${o.tile}`, d = dOf(...o.tile), C = game.carry;
+    try {
+      check(w().chestAt(...o.tile)?.length === 24 && C.chests().some(c => String(c.o.tile) === k), 'its chest, or B and C do not see it');
+      // big things: from the arms, four at most, in order
+      for (const id of ['log', 'log', 'strongbox', 'carcass_deer']) { C.set(id); const act = game.placedAction(w().placedObjectAt(...o.tile)); check(act?.text === t('barrow.load', { item: noun('item', id) }), `E with ${id}: ${act?.text}`); act.run(); check(!C.held, `${id} stayed in the arms`); }
+      C.set('log'); check(game.placedAction(w().placedObjectAt(...o.tile))?.text === t('cart.full'), 'a fifth'); C.set(null);
+      check(WB().loadsAt(o.tile).map(e => e[0]).join() === 'log,log,strongbox,carcass_deer' && w().placedObjectAt(...o.tile).model === 'cart:carcass_deer,log,log,strongbox::', `on it: ${w().placedObjectAt(...o.tile).model}`);
+      // stacks: 24, and B pays from them
+      for (const id of ['piedra']) inv().remove(id, inv().count(id));
+      const chest = w().chestAt(...o.tile); chest[23] = { id: 'piedra', n: 7 }; w().chestTouched(...o.tile); WB().stacksChanged(o.tile);
+      check(w().placedObjectAt(...o.tile).model === 'cart:carcass_deer,log,log,strongbox:f:', `with stacks: ${w().placedObjectAt(...o.tile).model}`);
+      C.near = null; check(C.spend([['piedra', 3]]) && chest[23]?.n === 4, 'B does not pay from it');
+      const kg = CARTM.loadKg(chest, d.barrow[k].l); check(Math.abs(kg - (25 + 25 + 60 + 35 + 4 * weightOf('piedra'))) < 0.01, `kg: ${kg}`);
+      // the window: 24 cells, its four big things, its kg in the title
+      CT().open(w().placedObjectAt(...o.tile)); await frames(2);
+      const cells = [...document.querySelectorAll('#ch-grid .slot')].filter(e => !e.hidden).length, loads = document.querySelectorAll('#ch-loads button').length;
+      check(cells === 24 && loads === 4 && document.getElementById('ch-title').textContent === t('cart.load_kg', { kg: Math.round(kg) }), `the window: ${cells} cells, ${loads} loads, «${document.getElementById('ch-title').textContent}»`);
+      game.windows?.close?.('s-chest');
+      // Take one back
+      WB().takeLoad(o.tile, 0); check(C.held === 'log' && WB().loadsAt(o.tile).length === 3, 'Take'); C.set(null);
+      // Remove: loaded, no; hitched, no
+      const was = game.mouse; game.mouse = null;
+      try { game.build.removeAt(o.tile); check(CT().isAt(o.tile), 'B › Remove took it down loaded'); } finally { game.mouse = was; }
+      d.barrow[k].l = []; chest.fill(null); d.barrow[k].h = 'hf-zz'; w().touch(...o.tile.map(v => Math.floor(v / CHUNK)));
+      check(!game.pickUp(w().placedObjectAt(...o.tile)) && CT().isAt(o.tile), 'taken down hitched'); delete d.barrow[k].h;
+      const before = ['tablas', 'lingote_hierro', 'cuero', 'cuerda'].map(id => inv().count(id));
+      check(game.pickUp(w().placedObjectAt(...o.tile)) && !CT().isAt(o.tile), 'empty, not taken down');
+      check(['tablas', 'lingote_hierro', 'cuero', 'cuerda'].every((id, i) => inv().count(id) === before[i] + [12, 2, 2, 2][i]), 'its materials do not come back');
+      for (const [id, n] of [['tablas', 12], ['lingote_hierro', 2], ['cuero', 2], ['cuerda', 2]]) inv().remove(id, n);
+      // How fast it goes loaded (statsOf pull: 1 for the draft horse, 0.85 for the others)
+      const spanish = { pull: 0.85 }, draft = { pull: 1 };
+      check(CARTM.pullK(0, spanish) === 1 && Math.abs(CARTM.pullK(100, spanish) - 0.85) < 1e-9 && Math.abs(CARTM.pullK(250, spanish) - 0.85 * 0.92) < 1e-9 && CARTM.pullK(250, draft) === 1 && Math.abs(CARTM.pullK(400, draft) - 0.92) < 1e-9 && CARTM.pullK(5000, spanish) === RIDE.SPEED_CART.walk / RIDE.SPEED_CART.canter, `pullK: ${CARTM.pullK(250, spanish)}`);
+    } finally { C.set(null); clearCarts(tx, ty); }
+  });
+  await test('carro pareja (cart couple): the partner may hitch and drive it; a stranger only sees whose it is, and the host refuses their take', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const o = placeCart(tx, ty, 0, 'prueba_b'), [hx, hy] = CARTM.hitchOf(o.x, o.y, o.yaw);
+    await withHorses([aHorse({ x: hx, y: hy })], async a => {
+      try {
+        game.mouse = null; RN().mount(a);
+        check(game.placedAction(w().placedObjectAt(...o.tile))?.text === t('cart.not_yours', { who: CT().ownerName('prueba_b') }), `a stranger's: ${game.placedAction(w().placedObjectAt(...o.tile))?.text}`);
+        await asCouple(async () => {
+          check(game.placedAction(w().placedObjectAt(...o.tile))?.text === t('cart.hitch', { name: a.name }), 'the partner may not hitch it');
+          check(CT().ours('prueba_b') && !CT().ours('prueba_z'), 'ours');
+        });
+        RN().dismount();
+      } finally { clearCarts(tx, ty); }
+    });
+  });
+  await test('carro red (cart net): st.ck and st.cv draw another\'s cart behind their horse; the host arbitrates a guest\'s hitch (the couple\'s only, the first wins, its horse and owner in the record); a guest\'s park comes back with the horse in its shafts; an old wheelbarrow record parks as a wheelbarrow; the passenger sits on the bench (both games)', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const L = game.live, was = { joined: L.joined, role: L.role, net: L.net, sent: L.sent }, W = w();
+    try {
+      L.joined = true; L.role = 'host';
+      // What the others see
+      L.receive('c1', { t: 'hi', id: 'id-c1', name: 'c1', playing: true, look: LOOK, v: GAME_VERSION, wb: 1 });
+      L.receive('c1', { t: 'st', sc: 'world', x: tx + 3, y: ty + 3, yaw: 0, m: 1, hc: 'castano', ck: 'cart:log::d', cv: [tx + 3, ty + 3 - CART.HITCH, 0] });
+      const e = L.peers.get('c1').entity; CT().peers();
+      check(e.driving === 'cart:log::d' && e.cartPose && Math.hypot(e.cartPose.x - (tx + 3), e.cartPose.y - (ty + 3 - CART.HITCH)) < 0.01, `a remote driver: ${e.driving} ${JSON.stringify(e.cartPose)}`);
+      L.receive('c1', { t: 'st', sc: 'world', x: tx + 3, y: ty + 3, yaw: 0, m: 1, ck: 'cart:zzz::d', cv: ['x', 0, 0] }); check(e.driving === 'cart:::d' && !e.cv, `garbage: ${e.driving} ${e.cv}`);
+      L.receive('c1', { t: 'st', sc: 'world', x: tx + 3, y: ty + 3, yaw: 0, m: 0, ck: 'cart:::d' }); CT().peers(); check(!e.driving && !e.cartPose, 'on foot, a cart');
+      // what this player sends driving
+      const sentL = []; L.joined = true; L.role = 'host'; L.net = { ready: true, key: 'k', send: m => sentL.push(m), sendServer() {} };
+      const o0 = placeCart(tx, ty, 0), hitch0 = CARTM.hitchOf(o0.x, o0.y, o0.yaw);
+      await withHorses([aHorse({ x: hitch0[0], y: hitch0[1] })], async a => {
+        RN().mount(a); check(CT().hitch(w().placedObjectAt(...o0.tile), a), 'no hitch');
+        L.sent = 99; L.lastSent = null; L.tick(0.05);
+        const st = sentL.filter(m => m.t === 'st').pop();
+        check(st && st.ck === p().driving && Array.isArray(st.cv) && Math.abs(st.cv[0] - p().cartPose.x) < 0.01 && Math.abs(st.yaw - Math.atan2(p().face.x, p().face.y)) < 0.01, `st: ${JSON.stringify(st && { ck: st.ck, cv: st.cv, yaw: st.yaw })}`);
+        // A passenger: another player with pa = this player sits on the bench, on its right; this player is told
+        const said = [], toast = hud.toast; hud.toast = m => said.push(String(m));
+        try {
+          L.receive('c2', { t: 'hi', id: 'id-c2', name: 'c2', playing: true, look: LOOK, v: GAME_VERSION, wb: 1 });
+          L.receive('c2', { t: 'st', sc: 'world', x: p().x, y: p().y, yaw: 0, pa: Profile.id });
+          const e2 = L.peers.get('c2').entity; game.crew.update(); CT().update(0.02);
+          const [sx, sy] = CARTM.seatOf(p().cartPose.x, p().cartPose.y, p().cartPose.yaw, -1);
+          check(e2.cartSeat && Math.hypot(e2.x - sx, e2.y - sy) < 0.01 && said.includes(t('cart.mate_on', { name: 'c2' })), `the passenger: ${e2.cartSeat} ${Math.hypot(e2.x - sx, e2.y - sy)} ${said}`);
+          // and the getting down: the passenger is let down where it can stand (their own game: crew.leave)
+          L.peers.delete('c2');
+        } finally { hud.toast = toast; }
+        CT().getDown(true);
+      });
+      L.net = was.net; clearCarts(tx, ty);
+      // The host arbitrates a guest's hitch: a take of the tile with the cart's id; the couple's only; the first wins
+      const o = placeCart(tx, ty, 0, 'id-c1'), kp = `${o.tile}`, k = ckey(...o.tile), d = dOf(...o.tile), id = WB().idAt(o.tile);
+      W.chestAt(...o.tile)[20] = { id: 'piedra', n: 4 };
+      const take = by => [['placed', kp], ['chest', kp], ['barrow', kp], ['pos', 'placed:' + kp], ['pushed', id, { by, x: o.x, y: o.y, c: [], l: [], t: 0, k: 'cart', h: 'hz-horse', o: 'forged' }]];
+      const A = { id: 'id-c1', at: [o.x + 2, o.y] }, Bz = { id: 'id-cz', at: [o.x + 2, o.y] };
+      const rz = WB().arbitrate(Bz, k, take('id-cz'));
+      check(!rz.ok.length && rz.back.some(([f, c]) => f === 'pushed' && c === id) && rz.back.some(([f, c, v]) => f === 'placed' && c === kp && v === 'cart'), `a stranger's take: ${JSON.stringify(rz)}`);
+      const r1 = WB().arbitrate(A, k, take('id-c1')), won = r1.ok.find(([f]) => f === 'pushed')?.[2];
+      check(won && won.k === 'cart' && won.h === 'hz-horse' && won.o === 'id-c1' && won.c.length === 24 && won.c[20]?.id === 'piedra', `the owner's take: ${JSON.stringify(won)}`);
+      applyOps(d, [...r1.rest, ...r1.ok]);
+      check(WB().arbitrate(Bz, k, take('id-cz')).back.some(([f, c, v]) => f === 'pushed' && c === id && v?.by === 'id-c1'), 'a second take');
+      // the guest's park: the host puts it down where asked, with its horse in its shafts
+      await withHorses([aHorse({ id: 'hz-horse', owner: 'id-c1', x: o.x + 2, y: o.y, rider: 'id-c1', cart: id })], async a => {
+        const own = WB().arbitrate(A, k, [['pushed', id, { ...d.pushed[id], park: [o.x, o.y - 0.07, 0] }]]);
+        applyOps(d, own.ok); WB().afterArbitrate(k, own, A);
+        const z = cartNear(o.x, o.y, 5), B = z && dOf(...z.tile).barrow[`${z.tile}`];
+        const [hx, hy] = z ? CARTM.hitchOf(z.x, z.y, z.yaw) : [0, 0];
+        check(!d.pushed[id] && z && WB().idAt(z.tile) === id && B.h === 'hz-horse' && B.o === 'id-c1' && W.chestAt(...z.tile).length === 24 && W.chestAt(...z.tile)[20]?.id === 'piedra' && a.cart === id && !a.rider && Math.hypot(a.x - hx, a.y - hy) < 0.05, `parked by the host: ${JSON.stringify(B)} ${a.cart} ${a.rider}`);
+        // a guest's unhitch is a request the host resolves (only the couple's)
+        d.claim = { u1: { by: 'id-cz', k: 'cart_unhitch', tile: z.tile, at: W.clock || 0 }, u2: { by: 'id-c1', k: 'cart_unhitch', tile: z.tile, at: W.clock || 0 } };
+        const ck2 = ckey(...z.tile), dz = dOf(...z.tile); dz.claim = d.claim; if (dz !== d) delete d.claim;
+        WB().resolve(ck2, 'u1'); WB().resolve(ck2, 'u2');
+        check(dz.claim.u1.ok === false && dz.claim.u2.ok === true && !B.h && a.cart === undefined, `the unhitch requests: ${JSON.stringify(dz.claim)}`);
+        delete dz.claim;
+        // the guard: only its family puts it to a cart or takes it out
+        const ctx = { ours: (q, pid) => pid === 'id-c1', present: () => true, clock: 100, bagsOff: false, bondOff: false };
+        check(horseGuard({ type: 'caballo' }, 'cart', 'abc', 'id-c1', ctx) && !horseGuard({ type: 'caballo' }, 'cart', 'abc', 'id-cz', ctx) && !horseGuard({ type: 'caballo', rider: 'id-cz' }, 'cart', 'abc', 'id-c1', ctx) && !horseGuard({ type: 'caballo' }, 'cart', 42, 'id-c1', ctx), 'the guard');
+        clearCarts(o.x, o.y);
+      });
+      // An old record with no kind is a wheelbarrow's, and parks as one
+      d.pushed = { oldwb001: { by: 'id-gone', x: tx + 0.5, y: ty + 0.5, c: [{ id: 'piedra', n: 1 }], l: [['log', null]], t: 0 } };
+      check(WB().parkRecord('oldwb001', k), 'the old record is not parked');
+      const wbz = near('wheelbarrow', tx + 0.5, ty + 0.5, 5);
+      check(wbz && WB().loadsAt(wbz.tile)[0]?.[0] === 'log' && W.chestAt(...wbz.tile).length === 12 && W.chestAt(...wbz.tile)[0]?.id === 'piedra', 'the old wheelbarrow record');
+      W.chestAt(...wbz.tile).fill(null); dOf(...wbz.tile).barrow[`${wbz.tile}`].l = []; W.setTile(...wbz.tile, 'air');
+      // This player as a passenger of another's cart: seated on their bench; E gets down onto the ground
+      L.receive('c1', { t: 'st', sc: 'world', x: tx + 3, y: ty + 3, yaw: 0, m: 1, ck: 'cart:::d', cv: [tx + 3, ty + 3 - CART.HITCH, 0] }); CT().peers();
+      const e1 = L.peers.get('c1').entity; e1.x = tx + 3; e1.y = ty + 3;
+      CT().sit(L.peers.get('c1')); game.crew.update();
+      const [px, py] = CARTM.seatOf(e1.cartPose.x, e1.cartPose.y, e1.cartPose.yaw, -1);
+      check(p().aboard === 'id-c1' && p().cartSeat && Math.hypot(p().x - px, p().y - py) < 0.01, `on their bench: ${p().aboard} ${p().cartSeat}`);
+      check(game.nearest()?.text === t('cart.get_down'), `E: ${game.nearest()?.text}`);
+      game.nearest().run(); check(!p().aboard && !p().cartSeat && !p().boat, 'not down');
+      // their cart, parked: a passenger of a driver on foot gets down by itself
+      CT().sit(L.peers.get('c1')); L.receive('c1', { t: 'st', sc: 'world', x: tx + 3, y: ty + 3, yaw: 0, m: 0 }); CT().peers(); game.crew.update();
+      check(!p().aboard && !p().cartSeat && !p().boat, 'left on the bench of a parked cart');
+    } finally { L.joined = was.joined; L.role = was.role; L.net = was.net; for (const c of ['c1', 'c2']) L.peers.delete(c); if (CT().rec) CT().getDown(true); p().aboard = null; p().cartSeat = false; clearCarts(tx, ty); }
+  });
+  await test('carro guardado (cart save): dying, a teleport and leaving park it with its horse in the shafts; reopened in the saddle, you go on driving; a horse whose cart is gone is free again; its record is the world\'s, never the player\'s save', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5); game.gamemode = 'survival';
+    const o = placeCart(tx, ty, 0), id = WB().idAt(o.tile), [hx, hy] = CARTM.hitchOf(o.x, o.y, o.yaw);
+    await withHorses([aHorse({ x: hx, y: hy })], async a => {
+      try {
+        RN().mount(a); CT().hitch(w().placedObjectAt(...o.tile), a);
+        check(!JSON.stringify(p().toSave()).includes(id), 'the cart is in the player\'s save');
+        for (const how of ['death', 'teleport', 'end']) {
+          if (!CT().rec) { const z = cartNear(hx, hy, 6); RN().mount(a); CT().drive(z) || CT().hitch(z, a); }
+          check(CT().rec, `not driving before ${how}`);
+          if (how === 'death') CT().onDeath(); else if (how === 'teleport') game.teleport(p().x + 0.2, p().y); else CT().onEnd();
+          const z = cartNear(hx, hy, 6);
+          check(!CT().rec && !p().driving && z && dOf(...z.tile).barrow[`${z.tile}`].h === a.id && a.cart === id, `${how}: not parked with its horse`);
+        }
+        // reopened in the saddle with its record of before: we go on driving it
+        const z = cartNear(hx, hy, 6); RN().mount(a); CT().drive(z) || CT().hitch(z, a);
+        const rec = CT().rec; CT().rec = null; p().driving = null; p().cartPose = null; CT().started = false;
+        CT().update(0.02);
+        check(CT().rec?.id === rec.id && p().driving && p().cartPose, 'not driving it again');
+        CT().getDown(true);
+        // a horse whose cart is gone (or far away) is free
+        a.cart = 'nonexist'; CT().holdAt.clear(); check(!CT().holdHorse(a) && a.cart === undefined, 'the link to no cart stays');
+      } finally { if (CT().rec) CT().getDown(true); clearCarts(tx, ty); }
+    });
+  });
+  await test('carro juego (cart play): with the keys: built with B at the bench, hitched with E, driven with W along a road and over its bridge, through a double gate opened with E from the bench, backed up with S; down with E; a log and the strongbox loaded with E; the partner sits beside you; unhitched and parked', async () => {
+    await weightOn();
+    const W = w(), I = inv(), kept = I.slots.map(s => (s ? { ...s } : null)), gm = game.gamemode, L = game.live, was = { joined: L.joined, role: L.role }, made = [], C = game.carry;
+    const r = roadList0().filter(q => q.bridges.length)[0], b = r?.bridges[0]; check(b, 'no road with a bridge'); if (!b) return;
+    const fx = Math.sin(b.yaw), fy = Math.cos(b.yaw), sx = Math.cos(b.yaw), sy = -Math.sin(b.yaw);
+    const A = [b.x - fx * (b.L / 2 + 9), b.y - fy * (b.L / 2 + 9)];
+    const keyDown = code => dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true })), keyUp = code => dispatchEvent(new KeyboardEvent('keyup', { code, key: code, bubbles: true }));
+    const steer = (x, y) => { const dx = x - p().x, dy = y - p().y; CAM.first = false; CAM.yaw = Math.atan2(-dx, -dy); };
+    const ask = hud.ask, said = [], toast = hud.toast;
+    try {
+      game.gamemode = 'survival';
+      await goTo(game, A[0] + sx * 3, A[1] + sy * 3);
+      // 1. Built with B at the bench (the plan learnt, its materials in the backpack)
+      I.slots.fill(null); I.changed();
+      for (const [id, n] of [['tablas', 12], ['lingote_hierro', 2], ['cuero', 2], ['cuerda', 2]]) I.add(id, n);
+      game.craft.learnPlan('cart');
+      W.buildAnywhere = true; const bench = [Math.floor(A[0] + sx * 5), Math.floor(A[1] + sy * 5)]; W.place(...bench, 'banco'); W.buildAnywhere = false; made.push(bench);
+      const spot = [A[0] + sx * 3 + fx * 2, A[1] + sy * 3 + fy * 2];
+      game.build.toggle(true); game.build.select('cart'); game.mousePoint = () => spot; await frames(3);
+      W.buildAnywhere = true;
+      try { game.gather.cooldown = 0; game.gather.place('cart'); } finally { W.buildAnywhere = false; delete game.mousePoint; game.build.toggle(false); }
+      const built = cartNear(spot[0], spot[1], 3);
+      check(built && !I.count('tablas') && !I.count('cuero') && dOf(...built.tile).barrow[`${built.tile}`].o === myId(), `built with B: ${!!built}, planks left ${I.count('tablas')}`);
+      if (built) { made.push(built.tile); W.setTile(...built.tile, 'air'); }
+      // (on the road, facing the bridge: the drive's own, as B would put it with R)
+      W.buildAnywhere = true; const o = placeCart(Math.floor(A[0]), Math.floor(A[1]), b.yaw); W.buildAnywhere = false;
+      // the double gate across the road beyond the bridge, with a fence each side
+      const G = [b.x + fx * (b.L / 2 + 10), b.y + fy * (b.L / 2 + 10)], alongX = Math.abs(fy) > Math.abs(fx), gt = [Math.round(G[0]), Math.round(G[1])];
+      const gates = alongX ? [[gt[0] - 1, Math.floor(G[1])], [gt[0], Math.floor(G[1])]] : [[Math.floor(G[0]), gt[1] - 1], [Math.floor(G[0]), gt[1]]];
+      const fences = alongX ? [[gt[0] - 3, gates[0][1]], [gt[0] - 2, gates[0][1]], [gt[0] + 1, gates[0][1]], [gt[0] + 2, gates[0][1]]] : [[gates[0][0], gt[1] - 3], [gates[0][0], gt[1] - 2], [gates[0][0], gt[1] + 1], [gates[0][0], gt[1] + 2]];
+      for (const t of fences) { W.place(...t, 'valla'); made.push(t); }
+      for (const t of gates) { W.place(...t, 'puerta_valla'); made.push(t); }
+      for (const t of [...fences, ...gates]) W.touchAround(...t);
+      const gateMid = alongX ? [gt[0], Math.floor(G[1]) + 0.5] : [Math.floor(G[0]) + 0.5, gt[1]];
+      await withHorses([aHorse({ x: CARTM.hitchOf(o.x, o.y, o.yaw)[0], y: CARTM.hitchOf(o.x, o.y, o.yaw)[1] })], async a => {
+        // 2. Hitched with E, riding it to the shafts
+        RN().mount(a); check(p().mount, 'not mounted');
+        aimOn(q => q.kind === 'placed' && q.o?.placed === 'cart'); await keyE(); delete game.aimed;
+        check(CT().rec && p().driving, `E did not hitch it: ${game.nearest()?.text}`);
+        // 3. W along the road and over the bridge (the camera steers, as the mouse does)
+        let vmax = 0, onDeck = false, maxSteep = 0;
+        keyDown('KeyW');
+        for (let i = 0; i < 900; i++) {
+          steer(b.x + fx * (b.L / 2 + 30), b.y + fy * (b.L / 2 + 30)); await frames(1);
+          vmax = Math.max(vmax, p().ride.v); if (Math.hypot(p().x - b.x, p().y - b.y) < 1 && W.deckAt?.(p().x, p().y) !== null) onDeck = true;
+          if ((p().x - b.x) * fx + (p().y - b.y) * fy > b.L / 2 + 3) break;
+        }
+        keyUp('KeyW');
+        const past = (p().x - b.x) * fx + (p().y - b.y) * fy;
+        check(past > b.L / 2 + 3 && onDeck && Math.abs(vmax - RIDE.SPEED_CART.walk) < 0.3, `over the bridge: ${past.toFixed(1)} m past its middle (L ${b.L}), on its deck ${onDeck}, at ${vmax.toFixed(2)} m/s`);
+        check((p().cartPose.x - b.x) * fx + (p().cartPose.y - b.y) * fy > -b.L / 2, 'the cart did not come onto the bridge');
+        // 4. The double gate: E from the bench opens it, and W takes the cart through
+        for (let i = 0; i < 400 && Math.hypot(p().x - gateMid[0], p().y - gateMid[1]) > 2.6; i++) { keyDown('KeyW'); steer(...gateMid); await frames(1); }
+        keyUp('KeyW'); await frames(20);
+        check(W.doorClosed(...gates[0]), 'the gate was open');
+        aimOn(q => q.kind === 'door' && String(q.tile) === String(gates[1])); await keyE(); delete game.aimed; await frames(10);
+        check(!W.doorClosed(...gates[0]) && !W.doorClosed(...gates[1]), 'E from the bench did not open both leaves');
+        keyDown('KeyW');
+        for (let i = 0; i < 600; i++) { steer(gateMid[0] + fx * 12, gateMid[1] + fy * 12); await frames(1); if ((p().cartPose.x - gateMid[0]) * fx + (p().cartPose.y - gateMid[1]) * fy > 1.5) break; }
+        keyUp('KeyW'); await frames(30);
+        check((p().cartPose.x - gateMid[0]) * fx + (p().cartPose.y - gateMid[1]) * fy > 1.5, `the cart did not go through the gate: ${((p().cartPose.x - gateMid[0]) * fx + (p().cartPose.y - gateMid[1]) * fy).toFixed(2)}`);
+        // 5. S backs it up
+        const back0 = { ...p().cartPose }; keyDown('KeyS'); let vmin = 0;
+        for (let i = 0; i < 150; i++) { CAM.yaw = Math.atan2(-fx, -fy); await frames(1); vmin = Math.min(vmin, p().ride.v); }
+        keyUp('KeyS'); await frames(20);
+        check(vmin < -0.8 && (p().cartPose.x - back0.x) * fx + (p().cartPose.y - back0.y) * fy < -0.8, `backing up: ${vmin.toFixed(2)} m/s`);
+        // 6. Down with E (nothing aimed): parked, the horse in its shafts (clear of the gate: no cart is left in a gateway)
+        game.mouse = { in: false }; game.aimed = () => null;
+        keyDown('KeyW'); for (let i = 0; i < 150; i++) { CAM.yaw = Math.atan2(-fx, -fy); await frames(1); } keyUp('KeyW'); await frames(40);
+        game.aimed = () => null; const before = game.nearest()?.text; hud.toast = m => said.push(String(m)); await keyE(); delete game.aimed; hud.toast = toast;
+        const z = cartNear(p().x, p().y, 5);
+        if (CT().rec) console.log(`Error E said ${before}; toasts ${said}; spot ${!!CT().spot()}`);
+        check(!CT().rec && !p().mount && z && dOf(...z.tile).barrow[`${z.tile}`].h === a.id, 'E did not get down and park it');
+        // 7. A log and the strongbox, E with each in the arms
+        for (const id of ['log', 'strongbox']) { C.set(id); aimOn(q => q.kind === 'placed' && q.o?.placed === 'cart'); await keyE(); delete game.aimed; check(!C.held, `${id} not loaded with E`); }
+        check(WB().loadsAt(z.tile).map(e => e[0]).join() === 'log,strongbox', `on it: ${WB().loadsAt(z.tile).map(e => e[0])}`);
+        // 8. Up again (E › Drive, from its menu), and the partner sits beside you
+        hud.ask = async (title, text, opts) => opts.indexOf(t('cart.drive'));
+        aimOn(q => q.kind === 'placed' && q.o?.placed === 'cart'); await keyE(); delete game.aimed; await frames(4);
+        check(CT().rec && p().horseId === a.id, 'E › Drive');
+        await asCouple(async () => {
+          L.joined = true; L.role = 'host'; hud.toast = m => said.push(String(m));
+          L.receive('cb', { t: 'hi', id: 'prueba_b', name: 'Bea', playing: true, look: LOOK, v: GAME_VERSION, wb: 1 });
+          L.receive('cb', { t: 'st', sc: 'world', x: p().x + 1, y: p().y, yaw: 0, pa: Profile.id });
+          await frames(6);
+          const e = L.peers.get('cb').entity, [px, py] = CARTM.seatOf(p().cartPose.x, p().cartPose.y, p().cartPose.yaw, -1);
+          check(e.cartSeat && Math.hypot(e.x - px, e.y - py) < 0.2 && said.includes(t('cart.mate_on', { name: 'Bea' })), `Bea beside you: ${e.cartSeat} ${said}`);
+          L.peers.delete('cb');
+        });
+        // 9. Down, and unhitched from its menu: tipped on its shafts, the horse free
+        game.mouse = { in: false }; game.aimed = () => null; await keyE(); delete game.aimed;
+        const z2 = cartNear(p().x, p().y, 5);
+        hud.ask = async (title, text, opts) => opts.indexOf(t('cart.unhitch', { name: a.name }));
+        aimOn(q => q.kind === 'placed' && q.o?.placed === 'cart'); await keyE(); delete game.aimed; await frames(4);
+        check(z2 && !dOf(...z2.tile).barrow[`${z2.tile}`].h && a.cart === undefined && w().placedObjectAt(...z2.tile)?.model === 'cart:log,strongbox::', `unhitched: ${w().placedObjectAt(...z2.tile)?.model}`);
+        made.push(z2.tile);
+      });
+    } catch (e) { console.log('Error STACK ' + String(e.stack).replace(/\n/g, ' | ')); throw e; } finally {
+      hud.ask = ask; hud.toast = toast; keyUp('KeyW'); keyUp('KeyS'); delete game.aimed; L.joined = was.joined; L.role = was.role; L.peers.delete('cb');
+      if (CT().rec) CT().getDown(true);
+      for (const tl of made) { const B = dOf(...tl).barrow?.[`${tl}`]; if (B) { B.l = []; delete B.h; } W.chestAt(...tl)?.fill(null); W.setTile(...tl, 'air'); }
+      clearCarts(A[0], A[1], 30); C.set(null);
+      game.gamemode = gm; I.slots.splice(0, I.slots.length, ...kept); I.changed();
+    }
+  });
+  await test('carro coste (cart cost): driving costs less than 0.1 ms per frame (the trailer, the body\'s test and the drawing)', async () => {
+    const sc = flatCart({ collidersNear: () => [{ x: 50, y: 50, r: 0.3 }, { x0: 60, x1: 61, y0: 60, y1: 61 }] }), N = 2000, was = CAM.yaw;
+    try {
+      CAM.yaw = Math.atan2(-1, 0);
+      const P = newDriver(), Q = newDriver(); Q.driving = null; Q.cartPose = null;
+      const K = KS({ up: true, run: true });
+      let t0 = performance.now(); for (let i = 0; i < N; i++) Q.update(1 / 60, K, sc); const ride = (performance.now() - t0) / N;
+      t0 = performance.now(); for (let i = 0; i < N; i++) P.update(1 / 60, K, sc); const drive = (performance.now() - t0) / N;
+      const A = game.view3d.actors, m = A.player, e = p(); let draw = 0;
+      if (m) { e.mount = true; e.driving = 'cart:log::d'; e.cartPose = RIDE.cartBehind(e.x, e.y, 1, 0); try { t0 = performance.now(); for (let i = 0; i < N; i++) A.placeCart(m, e, m.person, w(), e.x, 0, e.y); draw = (performance.now() - t0) / N; } finally { e.mount = false; e.driving = null; e.cartPose = null; A.placeCart(m, e, m.person, w(), e.x, 0, e.y); } }
+      const extra = Math.max(0, drive - ride) + draw;
+      tell('carro coste: medida', true, `${(ride * 1000).toFixed(1)} µs riding, ${(drive * 1000).toFixed(1)} µs driving, ${(draw * 1000).toFixed(1)} µs drawing the cart`);
+      check(extra < 0.1, `${(extra * 1000).toFixed(1)} µs a frame`);
+    } finally { CAM.yaw = was; }
+  });
   await test('tracks (english): a walking deer leaves prints', async () => {
     const s = trackLine(12, SOFT) || trackLine(12); check(s, 'no open stretch for a deer');
     await goTo(game, s.x + 5, s.y + 22);

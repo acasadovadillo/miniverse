@@ -122,6 +122,6 @@ export const SHOPS = {
   dani: {
     title: 'Taller de Dani', hours: [10, 19],
     stock: [{ id: 'maceta', price: 80 }, { id: 'alfombra', price: 140 }, { id: 'lampara', price: 200 }, { id: 'caballo', price: 3000 },
-      ...plans({ mesa_baja: 60, mesa_grande: 120, sillon: 220, sofa: 300, comoda: 250, armario: 280, vitrina: 200, encimera: 90, alacena: 140, mueble_bano: 110, fregadero: 180, lavabo: 180, inodoro: 180, banera: 320, wheelbarrow: 250, display_shelf: 90, goods_crate: 50, desk: 180 })],
+      ...plans({ mesa_baja: 60, mesa_grande: 120, sillon: 220, sofa: 300, comoda: 250, armario: 280, vitrina: 200, encimera: 90, alacena: 140, mueble_bano: 110, fregadero: 180, lavabo: 180, inodoro: 180, banera: 320, wheelbarrow: 250, cart: 600, display_shelf: 90, goods_crate: 50, desk: 180 })],
   },
 };

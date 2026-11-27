@@ -26,7 +26,7 @@ import { CHUNK } from './world/gen.js';
 import { wrapIndex, PLANET, dxOf } from './world/planet.js';
 import { kitKey } from './kit.js';
 import { EMOTE_KINDS } from './social.js';
-import { BULKY, BARROW, cleanBarrowKey } from './carry-items.js';
+import { BULKY, BARROW, cleanBarrowKey, cleanCartKey } from './carry-items.js';
 import { unpackBd, BD_MAX } from './body.js';
 import { accentOf } from './ui/skin.js';
 
@@ -120,6 +120,10 @@ class RemotePlayer extends Person {
     // so it does not pulse ten times a second. A game from before sends none: as it was)
     this.rideV = st.m && Number.isFinite(st.rv) ? Math.max(0, Math.min(RIDE_NET, st.rv)) : 0;
     this.leads = typeof st.lh === 'string' ? st.lh.slice(0, 80) : null;   // (the horse they lead by the reins, horselead.js: a game from before sends none)
+    // (ck: the cart they drive, its model key, and cv: where its axle is, [x, y, yaw]; only riding. cart.js draws it from where
+    // their horse goes, put right by cv. A game from before sends neither: no cart)
+    this.driving = st.m && typeof st.ck === 'string' ? cleanCartKey(st.ck) : null;
+    this.cv = this.driving && Array.isArray(st.cv) && st.cv.length === 3 && st.cv.every(Number.isFinite) ? st.cv : null;
     this.toAge = 0;
     // (ca: what their arms carry, a log or a carcass: carry.js; or the wheelbarrow they push, its model key: barrow.js. Only
     // sent while carrying; an older game sends nothing. Riding or rowing, the big thing goes on the horse or in the bow: the
@@ -861,7 +865,7 @@ export class Live {
     try { this.game.business?.onOps(k, ops); } catch (e) { reportFault(e, 'Business.onOps'); }   // (a sale, a new business)
     try { this.game.tables?.onOps(k, ops); } catch (e) { reportFault(e, 'TableGames.onOps'); }   // (a table game)
     try { this.game.plans?.onOps(k, ops); } catch (e) { reportFault(e, 'Plans.onOps'); }   // (plans drawn or gone, or built over)
-    if (this.guest) try { this.game.barrow?.onHostOps(k, ops); } catch (e) { console.warn(e); }   // (is the wheelbarrow still yours? a request answered)
+    if (this.guest) try { this.game.barrow?.onHostOps(k, ops); this.game.cart?.onHostOps(k, ops); } catch (e) { console.warn(e); }   // (is the wheelbarrow still yours? a request answered)
   }
 
   // ---------- lo de todos, elemento a elemento ----------
@@ -1001,7 +1005,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, lh: p.leads || undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, fg: g.fishing?.netRig(), cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: (g.plans?.handId() ?? g.inv.held?.id) || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, rr: sc ? g.rodrest?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(p.driving ? Math.atan2(p.face.x, p.face.y) : g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, lh: p.leads || undefined, ck: p.mount && p.driving ? p.driving : undefined, cv: p.mount && p.driving && p.cartPose ? [r2(p.cartPose.x), r2(p.cartPose.y), r2(p.cartPose.yaw)] : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, fg: g.fishing?.netRig(), cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: (g.plans?.handId() ?? g.inv.held?.id) || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, rr: sc ? g.rodrest?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

@@ -20,7 +20,7 @@ export function initBuildBar(game) {
   const iconOf = id => (icons[id] ||= (BUILDABLE[id] ? itemIcon(id) : pieceIcon(pieceSprite(id))).toDataURL());
   const TOOLS = { Mover: 'mover', Quitar: 'quitar' };
   // Dónde se compra el plano de lo que lo pide (la primera tienda que lo vende)
-  const planAt = id => Object.values(SHOPS).find(s => s.stock.some(e => e.plan === id))?.title.split(' de ').pop();
+  const planAt = id => Object.values(SHOPS).find(s => s.stock?.some(e => e.plan === id) && s.title)?.title.split(' de ').pop();   // (a shop with no title, a hamlet's: never)
 
   function render() {
     const tool = b.erase ? 'Quitar' : b.move ? 'Mover' : null;

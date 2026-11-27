@@ -13,6 +13,7 @@
 // Everything is in metres, seconds and radians; R.a is the heading as atan2(x, y), as the rest of the game has it.
 import { collide } from './physics.js';
 import { PLAIN } from './horsebreeds.js';
+import { CART } from './carry-items.js';
 
 // The gaits by speed (R.gait is an index here). GT: the same as the network, the art and p.gait number them: 0 walk, 1 trot,
 // 2 gallop, as before, and 3 the canter, so an older game never takes it for another gait (live.js reads it as none)
@@ -91,6 +92,8 @@ export const makeRide = () => ({
   // the caps and the brakes now
   k: 1, capWater: 3, grade: 0, capSlope: 3, hard: false, cliff: false, slopeT: 0, probeT: 0, obs: Infinity, obsLow: false, obsAt: null, max: Infinity, dodge: 0, dodgeAt: null,
   slide: 0, fence: false, blocked: false, target: 0, clears: false, dirt: 0,
+  // pulling a cart (R4-5, cartStep): its speed factor (the load, the breed: cart.js) and whether a grade stops it now
+  cart: false, cartK: 1, steep: false, ahead: 0,
 });
 // Just mounted: standing, facing as the rider did
 export function startRide(R, face) {
@@ -165,7 +168,7 @@ export function slopeStep(R, dt, scene, x, y, depth) {
   const ahead = scene.surfaceAt(x + fx * r, y + fy * r), g0 = (ahead - scene.surfaceAt(x - fx * r, y - fy * r)) / (2 * r);
   let g1 = 0;
   if (R.v > PROBE_V) { const far = r + R.v * R.v / (2 * EASE); g1 = (scene.surfaceAt(x + fx * far, y + fy * far) - ahead) / (far - r); }
-  R.grade += (g0 - R.grade) * 0.6;
+  R.grade += (g0 - R.grade) * 0.6; R.ahead = g1;
   const was = R.cliff;
   const sure = R.breed.slope, cliff = CLIFF + sure;
   R.cliff = Math.abs(g0) >= cliff && R.going && Math.abs(headingErr(R)) < 1.2;
@@ -264,3 +267,77 @@ export function braking(R, dt, ahead) {
   R.max = Math.max(NEAR_V, Math.sqrt(2 * EASE * Math.max(0, R.obs - KEEP)));
   return '';
 }
+
+// ---------- pulling the cart (Plan R4-5, §1.7 and §3.8; cart.js, entities.js Player.update) ----------
+// The W tiers ask for the walk, the trot and the canter (never a gallop, never a jump); S (the keys asking the way back)
+// backs it up slowly, the horse turning the other way so the cart's back goes where the keys point. It turns at
+// CART_TURN of the horse's rate, and the shafts hold it within CART.MAXH of the cart (clampToCart), so the turns are wide.
+// A grade over CART.UP uphill or CART.DOWN downhill, along the way it goes, stops it ('steep' once): the horse cannot pull
+// it up, nor hold it back down
+export const SPEED_CART = { walk: 3.0, trot: 5.0, canter: 6.5 };
+export const CART_TURN = 0.8, BACK_V = 1.0, BACK_ERR = 120, CART_ACCEL = 2.2;
+const CART_V = [SPEED_CART.walk, SPEED_CART.trot, SPEED_CART.canter], CART_GAIT_V = [4.0, 5.8];
+// (is the grade along the way it goes, g, too steep for it? back: backing up)
+export const cartSteep = (g, back = false) => { const u = back ? -g : g; return u > CART.UP || u < -CART.DOWN; };
+export function cartStep(R, dt) {
+  let ev = '';
+  const err = headingErr(R), e = Math.abs(err) / DEG, mul = R.mul * R.cartK, back = R.going && e > BACK_ERR && !R.air;
+  // (the most the ground, the water, its breath and a sore leg allow: the trot when winded or in mud, the walk deep in water)
+  const cap = Math.min(R.ground.cap, R.capWater, R.winded ? 1 : 2, R.capSlope >= 2 ? 2 : R.capSlope);
+  let target = 0, down = EASE;
+  if (back) target = -BACK_V;
+  else if (R.going) {
+    const gait = Math.max(0, Math.min(R.tier, cap));
+    target = Math.max(SPEED_CART.walk * Math.min(1, groundK(R)), CART_V[gait] * groundK(R) * mul);   // (the load never takes it under the walk)
+    if (e > COLLECT[1]) target = Math.min(target, SPEED_CART.walk);   // (a sharp turn asked: at a walk)
+    else if (e > COLLECT[0]) target = Math.min(target, SPEED_CART.trot);
+  }
+  // (too steep along the way it would go, here or just ahead: it stops, and says so once)
+  const steep = target !== 0 && (cartSteep(R.grade, target < 0) || (target > 0 && R.v > 1 && cartSteep(R.ahead || 0)));
+  if (steep) { if (!R.steep) ev = 'steep'; target = 0; }
+  R.steep = steep;
+  if (target > 0 && R.max < target) target = R.max;   // (something ahead: braking)
+  if (R.cliff || R.blocked || R.hold || R.slide) target = 0;
+  // (from going forwards to backing up, or the other way: it stops first)
+  if ((target < 0 && R.v > 0.05) || (target > 0 && R.v < -0.05)) target = 0;
+  R.target = target;
+  if (R.v < target) R.v = Math.min(target, R.v + CART_ACCEL * dt);
+  else if (R.v > target) R.v = Math.max(target, R.v - down * dt);
+  R.slide = 0;
+  // Turning: forwards towards the keys; backing up, towards the other way (its back to where the keys point)
+  let d = 0;
+  if (R.going) { d = back ? wrap(err - Math.PI) : err; R.look = null; }
+  if (d && !R.hold) {
+    const max = Math.min(turnRate(Math.abs(R.v)), TURN.trot * DEG) * CART_TURN * R.ground.turn * (R.arcade ? ARCADE.turn : 1) * (back ? 0.6 : 1) * dt;
+    R.a = wrap(R.a + (d > max ? max : d < -max ? -max : d));
+    point(R);
+  }
+  // The gait shown: by its own speeds
+  const v = Math.abs(R.v) / Math.max(0.5, Math.min(1, mul * groundK(R)));
+  if (R.gait > 2) R.gait = 2;
+  while (R.gait < 2 && v > CART_GAIT_V[R.gait] + GAIT_H) R.gait++;
+  while (R.gait > 0 && v < CART_GAIT_V[R.gait - 1] - GAIT_H) R.gait--;
+  return ev;
+}
+// The horse may not turn further from the cart than its shafts let it (yaw: the cart's heading): true if it was held
+export function clampToCart(R, yaw) {
+  const rel = wrap(R.a - yaw);
+  if (Math.abs(rel) <= CART.MAXH) return false;
+  R.a = wrap(yaw + Math.sign(rel) * CART.MAXH);
+  point(R);
+  return true;
+}
+// The cart follows the horse like a trailer: its axle (C.x, C.y) is dragged towards the hitch, the horse's middle (hx,
+// hy), and stays HITCH from it, its heading towards it (C.yaw, as atan2(x, y)). out: where to write it (may be C). The
+// wheels turn by the distance the axle goes (C.roll, rad). Pure and without allocation
+export function cartFollow(C, hx, hy, out = C) {
+  let dx = hx - C.x, dy = hy - C.y, L = Math.hypot(dx, dy);
+  if (L < 1e-6) { dx = Math.sin(C.yaw); dy = Math.cos(C.yaw); L = 1; }
+  const nx = hx - dx / L * CART.HITCH, ny = hy - dy / L * CART.HITCH;
+  const moved = (nx - C.x) * dx / L + (ny - C.y) * dy / L;   // (+ forwards)
+  out.roll = (C.roll || 0) + moved / CART.WHEEL_R;
+  out.x = nx; out.y = ny; out.yaw = Math.atan2(dx, dy);
+  return out;
+}
+// Where the axle is with the cart straight behind a horse at (x, y) facing (fx, fy)
+export const cartBehind = (x, y, fx, fy) => ({ x: x - fx * CART.HITCH, y: y - fy * CART.HITCH, yaw: Math.atan2(fx, fy), roll: 0 });

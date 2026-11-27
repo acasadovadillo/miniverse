@@ -27,6 +27,8 @@ function meshes(list) {
 }
 // The thing as a group of meshes (the models are made with the ground at y = 0 and the centre in the origin)
 export function carriedModel(id) { return meshes(parts(id)); }
+// Any model of models.js as a group of meshes, its geometries shared (the driven cart: cart3d.js)
+export const modelMeshes = name => meshes(partsOf(name));
 
 // Where it goes, on the chest bone (x: + is the body's left; y: from the shoulder joints, fit.top; z: + is the front).
 // The log: along the right shoulder, front to back, resting on it beside the neck, a little more of it behind than in

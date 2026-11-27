@@ -6,10 +6,10 @@ import { collide } from './physics.js';
 import { Audio } from './audio.js';
 import { towerFloor, galleryFloor } from './world/tower.js';
 import { WATER_Y } from './world/planet.js';
-import { BARROW, WHEEL_AHEAD, pushedAhead } from './carry-items.js';
+import { BARROW, WHEEL_AHEAD, pushedAhead, CART } from './carry-items.js';
 import { apagada } from './opciones.js';
 import { gaitOf } from './input.js';
-import { makeRide, startRide, rideStep, slopeStep, braking, probeAhead, dodging, jumpK, CLEAR_V, GT, STUMBLE_V, SLIP_V, ROCK_TOP } from './horseride.js';
+import { makeRide, startRide, rideStep, slopeStep, braking, probeAhead, dodging, jumpK, CLEAR_V, GT, STUMBLE_V, SLIP_V, ROCK_TOP, cartStep, clampToCart, cartFollow } from './horseride.js';
 
 export class Person {
   constructor({ x, y, look, view = 'front', flip = false }) {
@@ -125,6 +125,28 @@ export function barrowPen(scene, list, x, y, fx, fy, feet = null) {
   return pen;
 }
 
+// ---------- pulling the cart (cart.js, Plan R4-5) ----------
+// Its body: the two wheels and the four corners of its bed, and the shafts half way to the horse, as circles [ahead of the
+// axle, side, radius]. As the wheelbarrow's: a step that puts it further into something is not taken, so a gap narrower
+// than the cart (a gate of one tile, a doorway) stops the horse, and it never clips into a house. And the water: a wheel in
+// CART.DEEP or more; and where there is digging, a wheel more than STEP_UP above or below the axle's ground
+const CART_RING = [[0, CART.TRACK + 0.02, 0.1], [0, -CART.TRACK - 0.02, 0.1], [CART.BED_Z0 + 0.07, CART.BED_X, 0.07], [CART.BED_Z0 + 0.07, -CART.BED_X, 0.07],
+  [CART.BED_Z1 - 0.05, CART.BED_X, 0.07], [CART.BED_Z1 - 0.05, -CART.BED_X, 0.07], [1.5, 0.41, 0.05], [1.5, -0.41, 0.05]];
+export function cartPen(scene, list, x, y, yaw, dug = false) {
+  let pen = 0;
+  const q = { x: 0, y: 0 }, fx = Math.sin(yaw), fy = Math.cos(yaw), base = dug ? scene.surfaceAt(x, y) : 0;
+  for (let i = 0; i < CART_RING.length; i++) {
+    const [a, s, r] = CART_RING[i], cx = x + fx * a + fy * s, cy = y + fy * a - fx * s;
+    q.x = cx; q.y = cy;
+    collide(q, list, r);
+    pen += Math.hypot(q.x - cx, q.y - cy);
+    if (i < 2 && scene.waterDepth && scene.waterDepth(cx, cy) >= CART.DEEP) pen += 1;
+    if (i < 2 && dug && Math.abs(scene.surfaceAt(cx, cy) - base) > STEP_UP) pen += 1;
+  }
+  return pen;
+}
+const NEXT = { x: 0, y: 0, yaw: 0, roll: 0 };
+
 export class Player extends Person {
   constructor(data) {
     super({ ...data, view: data.view || 'back' });
@@ -149,6 +171,8 @@ export class Player extends Person {
     this.depth = 0;                    // lo hondo del agua donde está (0 en tierra)
     this.bank = null;                  // en el agua junto a la pared de un canal, la altura de su borde (para salir de un salto)
     this.pushing = null;               // the wheelbarrow pushed (its model key: barrow.js); not saved
+    this.driving = null;               // the cart driven (its model key: cart.js), and where it is: cartPose { x, y, yaw, roll } (its axle); not saved
+    this.cartPose = null; this.cartHit = false;
     this.ride = makeRide();            // riding: the horse's speed, heading, gait and what it brakes for (horseride.js)
     this.onRide = null;                // (what happens riding: 'slide', 'stopped', 'fence', 'up', 'down', 'crash': horse.js onRide)
     this.lookAhead = reach => this.rideAhead(reach);
@@ -159,7 +183,7 @@ export class Player extends Person {
   get headUnder() { return diving && this.swim && this.sink + this.dive > HEAD_UNDER; }
   // Saltar (desde el suelo; en barca no)
   jump() {
-    if (this.boat || this.aboard || this.airborne || this.pushing) return;   // (pushing the wheelbarrow, no jumping)
+    if (this.boat || this.aboard || this.airborne || this.pushing || this.driving) return;   // (pushing the wheelbarrow, no jumping; nor with a cart behind)
     // Nadando, el espacio sube (lo mira update); junto a la orilla, salta a ella: sale del agua desde donde flota
     if (this.swim) {
       if (!this.shore || this.dive >= 0.05) return;   // (diving, Space only comes up: the jump out is at the surface)
@@ -234,7 +258,8 @@ export class Player extends Person {
     const world = !!scene.waterDepth;
     // (and with something in the arms, on foot, into nothing that would have to be swum: carry.js)
     // (and pushing the wheelbarrow, into nothing deeper than BARROW.DEEP)
-    const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : world ? (this.mount ? (x, y) => scene.waterDepth(x, y) >= HORSE_DEEP : push && !this.swim ? (x, y) => scene.waterDepth(x, y) >= BARROW.DEEP : this.carrying && !this.swim ? (x, y) => scene.waterDepth(x, y) >= SWIM_IN : null) : scene.blocked?.bind(scene);
+    const deepH = this.driving ? CART.DEEP : HORSE_DEEP;   // (with the cart behind, the horse goes into nothing it could not pull it through)
+    const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : world ? (this.mount ? (x, y) => scene.waterDepth(x, y) >= deepH : push && !this.swim ? (x, y) => scene.waterDepth(x, y) >= BARROW.DEEP : this.carrying && !this.swim ? (x, y) => scene.waterDepth(x, y) >= SWIM_IN : null) : scene.blocked?.bind(scene);
     if (blocked) {
       const wet = (x, y) => blocked(x, y) || blocked(x + RADIUS, y) || blocked(x - RADIUS, y) || blocked(x, y + RADIUS) || blocked(x, y - RADIUS);
       // (a caballo ya en lo hondo, llevado allí de otra forma: que pueda salir hacia lo menos hondo, y no se quede quieto
@@ -262,8 +287,21 @@ export class Player extends Person {
         else { p.x = this.x; p.y = this.y; }
       }
     }
+    // The cart's body (driving): where the step would drag it; a step that puts it further into something is not taken
+    const CV = R && this.driving && this.cartPose && near ? this.cartPose : null;
+    this.cartHit = false;
+    if (CV) {
+      const C = barrowColliders(near, CV.x, CV.y), cdug = !!scene.digNear?.(CV.x, CV.y), was = cartPen(scene, C, CV.x, CV.y, CV.yaw, cdug);
+      const pen = (x, y) => { const n = cartFollow(CV, x, y, NEXT); return cartPen(scene, C, n.x, n.y, n.yaw, cdug); };
+      if (!penOk(pen(p.x, p.y), was)) {
+        if (penOk(pen(p.x, this.y), was)) p.y = this.y;
+        else if (penOk(pen(this.x, p.y), was)) p.x = this.x;
+        else { p.x = this.x; p.y = this.y; }
+        this.cartHit = true;
+      }
+    }
     const moved = Math.hypot(p.x - this.x, p.y - this.y);
-    if (R && moved < R.v * dt * 0.6) R.v = Math.max(moved / dt, Math.min(R.v, SLIP_V));   // (stopped by something: it slips along it slowly; a glancing touch goes on at its speed)
+    if (R && moved < Math.abs(R.v) * dt * 0.6) R.v = R.v < 0 ? -moved / dt : Math.max(moved / dt, Math.min(R.v, SLIP_V));   // (stopped by something: it slips along it slowly; a glancing touch goes on at its speed)
     if (tier && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * EXERT[tier]);   // (correr da hambre)
     // (al pasar de una casilla a otra junto a lo cavado, los pies se quedan a su altura: a una más baja se cae; a una algo más
     // alta, z queda por debajo de 0 y sube suave, como un escalón)
@@ -272,6 +310,7 @@ export class Player extends Person {
     const pit = dug && (scene.digH(Math.floor(this.x), Math.floor(this.y)) !== null || scene.digH(Math.floor(p.x), Math.floor(p.y)) !== null);
     if (pit && (Math.floor(p.x) !== Math.floor(this.x) || Math.floor(p.y) !== Math.floor(this.y))) this.z = feet - scene.surfaceAt(p.x, p.y);
     this.x = p.x; this.y = p.y;
+    if (CV) cartFollow(CV, this.x, this.y);   // (and the cart comes after it)
     if (R) { this.byHole = dug; this.rideNear = near; this.rideScene = scene; }
     this.inWater(dt, keys, scene, world, pit, l ? speed * l : 0);
     // (for needs.js stamina, from the gated tier: sprinting or jogging on foot; swimming fast, not while going down)
@@ -318,13 +357,14 @@ export class Player extends Person {
     if (!R.on) { startRide(R, this.face); this.rideNear = null; }
     // (turned from outside, the bow aimed or a greeting: standing, the horse turns round to it)
     else if (this.face !== R.face) { if (R.v < 1) R.look = Math.atan2(this.face.x, this.face.y); this.face = R.face; }
-    R.going = l > 0; R.tier = tier; R.mul = this.speedMul || 1; R.air = this.airborne;
+    R.going = l > 0; R.tier = tier; R.mul = this.speedMul || 1; R.air = this.airborne; R.cart = !!this.driving;
     if (l > 0) { const n = Math.hypot(dx, dy) || 1; R.wx = dx / n; R.wy = dy / n; }
     const slope = slopeStep(R, dt, scene, this.x, this.y, this.depth);
     if (slope) this.onRide?.(slope);
     const brake = this.rideNear && this.rideScene === scene ? braking(R, dt, this.lookAhead) : '';
     if (brake) this.onRide?.(brake);
-    const ev = rideStep(R, dt);
+    const ev = R.cart ? cartStep(R, dt) : rideStep(R, dt);
+    if (R.cart && this.cartPose) clampToCart(R, this.cartPose.yaw);   // (the shafts hold it)
     if (ev) this.onRide?.(ev);
     return R;
   }

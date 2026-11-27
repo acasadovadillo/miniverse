@@ -54,6 +54,8 @@ export const BX_NEXT = 100, BX_AFTER_LOSS = 50, BX_MAX = 299;
 export const GAIN = { brush: 20, brushDirt: 30, brushAgain: 10, carrot: 25, apple: 25, hay: 10, wheat: 10, pat1: 10, pat: 3, ride20s: 1, calm: 8, drink: 8, graze: 4, trim: 10 };
 export const CAPS = { treats: 3, pats: 5, rideBx: 40 };
 export const SHOD_STAM = 1.15;
+// Pulling a cart (Plan R4-5, §1.7): its canter spends the stamina at this much of the gallop's rate
+export const CART_DRAIN = 0.6;
 // The stamina a second of gallop spends: STAM_MAX / GALLOP_S[L-1] / (shod ? SHOD_STAM : 1) × (1 + max(0, kg - 30) / 40). breed:
 // its stats (horsebreeds.js): how long its gallop lasts and what it carries for nothing
 export const drainOf = (level, shod, kg = 0, breed = PLAIN) => STAM_MAX / GALLOP_S[Math.max(1, Math.min(4, level)) - 1] / breed.stamina / (shod ? SHOD_STAM : 1) * (1 + Math.max(0, kg - breed.kg) / 40);
@@ -161,7 +163,7 @@ export class Horse {
     if (g.live?.guest && this.lostSeat(dt, a, p)) return;
     const moving = p.moving;
     this.stillT = moving ? 0 : this.stillT + dt;
-    this.galloping = moving && p.gait === 2;
+    this.galloping = moving && (p.gait === 2 || (!!p.driving && p.gait === 3));   // (pulling a cart, its canter tires it: CART_DRAIN)
     // The rear ends: control comes back (and, at level 1, maybe on the ground: throwOff)
     if (this.actKind && g.time >= this.actUntil) this.actKind = null;
     if (this.throwAt !== null && g.time >= this.throwAt) { this.throwAt = null; this.throwOff(a); if (!p.mount) return; }
@@ -232,7 +234,7 @@ export class Horse {
       this.restT = 0;
       // (sand, snow, mud and uphill tire it more, a path a little less: horseride.js GROUND, CLIMB)
       const R = this.game.player.ride, S = statsOf(a);
-      this.stam -= drainOf(levelOf(a.love), !!a.shod, this.game.saddlebags?.kg?.(a) || 0, S) * R.ground.drain * (R.grade >= CLIMB + S.slope ? CLIMB_DRAIN : 1) * dt;
+      this.stam -= drainOf(levelOf(a.love), !!a.shod, this.game.saddlebags?.kg?.(a) || 0, S) * R.ground.drain * (R.grade >= CLIMB + S.slope ? CLIMB_DRAIN : 1) * (this.game.player.driving ? CART_DRAIN : 1) * dt;
       if (this.stam <= 0) this.blow(a);
       return;
     }
@@ -277,6 +279,7 @@ export class Horse {
     R.bare = !!C?.bare(a);
     R.winded = this.noGallop(); R.noGallop = R.winded || !!C?.sore(a);   // (sore: the canter at most)
     R.hold = this.held(); R.arcade = !!arcade;
+    R.cartK = p.driving ? this.game.cart?.speedK?.() ?? 1 : 1;   // (the cart's load and the breed: cart.js)
     const tx = Math.floor(p.x), ty = Math.floor(p.y);
     if (tx === this.tileX && ty === this.tileY && sc === this.tileScene && R.on) return;
     this.tileX = tx; this.tileY = ty; this.tileScene = sc;
@@ -310,7 +313,8 @@ export class Horse {
     } else if (ev === 'stopped') {
       // (only now, stopped: Space while it slides still goes over)
       if (R.fence) { R.fence = false; this.fences++; this.act('toss', TOSS_S); Audio.snort?.(); this.say('horse.refuse.fence'); }
-    } else if (ev === 'up' || ev === 'down') {
+    } else if (ev === 'steep') this.say('cart.too_steep');   // (a cart behind: horseride.js cartStep)
+    else if (ev === 'up' || ev === 'down') {
       if (this.actKind && g.time < this.actUntil) return;
       this.act('toss', TOSS_S);
       Audio.snort?.();

@@ -497,6 +497,7 @@ export class BuildMode {
     if (this.unknown(id, own)) return;
     if (!own && this.lived(tile)) return;
     if (id === 'wheelbarrow' && g.barrow?.loaded(tile)) { g.gather.float(tr('barrow.empty_first'), '#ffb0a0'); Audio.error(); return; }   // (its stacks or its big things: barrow.js)
+    if (id === 'cart' && (g.barrow?.loaded(tile) || g.cart?.hitched(tile))) { g.gather.float(tr(g.cart?.hitched(tile) ? 'cart.unhitch_first' : 'cart.empty_first'), '#ffb0a0'); Audio.error(); return; }   // (and the cart: cart.js)
     if (CHESTS[id] && sc.chestAt(...tile)?.some(Boolean)) { g.gather.float(tr('build.empty_first', { what: CHESTS[id][1] }), '#ffb0a0'); Audio.error(); return; }
     if (PIECES[id] && !ITEMS[id]) {
       const back = this.backOf(hit, id);

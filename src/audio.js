@@ -255,6 +255,10 @@ export const Audio = {
     src.start(t, Math.random() * 0.4); src.stop(t + 0.7);
     clop(t, false, k); clop(t + 0.07, false, k * 0.8);
   },
+  // The cart (cart.js): its iron tyres over the ground, a bump each half metre (on stone and paths harder and higher); and the
+  // wood of the shafts creaking in a turn
+  rumble(hard = false, k = 1) { Audio.noiseHit(hard ? 260 + Math.random() * 90 : 150 + Math.random() * 60, 0.12, (hard ? 0.16 : 0.1) * k, 'lowpass'); if (hard && Math.random() < 0.3) Audio.noiseHit(1800, 0.02, 0.03 * k); },
+  creak(k = 1) { if (!ac || !on) return; const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime, f = 180 + Math.random() * 80; o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t); o.frequency.linearRampToValueAtTime(f * 1.35, t + 0.22); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.018 * k, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28); o.connect(g).connect(sfx); o.start(t); o.stop(t + 0.3); },
   // Pesca: el corcho cae al agua, una picada de mentira, el chapuzón al clavar y el carrete al recoger
   drip(k = 1) { const f = 900 + Math.random() * 500; tone([[f, 0.025, 'sine', 0.035 * k], [f * 1.6, 0.04, 'sine', 0.02 * k]]); Audio.noiseHit(2600, 0.02, 0.05 * k); },   // (a drop from a leaking roof)
   plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },

@@ -17,7 +17,7 @@
 //   - Moving with it: entities.js (barrowPen, turnPushed: never into a wall, never stuck); its speed and the hands:
 //     carry.js (speedMul, noRun, handsBusy, syncArms). What it carries does not weigh on you.
 // Only the game imports this file (and the tests); it never imports src/three (the drawing reads e.pushing, o.model).
-import { BARROW, CENTER_AHEAD, WHEEL_AHEAD, BULKY, CARCASS_DAYS, barrowKey, parseBarrowKey, randomId } from './carry-items.js';
+import { BARROW, CENTER_AHEAD, WHEEL_AHEAD, BULKY, CARCASS_DAYS, barrowKey, parseBarrowKey, randomId, CART, VEHICLES, vehicleOf, parseCartKey } from './carry-items.js';
 import { cleanCq, dayOfCq, isGame } from './quality.js';
 import { CHUNK } from './world/gen.js';
 import { wrapIndex, inPlanet } from './world/planet.js';
@@ -51,10 +51,16 @@ const xyOf = k => k.split(',').map(Number);
 const copy = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const isBarrow = raw => typeof raw === 'string' && raw.split('@')[0] === ID;
-// Its 12 stacks, copied (what a chest holds: the same objects, never shared between two places)
-export const padStacks = c => { const out = Array.isArray(c) ? c.map(s => (s ? { ...s } : null)) : []; while (out.length < BARROW.STACKS) out.push(null); return out; };
-// Its big things, checked: [[id, day|null, cq?]…], LOADS at most
-export const cleanLoads = l => (Array.isArray(l) ? l : []).filter(e => Array.isArray(e) && BULKY[e[0]]).slice(0, LOADS).map(([id, day, cq]) => { const q = cleanCq(cq), n = Number.isFinite(day) ? day : null; return q && isGame(id) ? [id, n, q] : [id, n]; });
+// (the wheelbarrow or the horse cart, cart.js: the same machinery, each with its own sizes, VEHICLES)
+const isVehicle = raw => !!vehicleOf(raw);
+const kindOfRec = r => (r?.k === CART.ID ? CART.ID : ID);
+const sizes = kind => VEHICLES[kind] || VEHICLES[ID];
+// Its 12 stacks (n: the cart's 24), copied (what a chest holds: the same objects, never shared between two places)
+export const padStacks = (c, n = BARROW.STACKS) => { const out = Array.isArray(c) ? c.map(s => (s ? { ...s } : null)) : []; while (out.length < n) out.push(null); return out; };
+// Its big things, checked: [[id, day|null, cq?]…], LOADS at most (max: the cart's 4)
+export const cleanLoads = (l, max = LOADS) => (Array.isArray(l) ? l : []).filter(e => Array.isArray(e) && BULKY[e[0]]).slice(0, max).map(([id, day, cq]) => { const q = cleanCq(cq), n = Number.isFinite(day) ? day : null; return q && isGame(id) ? [id, n, q] : [id, n]; });
+// (a vehicle's chest and big things at a tile, by its kind)
+const stacksAt = (kind, c) => padStacks(c, sizes(kind).STACKS), loadsFor = (kind, l) => cleanLoads(l, sizes(kind).LOADS);
 const num = (v, d) => (Number.isFinite(v) ? v : Number.isFinite(d) ? d : 0);
 
 // The host, with the changes of a guest's chunk (k), before applying them (live.js 'w'). Only the fields of the
@@ -62,7 +68,8 @@ const num = (v, d) => (Number.isFinite(v) ? v : Number.isFinite(d) ? d : 0);
 // checks them with mayEdit). edit: whether the guest may touch this chunk (mayEdit). Pure: nothing is changed here.
 // → { ok: the wheelbarrow's ops to apply, rest, back: ops to send back to the guest, park: the record ids to park,
 //     claims: the requests to resolve, late: [{ id, k, v }] stacks that go into a record }
-export function arbitrate(world, peer, k, ops, { edit = true, recent = new Map(), now = 0, clock = 0 } = {}) {
+// ours(owner, by): may by drive a cart of owner's (the couple's, cart.js)
+export function arbitrate(world, peer, k, ops, { edit = true, recent = new Map(), now = 0, clock = 0, ours = () => true } = {}) {
   const out = { ok: [], rest: [], back: [], park: [], claims: [], late: [] };
   const d = world.deltas.get(k) || {}, by = peer?.id, at = Array.isArray(peer?.at) ? peer.at : null;
   // (the tiles whose placed thing this message takes away: a take of a wheelbarrow removes its tile in the same message)
@@ -81,14 +88,16 @@ export function arbitrate(world, peer, k, ops, { edit = true, recent = new Map()
       if (!cur) {
         // Taking it: only if the same message takes its tile away, and here that tile has a wheelbarrow with this id. The
         // record is made from what is here (what was put in it a moment before is not lost; nobody makes up its contents)
-        const kp = edit && by ? [...gone].find(tp => isBarrow(d.placed?.[tp]) && (d.barrow?.[tp]?.id || 't' + tp) === c) : undefined;
+        // (a cart: only by its couple, cart.js; and its horse and its owner go in its record)
+        const kp = edit && by ? [...gone].find(tp => isVehicle(d.placed?.[tp]) && (d.barrow?.[tp]?.id || 't' + tp) === c && (vehicleOf(d.placed[tp]) !== CART.ID || ours(d.barrow?.[tp]?.o, by))) : undefined;
         if (kp === undefined) {
           out.back.push(['pushed', c]);
-          for (const tp of gone) if (isBarrow(d.placed?.[tp])) refused.add(tp);
+          for (const tp of gone) if (isVehicle(d.placed?.[tp])) refused.add(tp);
           continue;
         }
-        const [x, y] = close(num(v.x, at?.[0]), num(v.y, at?.[1]), PEER_NEAR);
-        out.ok.push(['pushed', c, { by, x: r2(x), y: r2(y), c: padStacks(d.chest?.[kp]), l: cleanLoads(d.barrow?.[kp]?.l), t: Math.round(clock) }]);
+        const [x, y] = close(num(v.x, at?.[0]), num(v.y, at?.[1]), PEER_NEAR), kind = vehicleOf(d.placed[kp]), B = d.barrow?.[kp];
+        const extra = kind === CART.ID ? { k: CART.ID, ...(typeof v.h === 'string' && v.h.length < 80 && { h: v.h }), ...(B?.o && { o: B.o }) } : {};
+        out.ok.push(['pushed', c, { by, x: r2(x), y: r2(y), c: stacksAt(kind, d.chest?.[kp]), l: loadsFor(kind, B?.l), t: Math.round(clock), ...extra }]);
         recent.set(kp, { id: c, k, until: now + RECENT });
         continue;
       }
@@ -150,9 +159,12 @@ export class Barrow {
   record() { const r = this.rec; return r ? this.game.world?.deltas.get(r.k)?.pushed?.[r.id] || null : null; }
   // A parked one: its chunk's data for its tile
   dataAt(tile) { const [tx, ty] = tile, d = this.game.world.delta(...chunkOf(tx, ty)); return { d, k: `${tx},${ty}` }; }
-  loadsAt(tile) { const { d, k } = this.dataAt(tile); return cleanLoads(d?.barrow?.[k]?.l); }
+  // (a parked wheelbarrow or cart, cart.js: the same chest and big things, each with its sizes)
+  kindAt(tile) { return vehicleOf(this.game.world?.ownAt('placed', tile[0], tile[1])); }
+  loadsAt(tile) { const { d, k } = this.dataAt(tile); return loadsFor(this.kindAt(tile) || ID, d?.barrow?.[k]?.l); }
+  maxLoads(tile) { return sizes(this.kindAt(tile) || ID).LOADS; }
   idAt(tile) { const { d, k } = this.dataAt(tile); return d?.barrow?.[k]?.id || 't' + k; }
-  isAt(tile) { return isBarrow(this.game.world?.ownAt('placed', tile[0], tile[1])); }
+  isAt(tile) { return isVehicle(this.game.world?.ownAt('placed', tile[0], tile[1])); }
   // Has it stacks or big things? (then B › Remove, B › Move and enlarging the house treat it as full)
   loaded(tile) { return !!this.game.world.chestAt(...tile)?.some(Boolean) || this.loadsAt(tile).length > 0; }
   // (the key of what is pushed, from its record: its big things and whether it has stacks)
@@ -294,7 +306,7 @@ export class Barrow {
   loadParked(o) {
     const g = this.game, w = g.world, C = g.carry, id = C?.held;
     if (!id || !this.isAt(o.tile)) return;
-    if (this.loadsAt(o.tile).length >= LOADS) { this.say(t('barrow.full')); return; }
+    if (this.loadsAt(o.tile).length >= this.maxLoads(o.tile)) { this.say(t('barrow.full')); return; }
     const day = C.day ?? null, cq = C.cq;
     if (this.guest()) {
       if (this.hostOld()) { this.say(t('barrow.server_old')); return; }
@@ -308,8 +320,8 @@ export class Barrow {
       });
       return;
     }
-    const { d, k } = this.dataAt(o.tile), B = (d.barrow ||= {})[k] ||= { id: 't' + k, l: [] };
-    B.l = cleanLoads([...cleanLoads(B.l), [id, day, cq]]);
+    const { d, k } = this.dataAt(o.tile), B = (d.barrow ||= {})[k] ||= { id: 't' + k, l: [] }, max = this.maxLoads(o.tile);
+    B.l = cleanLoads([...cleanLoads(B.l, max), [id, day, cq]], max);
     C.set(null);
     w.touch(...chunkOf(...o.tile));
     Audio.place();
@@ -350,8 +362,8 @@ export class Barrow {
   stacksChanged(tile) {
     const w = this.game.world;
     if (!w || this.game.scene !== w || !this.isAt(tile)) return;
-    const o = w.placedObjectAt(...tile), full = !!w.chestAt(...tile)?.some(Boolean);
-    if (!!parseBarrowKey(o?.model || ID)?.full !== full) w.touch(...chunkOf(...tile));
+    const o = w.placedObjectAt(...tile), full = !!w.chestAt(...tile)?.some(Boolean), m = o?.model || this.kindAt(tile) || ID;
+    if (!!(parseBarrowKey(m) || parseCartKey(m))?.full !== full) w.touch(...chunkOf(...tile));
   }
 
   // ---------- parking ----------
@@ -382,19 +394,21 @@ export class Barrow {
   // Where it fits with its centre at C and heading yaw (fitFree: it snaps to walls and keeps off furniture), never behind a
   // wall or a closed door from the player (reach), in a doorway or right next to one; if not there, centred on its tile
   // and the ones ahead and to the sides, at the heading on the axes nearest to yaw. avoid: a point to keep clear (a player)
-  spot(C, yaw, { player = null, reach = false, avoid = null } = {}) {
+  // kind: the cart's (cart.js) is parked the same way, with its own footprint
+  spot(C, yaw, { player = null, reach = false, avoid = null, kind = ID } = {}) {
     const w = this.game.world, cr = this.game.carry;
-    const ok = f => !!f?.ok && !!f.anchor && (!reach || !player || !cr || cr.reached(player, f.cx, f.cy)) && this.clearOfDoors(f) && !(avoid && hitsCircle(f.box, avoid[0], avoid[1], 0.35));
+    const ok = f => !!f?.ok && !!f.anchor && (!reach || !player || !cr || cr.reached(player, f.cx, f.cy)) && this.clearOfDoors(f, kind) && !(avoid && hitsCircle(f.box, avoid[0], avoid[1], 0.35));
     if (!Number.isFinite(C.x) || !Number.isFinite(C.y)) return null;
-    let f = w.fitFree(ID, C.x, C.y, yaw, 0, player);
+    let f = w.fitFree(kind, C.x, C.y, yaw, 0, player);
     if (ok(f)) return f;
     const q = Math.round(yaw / Q) * Q, [ax, ay] = dirOf(q).map(Math.round), tx = Math.floor(C.x), ty = Math.floor(C.y);
-    for (const [i, j] of [[0, 0], [ax, ay], [ay, -ax], [-ay, ax]]) { f = w.fitFree(ID, tx + i + 0.5, ty + j + 0.5, q, 0, player); if (ok(f)) return f; }
+    for (const [i, j] of [[0, 0], [ax, ay], [ay, -ax], [-ay, ax]]) { f = w.fitFree(kind, tx + i + 0.5, ty + j + 0.5, q, 0, player); if (ok(f)) return f; }
     return null;
   }
-  clearOfDoors(f) {
+  clearOfDoors(f, kind = ID) {
     const w = this.game.world, [fx, fy] = dirOf(f.a);
     if (!w.doorNear) return true;
+    if (kind === CART.ID) { const e = (CART.BED_Z1 - CART.BED_Z0) / 2; return !w.doorNear(f.cx, f.cy, 1.3) && !w.doorNear(f.cx + fx * e, f.cy + fy * e, 0.8) && !w.doorNear(f.cx - fx * e, f.cy - fy * e, 0.8); }
     return !w.doorNear(f.cx, f.cy, 1.05) && !w.doorNear(f.cx + fx * BARROW.WHEEL_Z, f.cy + fy * BARROW.WHEEL_Z, 0.6) && !w.doorNear(f.cx - fx * 0.7, f.cy - fy * 0.7, 0.6);
   }
   // By force: the spot above; then rings of tiles up to RING around, four headings each; the same rings skipping the
@@ -402,18 +416,18 @@ export class Barrow {
   // nothing placed (with all it holds). Never as drops: those are not saved with the world, they would be lost on closing.
   // null only in the middle of the sea (the record stays, saved, and is tried again). strict (Q, stuck): only the spot and
   // the rings with the village's rule, reached from the player (a wall built on it on purpose takes it nowhere else)
-  forcedSpot(C, yaw, { player = null, avoid = null, strict = false } = {}) {
+  forcedSpot(C, yaw, { player = null, avoid = null, strict = false, kind = ID } = {}) {
     const w = this.game.world, cr = this.game.carry;
     if (!Number.isFinite(C.x) || !Number.isFinite(C.y)) return null;
-    let s = this.spot(C, yaw, { player, reach: !!player, avoid });
+    let s = this.spot(C, yaw, { player, reach: !!player, avoid, kind });
     if (s) return s;
     const tx0 = Math.floor(C.x), ty0 = Math.floor(C.y), q0 = ((Math.round(yaw / Q) % 4) + 4) % 4;
     const ring = () => {
       for (let r = 0; r <= RING; r++) for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
         if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
         for (let k = 0; k < 4; k++) {
-          const f = w.fitFree(ID, tx0 + i + 0.5, ty0 + j + 0.5, ((q0 + k) % 4) * Q, 0, null);
-          if (f?.ok && f.anchor && this.clearOfDoors(f) && !(avoid && hitsCircle(f.box, avoid[0], avoid[1], 0.35)) && (!strict || !player || !cr || cr.reached(player, f.cx, f.cy))) return f;
+          const f = w.fitFree(kind, tx0 + i + 0.5, ty0 + j + 0.5, ((q0 + k) % 4) * Q, 0, null);
+          if (f?.ok && f.anchor && this.clearOfDoors(f, kind) && !(avoid && hitsCircle(f.box, avoid[0], avoid[1], 0.35)) && (!strict || !player || !cr || cr.reached(player, f.cx, f.cy))) return f;
         }
       }
       return null;
@@ -432,14 +446,15 @@ export class Barrow {
   // (whoever decides) Put a record down at a spot (fitFree's, or the last resort's { tile, a }): its chest, its id and its
   // big things go with it, and the record goes. false: no spot (the record stays)
   putDown(id, k, r, spot) {
-    const w = this.game.world;
+    const w = this.game.world, kind = kindOfRec(r);
     if (!spot) { this.noRoom(id); return false; }
-    let tile;
-    if (spot.anchor) { w.placeFree(ID, spot, false); tile = spot.anchor; }
-    else { tile = spot.tile; w.place(tile[0], tile[1], ID, Math.round(spot.a / Q) % 4); (w.delta(...chunkOf(...tile), true).pos ||= {})[`placed:${tile[0]},${tile[1]}`] = [tile[0] + 0.5, tile[1] + 0.5, r3(spot.a)]; }
+    let tile, at;
+    if (spot.anchor) { w.placeFree(kind, spot, false); tile = spot.anchor; at = [spot.ox, spot.oy, spot.a]; }
+    else { tile = spot.tile; at = [tile[0] + 0.5, tile[1] + 0.5, spot.a]; w.place(tile[0], tile[1], kind, Math.round(spot.a / Q) % 4); (w.delta(...chunkOf(...tile), true).pos ||= {})[`placed:${tile[0]},${tile[1]}`] = [tile[0] + 0.5, tile[1] + 0.5, r3(spot.a)]; }
     const [tx, ty] = tile, kk = `${tx},${ty}`, d = w.delta(...chunkOf(tx, ty), true);
-    d.chest[kk] = padStacks(r.c);
-    (d.barrow ||= {})[kk] = { id, l: cleanLoads(r.l) };
+    d.chest[kk] = stacksAt(kind, r.c);
+    (d.barrow ||= {})[kk] = { id, l: loadsFor(kind, r.l), ...(kind === CART.ID && r.o && { o: r.o }), ...(kind === CART.ID && typeof r.h === 'string' && { h: r.h }) };
+    if (kind === CART.ID) try { this.game.cart?.onPutDown(r, tile, ...at); } catch (e) { reportFault(e, 'Cart.onPutDown'); }
     const dr = w.deltas.get(k);
     if (dr?.pushed) delete dr.pushed[id];
     w.touch(...chunkOf(tx, ty));
@@ -456,15 +471,19 @@ export class Barrow {
   parkRecord(id, k, at = null, avoid = null) {
     const w = this.game.world, r = w.deltas.get(k)?.pushed?.[id];
     if (!r) return false;
-    const P = Array.isArray(at) ? at : Array.isArray(r.park) ? r.park : [r.x, r.y, 0];
+    const P = Array.isArray(at) ? at : Array.isArray(r.park) ? r.park : [r.x, r.y, 0], kind = kindOfRec(r);
     if (this.rec?.id === id) this.drop();
+    if (kind === CART.ID && this.game.cart?.rec?.id === id) this.game.cart.drop();
+    // (a cart: anywhere a horse can be, the paths and the square too, as cart.js spot; its record's x, y is its axle)
+    if (kind === CART.ID) { const w = this.game.world, was = w.buildAnywhere; try { w.buildAnywhere = true; return this.putDown(id, k, r, this.forcedSpot({ x: +P[0], y: +P[1] }, +P[2] || 0, { avoid, kind })); } finally { w.buildAnywhere = was; } }
     return this.putDown(id, k, r, this.forcedSpot({ x: +P[0], y: +P[1] }, +P[2] || 0, { avoid }));
   }
   // (whoever decides, the first update) This player's records from before (the game was closed while pushing it): parked
   // where it went. Not at reset: playing together, the game starts before joining, and a change then would never be sent
   parkOwn() {
     const g = this.game, w = g.world, p = g.player, mine = me();
-    for (const [k, d] of w.deltas) for (const [id, r] of Object.entries(d?.pushed || {})) if (r?.by === mine && this.rec?.id !== id) this.parkRecord(id, k, [r.x, r.y, 0], p ? [p.x, p.y] : null);
+    // (not a cart whose horse this player still rides: cart.js resume goes on driving it)
+    for (const [k, d] of w.deltas) for (const [id, r] of Object.entries(d?.pushed || {})) if (r?.by === mine && this.rec?.id !== id && !(r.k === CART.ID && p?.mount && r.h === p.horseId && !g.cart?.off)) this.parkRecord(id, k, [r.x, r.y, 0], p ? [p.x, p.y] : null);
   }
 
   // ---------- each step ----------
@@ -552,7 +571,7 @@ export class Barrow {
   // live.js, with a guest's changes of chunk k: see arbitrate above
   arbitrate(peer, k, ops, edit = true) {
     const w = this.game.world;
-    return arbitrate(w, peer, k, ops, { edit, recent: this.recent, now: this.game.time, clock: w.clock || 0 });
+    return arbitrate(w, peer, k, ops, { edit, recent: this.recent, now: this.game.time, clock: w.clock || 0, ours: (o, by) => this.game.cart ? this.game.cart.ours(o, by) : true });
   }
   // And once they are applied: late stacks into their records, the parkings asked for, the requests in order
   afterArbitrate(k, A, peer) {
@@ -583,9 +602,9 @@ export class Barrow {
       } else if (c.k === 'take' || c.k === 'put') {
         const tile = Array.isArray(c.tile) ? c.tile.map(Number) : null;
         if (tile && this.isAt(tile)) {
-          const { d: dt, k: kt } = this.dataAt(tile), B = ((dt.barrow ||= {})[kt] ||= { id: 't' + kt, l: [] }), l = cleanLoads(B.l);
+          const { d: dt, k: kt } = this.dataAt(tile), B = ((dt.barrow ||= {})[kt] ||= { id: 't' + kt, l: [] }), max = this.maxLoads(tile), l = cleanLoads(B.l, max);
           if (c.k === 'take' && l[c.i]?.[0] === c.id) { extra.id = l[c.i][0]; extra.day = l[c.i][1]; B.l = l.filter((_, j) => j !== c.i); ok = true; }
-          if (c.k === 'put' && l.length < LOADS && BULKY[c.id]) { B.l = cleanLoads([...l, [c.id, Number.isFinite(c.day) ? c.day : null, c.cq]]); ok = true; }
+          if (c.k === 'put' && l.length < max && BULKY[c.id]) { B.l = cleanLoads([...l, [c.id, Number.isFinite(c.day) ? c.day : null, c.cq]], max); ok = true; }
           if (ok) w.touch(...chunkOf(...tile));
         }
       } else if (c.k === 'boat') {
@@ -625,7 +644,7 @@ export class Barrow {
     for (const [tp, R] of this.recent) if (!(R.until > now)) this.recent.delete(tp);
     // (who is pushing now, by the network: their newest record is alive)
     const pushers = new Set();
-    if (L?.joined) for (const peer of L.peers.values()) if (peer.playing && peer.sc === 'world' && peer.entity?.pushing && peer.id) pushers.add(peer.id);
+    if (L?.joined) for (const peer of L.peers.values()) if (peer.playing && peer.sc === 'world' && (peer.entity?.pushing || peer.entity?.driving) && peer.id) pushers.add(peer.id);
     const newest = new Map(), seen = new Set();
     for (const k of keys) for (const [id, r] of Object.entries(w.deltas.get(k)?.pushed || {})) { seen.add(id); if (r && (!newest.has(r.by) || (r.t || 0) > newest.get(r.by).t)) newest.set(r.by, { id, t: r.t || 0 }); }
     for (const id of this.idle.keys()) if (!seen.has(id)) this.idle.delete(id);
@@ -638,16 +657,16 @@ export class Barrow {
       // (a) the carcasses on a parked one: bones into its stacks (what does not fit, on the ground beside it)
       for (const [tp, B] of Object.entries(d.barrow || {})) {
         const [tx, ty] = xyOf(tp);
-        if (!isBarrow(d.placed?.[tp])) {
+        if (!isVehicle(d.placed?.[tp])) {
           // (e) its tile is something else now: its big things to the ground near it
-          for (const [id, day, cq] of cleanLoads(B?.l)) g.carry?.toShore([id, null, day, tx + 0.5, ty + 0.5, 0, cq], tx + 0.5, ty + 0.5, false);
+          for (const [id, day, cq] of cleanLoads(B?.l, CART.LOADS)) g.carry?.toShore([id, null, day, tx + 0.5, ty + 0.5, 0, cq], tx + 0.5, ty + 0.5, false);
           delete d.barrow[tp]; touched = true;
           continue;
         }
-        const l = cleanLoads(B?.l), keep = l.filter(([id, day]) => !(BULKY[id].prey && Number.isFinite(day) && today - g.carry.dayOf(day) >= CARCASS_DAYS));
+        const kind = vehicleOf(d.placed[tp]), l = loadsFor(kind, B?.l), keep = l.filter(([id, day]) => !(BULKY[id].prey && Number.isFinite(day) && today - g.carry.dayOf(day) >= CARCASS_DAYS));
         if (keep.length === l.length) continue;
         B.l = keep; touched = true;
-        const chest = d.chest[tp] ||= padStacks(null);
+        const chest = d.chest[tp] ||= stacksAt(kind, null);
         const lost = l.filter(e => !keep.includes(e)).reduce((n, e) => n + (e[2]?.[3] || 0), 0);   // (the arrows that were in them)
         for (let i = 0; i < lost; i++) if (!addTo(chest, 'flecha', 1)) g.gather?.addDrop({ id: 'flecha', x: tx + 0.5, y: ty + 0.5, z: 4, vz: 30, t: 0, scene: w });
         for (let i = 0; i < l.length - keep.length; i++) { const n = 1 + (Math.random() < 0.5 ? 1 : 0); if (!addTo(chest, 'hueso', n)) g.carry?.bones(tx, ty, w); }
@@ -655,7 +674,7 @@ export class Barrow {
       // (b) records: alive only if they are this game's own, or their pusher is here and says they push (their newest one)
       for (const [id, r] of Object.entries(d.pushed || {})) {
         if (!isMap(r)) { delete d.pushed[id]; touched = true; continue; }
-        const own = this.rec?.id === id && r.by === me(), alive = own || (pushers.has(r.by) && newest.get(r.by)?.id === id);
+        const own = (this.rec?.id === id || g.cart?.rec?.id === id) && r.by === me(), alive = own || (pushers.has(r.by) && newest.get(r.by)?.id === id);
         if (alive && !Array.isArray(r.park)) { this.idle.delete(id); continue; }
         if (this.failedAt.has(id) && now - this.failedAt.get(id) < RETRY) continue;
         if (!this.idle.has(id)) this.idle.set(id, now);
@@ -696,7 +715,7 @@ export class Barrow {
     const p = g.player;
     if (this.rec && p && distTo(box(p, Math.atan2(p.face.x, p.face.y)), x, y) < 0.45) return true;
     if (g.live?.joined) for (const peer of g.live.others) { const e = peer.entity; if (e?.pushing && peer.sc === 'world' && Math.hypot(e.x - x, e.y - y) < 3 && distTo(box(e, e.yaw ?? 0), x, y) < 0.45) return true; }
-    return false;
+    return !!g.cart?.onDoor(tile);   // (nor on a cart, cart.js)
   }
 }
 // (where the hint looks for deep water ahead: the wheel)

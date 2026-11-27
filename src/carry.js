@@ -13,7 +13,7 @@
 import { Inventory, HOTBAR, SLOTS } from './inventory.js';
 import { tracked, stamp, joins, blend, takeOrder, plain } from './catch.js';
 import { ITEMS, LEGACY_ITEMS, CHESTS } from './items.js';
-import { BULKY, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, BARROW, weightOf, stackKg } from './carry-items.js';
+import { BULKY, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, BARROW, weightOf, stackKg, vehicleOf } from './carry-items.js';
 import { qualityOn, cleanCq, dayOfCq, starsOf, starText, whyOf, isGame, kgOf, slowOf, fieldDrops, kitchenList, partsList, warmAt, F, GUT_TTL } from './quality.js';
 import { reportFault } from './faults.js';
 import { BUILD_STATION_REACH } from './build.js';
@@ -352,6 +352,7 @@ export class Carry {
   // kind (sitting, the bed, a passenger's seat), the wheelbarrow or a big thing
   dropFirst(kind) {
     if (this.game.barrow?.pushing) return t('barrow.drop_first');
+    if (this.game.cart?.rec && kind !== 'mount') return t('cart.get_down_first');   // (on a cart's bench: cart.js)
     if (kind === 'mount' || kind === 'boat' || kind === 'cave') return '';
     return this.held ? t('carry.drop_first', { item: noun('item', this.held) }) : '';
   }
@@ -852,7 +853,7 @@ export class Carry {
           if (s.n <= 0) c[j] = null;
         }
         if (got && o.horse) { g.saddlebags?.changed(o.horse); from.push(t('carry.from_chest', { n: got, item: ITEMS[m], chest: { name: t('gui.chest.saddlebags'), g: 'fp', plural: true } })); }
-        else if (got) { g.scene.chestTouched(...o.tile); if (o.placed === BARROW.ID) g.barrow?.stacksChanged(o.tile); from.push(t('carry.from_chest', { n: got, item: ITEMS[m], chest: { name: ITEMS[o.placed].name, g: CHESTS[o.placed][1].startsWith('la ') ? 'f' : 'm' } })); }
+        else if (got) { g.scene.chestTouched(...o.tile); if (vehicleOf(o.placed)) g.barrow?.stacksChanged(o.tile); from.push(t('carry.from_chest', { n: got, item: ITEMS[m], chest: { name: ITEMS[o.placed].name, g: CHESTS[o.placed][1].startsWith('la ') ? 'f' : 'm' } })); }
         if (n <= 0) break;
       }
     }

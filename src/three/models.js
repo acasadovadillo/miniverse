@@ -1879,6 +1879,124 @@ BUILD.wheelbarrow = (m, a, b) => {
     [-0.14, 0.15, 0.3, 0.14, 0.3, 0.6], [-0.06, 0, 0.38, 0.06, 2 * S.WHEEL_R, Math.min(S.LEN / 2, S.WHEEL_Z + S.WHEEL_R)]];
 };
 
+// ---------- the horse cart (carry-items.js CART; cart.js, Plan R4-5) ----------
+// A two-wheeled farm cart of the north, a «carro de varas»: a bed of boards on a frame of two beams that run on forward
+// into the shafts, three stakes a side with two planks between them and a rail on top, a tailboard, a low front board and
+// a bench across the front with a footboard; the frame rests on a wooden axle-tree over the iron axle, and the two big
+// wheels, ten spokes each, have a wooden felloe and an iron tyre. The shafts bend up and in to the horse's shoulders, with
+// an iron ferrule at each tip and the leather loops where the harness holds them, at the horse's middle. Its measures are
+// the logic's (CART): the origin on the ground under the middle of the axle, the shafts to +z. Keys (carry-items.js
+// cartKey): 'cart:<ids>:<f>:d' is the body alone, level, without its wheels (what is driven: cart3d.js turns the wheels);
+// 'cart:<ids>:<f>:h' is parked with its horse (level, with its wheels); 'cart' or 'cart:<ids>:<f>:' unhitched, tipped
+// forward round the axle until its shafts' tips rest on the ground. What it carries lies on the bed behind the bench: the
+// logs along it, the carcasses and the strongbox on them, and a heap of sacks under a tarp when there are stacks in it.
+// Its solids are always the bed and the wheels (cart.js parks it with them; the shafts are not in them)
+const CART0 = { ID: 'cart', STACKS: 24, LOADS: 4, HITCH: 2.15, WHEEL_R: 0.46, TRACK: 0.62, HUB: 0.73, BED_X: 0.52, BED_Z0: -0.98, BED_Z1: 0.84, BED_Y: 0.6, BED_H: 0.3, SEAT_Z: 0.56, SEAT_Y: 0.98, SEAT_X: 0.27, SHAFT_X0: 0.46, SHAFT_X1: 0.34, SHAFT_Z: 2.78, SHAFT_Y: 0.86 };
+export const cartSize = () => CARRY.CART || CART0;
+// What a key says: its big things (BULKY, at most four, sorted), stacks in it, and its state ('', 'h' or 'd')
+export function cartOf(key) {
+  const [, a = '', b = '', c = ''] = String(key || '').split(':');
+  return { ids: a.split(',').filter(id => BULKY[id]).slice(0, 4).sort(), full: b === 'f', state: c === 'h' || c === 'd' ? c : '' };
+}
+export const cartName = (key, state) => { const { ids, full } = cartOf(key); return `cart:${ids.join(',')}:${full ? 'f' : ''}:${state}`; };
+const lerp3 = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
+function cartBody(m, S) {
+  const R = S.WHEEL_R, Y = S.BED_Y, X = S.BED_X, Z0 = S.BED_Z0, Z1 = S.BED_Z1, yb = Y - 0.075, rb = (k, ...a) => m.B(k).roundBox(...a, 0.006, { s: 0.5 });
+  // The iron axle through the hubs, and the axle-tree over it that the frame rests on, with a block under each beam
+  stick(m, 'iron', [-S.TRACK - 0.13, R, 0], [S.TRACK + 0.13, R, 0], 0.024, 6);
+  beam(m, 'dark', [-S.TRACK + 0.11, R + 0.055, 0], [S.TRACK - 0.11, R + 0.055, 0], 0.1, 0.09, [0, 1, 0]);
+  for (const sd of [-1, 1]) {
+    const x0 = sd * S.SHAFT_X0;
+    rb('dark', x0 - 0.04, R + 0.1, -0.07, x0 + 0.04, yb - 0.04, 0.07);
+    // The frame's beam, and on from its front the shaft: up and in, in two runs (a gentle bend), to the tip at the shoulder
+    beam(m, 'dark', [x0, yb, Z0], [x0, yb, Z1 + 0.05], 0.07, 0.09);
+    const a = [x0, yb, Z1 + 0.03], b = [sd * (S.SHAFT_X0 * 0.62 + S.SHAFT_X1 * 0.38), (yb + S.SHAFT_Y) / 2 + 0.05, 1.7], c = [sd * S.SHAFT_X1, S.SHAFT_Y, S.SHAFT_Z];
+    beam(m, 'dark', a, b, 0.062, 0.078); beam(m, 'dark', b, c, 0.052, 0.064);
+    stick(m, 'iron', lerp3(b, c, 0.965), lerp3(b, c, 1.012), 0.036, 8);    // (the ferrule)
+    // (where the harness holds it, at the horse's middle: the leather loop of the tug, and an iron stop before it)
+    const tug = lerp3(b, c, (S.HITCH - 1.7) / (S.SHAFT_Z - 1.7)), stop = lerp3(b, c, (S.HITCH - 0.12 - 1.7) / (S.SHAFT_Z - 1.7));
+    m.B('leatherD').roundBox(tug[0] - 0.045, tug[1] - 0.075, tug[2] - 0.055, tug[0] + 0.045, tug[1] + 0.05, tug[2] + 0.055, 0.012, { s: 0.5 });
+    stick(m, 'iron', [stop[0] - sd * 0.05, stop[1], stop[2]], [stop[0] + sd * 0.012, stop[1] + 0.01, stop[2]], 0.012, 5);
+    // (the side's three stakes, two planks and its rail, leaning out a little; an iron strap on each stake)
+    const xo = sd * (X + 0.02);
+    for (const z of [Z0 + 0.05, -0.07, Z1 - 0.05]) { rb('dark', xo - 0.03, Y - 0.12, z - 0.032, xo + 0.03, Y + S.BED_H + 0.05, z + 0.032); rb('iron', xo - 0.034, Y - 0.1, z - 0.036, xo + 0.034, Y - 0.04, z + 0.036); }
+    for (const [y0, y1] of [[Y + 0.015, Y + 0.14], [Y + 0.155, Y + S.BED_H - 0.02]]) rb('wood', sd > 0 ? X : -X - 0.028, y0, Z0 + 0.01, sd > 0 ? X + 0.028 : -X, y1, Z1 - 0.01);
+    rb('dark', xo - 0.035, Y + S.BED_H - 0.02, Z0 - 0.02, xo + 0.035, Y + S.BED_H + 0.015, Z1 + 0.02);
+    // (the bench's upright on this side)
+    rb('dark', sd * (X - 0.08) - 0.035, Y, S.SEAT_Z - 0.045, sd * (X - 0.08) + 0.035, S.SEAT_Y - 0.045, S.SEAT_Z + 0.045);
+  }
+  // The bearers under the floor, and the bar across the shafts in front of the bed
+  for (const z of [Z0 + 0.07, -0.42, 0.28, Z1 - 0.07]) rb('dark', -S.SHAFT_X0 - 0.05, Y - 0.105, z - 0.035, S.SHAFT_X0 + 0.05, Y - 0.03, z + 0.035);
+  beam(m, 'dark', [-S.SHAFT_X0 + 0.01, yb + 0.03, Z1 + 0.26], [S.SHAFT_X0 - 0.01, yb + 0.03, Z1 + 0.26], 0.06, 0.06, [0, 1, 0]);
+  // The floor: five boards along it, a finger's gap between them
+  for (let i = 0; i < 5; i++) { const w = (2 * X) / 5, x0 = -X + i * w; m.B('wood').roundBox(x0 + 0.005, Y - 0.03, Z0, x0 + w - 0.005, Y, Z1, 0.004, { s: 0.5 }); }
+  // The tailboard (two planks, with its iron straps) and the low front board
+  rb('wood', -X, Y, Z0 - 0.035, X, Y + 0.12, Z0 - 0.005); rb('wood', -X, Y + 0.13, Z0 - 0.035, X, Y + S.BED_H - 0.03, Z0 - 0.005);
+  for (const x of [-X * 0.6, X * 0.6]) rb('iron', x - 0.02, Y + 0.02, Z0 - 0.042, x + 0.02, Y + S.BED_H - 0.04, Z0 - 0.03);
+  rb('wood', -X, Y, Z1 + 0.005, X, Y + 0.16, Z1 + 0.035);
+  // The bench, a thick plank across, and the footboard sloping down in front of it
+  m.B('light').roundBox(-X - 0.03, S.SEAT_Y - 0.05, S.SEAT_Z - 0.15, X + 0.03, S.SEAT_Y, S.SEAT_Z + 0.13, 0.012, { s: 0.5 });
+  { const g = new THREE.BoxGeometry(0.86, 0.026, 0.34); m.B('wood').addGeometry(g, M4([0, Y - 0.035, Z1 + 0.19], [0.42, 0, 0])); g.dispose(); }
+}
+// The heap of sacks under a tarp at the back of the bed (h high), and the corner of a sack showing
+function cartSacks(m, S, h) {
+  const rx = S.BED_X - 0.05, rz = 0.4, cz = -0.52, y0 = S.BED_Y, F = new THREE.Matrix4();
+  const g = new THREE.SphereGeometry(1, 16, 7, 0, Math.PI * 2, 0, Math.PI / 2), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + 0.08 * Math.sin(x * 9 + z * 5) * Math.sin(z * 7 - x * 3) * y;
+    p.setXYZ(i, x * rx * (1 + 0.1 * y), y0 + y * h * k, cz + z * rz * (1 + 0.1 * y));
+  }
+  g.computeVertexNormals();
+  m.B('tarp').addGeometry(g, F); g.dispose();
+  for (const zz of [-0.25, 0.25]) {
+    const pts = []; for (let i = 0; i <= 8; i++) { const a = (i / 8) * Math.PI; pts.push(new THREE.Vector3(Math.cos(a) * (rx + 0.01) * (1 + 0.1 * Math.sin(a)), y0 + Math.sin(a) * h + 0.008, cz + zz)); }
+    const rope = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.009, 5); m.B('rope').addGeometry(rope, F); rope.dispose();
+  }
+  const sack = new THREE.SphereGeometry(1, 10, 7); m.B('tarp').addGeometry(sack, M4([rx * 0.5, y0 + h * 0.5, cz - rz + 0.1], [0.3, 0.4, 0.2], [0.13, Math.max(0.08, h * 0.5), 0.1])); sack.dispose();
+}
+// What it carries, on the bed (from y): the logs along it, side by side and one on two; then the carcasses and the
+// strongbox along it on them, two side by side, the next pair on those
+function cartLoads(m, S, ids, y) {
+  const logs = ids.filter(id => id === 'log'), meat = ids.filter(id => id !== 'log'), cz = -0.3, Ls = 1.38;
+  const rows = { 1: [[0, 0]], 2: [[-0.105, 0], [0.105, 0]], 3: [[-0.2, 0], [0, 0], [0.2, 0]], 4: [[-0.2, 0], [0, 0], [0.2, 0], [-0.1, 1]] }[logs.length] || [];
+  for (const [x, up] of rows) addModel(m, getModel('log'), M4([x, y + up * 0.172, cz + (x * 0.3)], [0, Math.PI / 2, 0], [Ls, 1, 1]));
+  if (logs.length) y += (logs.length === 4 ? 0.36 : 0.19) - 0.01;
+  meat.forEach((id, i) => {
+    const b = lieBox(id), k = id === 'strongbox' ? 1 : 0.86, x = meat.length > 1 ? (i % 2 ? 0.25 : -0.25) : 0, lvl = Math.floor(i / 2);
+    const h = (b.max.y - b.min.y) * k * 0.72;
+    addModel(m, getModel(id), M4([x, y + lvl * h, cz + (i % 2 ? 0.06 : -0.06)], [0, id === 'strongbox' ? 0 : (i % 2 ? -Math.PI / 2 : Math.PI / 2), 0], k));
+  });
+}
+BUILD.cart = (m, a = '', b = '', c = '') => {
+  const S = cartSize(), { ids, full, state } = cartOf(`cart:${a || ''}:${b || ''}:${c || ''}`);
+  if (state === 'd') {
+    // (the body alone, level; loaded, the empty body's parts copied: made once)
+    if (ids.length || full) addModel(m, getModel('cart:::d'), new THREE.Matrix4()); else cartBody(m, S);
+    let y = S.BED_Y;
+    if (full) { cartSacks(m, S, ids.length ? 0.13 : 0.3); y += ids.length ? 0.1 : 0; }
+    if (ids.length) cartLoads(m, S, ids, y);
+  } else {
+    // (parked: its body, level with its horse in the shafts, or tipped onto the tips of its shafts; and its two wheels)
+    const T = state === 'h' ? new THREE.Matrix4() : new THREE.Matrix4().makeTranslation(0, S.WHEEL_R, 0).multiply(new THREE.Matrix4().makeRotationX(CARRY.CART_TILT ?? 0.308)).multiply(new THREE.Matrix4().makeTranslation(0, -S.WHEEL_R, 0));
+    addModel(m, getModel(cartName(`cart:${ids.join(',')}:${full ? 'f' : ''}`, 'd')), T);
+    for (const sd of [-1, 1]) addModel(m, getModel('cart_wheel'), M4([sd * S.TRACK, S.WHEEL_R, 0]));
+  }
+  m.solids = [[-S.HUB, 0, S.BED_Z0, S.HUB, S.BED_Y + S.BED_H, S.BED_Z1]];
+};
+// A wheel, its hub at the origin, turning round x: the iron tyre on a wooden felloe, ten spokes, the hub with its two
+// iron bands and the linchpin's cap
+BUILD.cart_wheel = m => {
+  const R = cartSize().WHEEL_R, Y = new THREE.Matrix4().makeRotationY(Math.PI / 2);
+  const tyre = new THREE.TorusGeometry(R - 0.014, 0.015, 4, 30), rim = new THREE.TorusGeometry(R - 0.048, 0.03, 4, 22);
+  m.B('iron').addGeometry(tyre, Y.clone().multiply(new THREE.Matrix4().makeScale(1, 1, 2.3))); m.B('dark').addGeometry(rim, Y.clone().multiply(new THREE.Matrix4().makeScale(1, 1, 1.35)));
+  tyre.dispose(); rim.dispose();
+  stick(m, 'dark', [-0.11, 0, 0], [0.11, 0, 0], 0.075, 10);
+  for (const x of [-0.085, 0.085]) stick(m, 'iron', [x - 0.012, 0, 0], [x + 0.012, 0, 0], 0.082, 10);
+  stick(m, 'iron', [-0.15, 0, 0], [0.15, 0, 0], 0.032, 6);
+  for (let i = 0; i < 10; i++) { const q = (i / 10) * Math.PI * 2 + 0.15, c = Math.cos(q), s = Math.sin(q); stick(m, 'dark', [0, s * 0.07, c * 0.07], [0, s * (R - 0.07), c * (R - 0.07)], 0.016, 5); }
+  m.solids = [[-0.075, -R, -R, 0.075, R, R]];
+};
+
 // El que se cuelga (origen en el suelo, colgado del techo, con su luz)
 BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)
 

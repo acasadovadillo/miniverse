@@ -77,3 +77,14 @@ export const fenceReach = (scene, x, y) => { const p = scene.pieceAt?.(x, y); re
 // What a fence (or the line of a gate) joins to
 const JOINS_FENCE = new Set(['fence', 'gate', 'wall', 'post']);
 export const fenceJoins = (scene, x, y) => JOINS_FENCE.has(scene.pieceAt(x, y)?.kind);
+// Two fence gates side by side in the line of the fence are one double gate (wide enough for a cart, cart.js): no post
+// between them, each leaf hung from its outer post, and they open and close together. A run of gates pairs off from its
+// start. → -1: this one is the second of a pair (its partner on the minus side, x - 1 or y - 1), +1: the first (its partner
+// on the plus side), 0: a gate alone. X: whether it runs along x (as gateTile and the colliders tell it)
+export function gatePair(scene, tx, ty, X) {
+  const gate = (x, y) => scene.pieceAt(x, y)?.kind === 'gate', [ax, ay] = X ? [1, 0] : [0, 1];
+  let k = 0;
+  while (k < 64 && gate(tx - ax * (k + 1), ty - ay * (k + 1))) k++;
+  if (k % 2) return -1;
+  return gate(tx + ax, ty + ay) ? 1 : 0;
+}

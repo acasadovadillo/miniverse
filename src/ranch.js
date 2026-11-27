@@ -87,6 +87,8 @@ const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', '
   'race', 'gene', 'mix',
   // (Plan R4-4, horselead.js: who has its reins, never kept; and the knot it is tied with, kept)
   'lead', 'tie',
+  // (Plan R4-5, cart.js: the id of the cart it is put to, kept: parked, it stands in its shafts)
+  'cart',
   // (the job a cow is of, missions/drive.js: it has no home nor owner, and the drive moves it)
   'drove'];
 // Lo de una versión más nueva del juego: un animal de una clase que esta no conoce no se mueve ni se dibuja, pero se
@@ -543,6 +545,8 @@ export class Ranch {
       else { a.calling = false; delete a.callBy; delete a.callAt; a.bolt = null; a.grazeHome = null; if (a.grazing || a.grazeAt) this.stopGrazing(a); return; }
     }
     if (a.tie && LD?.tied(a, dt, day)) { a.calling = false; a.bolt = null; return; }
+    // (in a parked cart's shafts: it stands there, as if tied; cart.js holds it, and undoes a link whose cart is gone)
+    if (a.cart && this.game.cart?.holdHorse(a)) { a.calling = false; delete a.callBy; delete a.callAt; a.bolt = null; a.grazeHome = null; if (a.grazing || a.grazeAt) this.stopGrazing(a); return; }
     if (a.bolt) {
       a.go(nearX(a.bolt[0], a.x), a.bolt[1]);
       if (a.walk(dt, this.world, SPEED.caballo * 2)) { a.bolt = null; a.vx = a.vy = 0; a.wait = 8; }
@@ -1433,7 +1437,8 @@ export class Ranch {
     H?.update?.(0);   // (the horse under you now: its stamina, dirt and bags, before the first step)
     Audio.neigh();
   }
-  dismount() {
+  // stay: it stays where it is (getting down from a cart's bench: in its shafts, cart.js)
+  dismount({ stay = false } = {}) {
     const g = this.game, p = g.player, a = this.animals.find(x => x.id === p.horseId);   // (no horse of that id: never another one)
     // (with a big thing behind the saddle, not into deep water: it comes back to the arms, and nobody swims with it)
     if (g.carry?.held && g.scene === this.world && this.world.waterDepth(p.x, p.y) >= SWIM_IN) { g.carry.say(tr('carry.no_dismount_water', { item: noun('item', g.carry.held) })); Audio.error(); return; }
@@ -1444,7 +1449,7 @@ export class Ranch {
     g.carry?.syncArms();
     this.game.gather.cooldown = 0.4;
     Audio.door();
-    this.leave(a);
+    this.leave(a, stay);
   }
   // Dying in the saddle (combat.die, before going home): the horse stays where you fell. (Without it, it kept you as its
   // rider for good: seen by nobody, and its saddlebags with it)
@@ -1459,12 +1464,13 @@ export class Ranch {
     this.leave(a);
   }
   // The horse under this player is left: nobody's to ride now, beside the player (or at the mouth of the cave they are in)
-  leave(a) {
+  leave(a, stay = false) {
     const g = this.game, p = g.player;
     if (!a) return;
     g.saddlebags?.release?.(a);   // (the saddlebags' lock goes with the saddle)
     if (a.rider && a.rider !== me()) return;   // (someone else rides it now: nothing is written)
     a.rider = null;
+    if (stay) { a.x = a.tx = p.x; a.y = a.ty = p.y; a.vx = a.vy = 0; a.at = [+p.x.toFixed(2), +p.y.toFixed(2)]; a.wait = 4; return; }
     if (g.scene !== this.world) {
       const e = g.scene?.exitTo;
       if (e) { const x = e.x + (this.world.blocked(e.x + 1.2, e.y) ? 0 : 1.2); a.x = a.tx = x; a.y = a.ty = e.y; }

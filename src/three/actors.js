@@ -26,7 +26,8 @@ import { reportFault } from '../faults.js';
 import { kindOf, placeKit, shownOf, splitKit, poseClass } from '../kit.js';
 import { bakeStowed, buildKit, brushModel } from './kit3d.js';
 import { carriedModel, placeCarried, holdPose, pushedModel, placePushed, pushPose, pushedReach, loadModel, placeLoad } from './carry3d.js';
-import { barrowName, barrowSize, TUB, bathFoam } from './models.js';
+import { barrowName, barrowSize, TUB, bathFoam, cartSize, cartName } from './models.js';
+import { cartDriven, rollCart, setCollar } from './cart3d.js';
 import { rowBoatGeo } from './places3d.js';
 import { unpackBd } from '../body.js';
 import { BULKY } from '../carry-items.js';
@@ -274,7 +275,7 @@ export class Actors {
     const shLen = Math.min(16, h * this.shK);
     SPH.center.set(x + this.shDir[0] * shLen * 0.5, cy, z + this.shDir[1] * shLen * 0.5);
     // (tumbada, de la raíz a la cabeza y a los pies hay menos de lo que mide: ver LIE_LEN)
-    SPH.radius = (lying ? h : h * 0.75) + shLen * 0.5 + (m.horse?.visible || m.boat?.visible ? 1.3 : 0) + (m.carriedWhere === 'push' ? 1.2 : 0);   // (pushing a wheelbarrow, it reaches 1.7 m ahead)
+    SPH.radius = (lying ? h : h * 0.75) + shLen * 0.5 + (m.horse?.visible || m.boat?.visible ? 1.3 : 0) + (m.carriedWhere === 'push' ? 1.2 : 0) + (m.cart?.visible ? 2.6 : 0);   // (a cart behind its horse: 3 m more)   // (pushing a wheelbarrow, it reaches 1.7 m ahead)
     const d = cam.position.distanceTo(V3.set(x, cy, z));
     const near = me ? Math.hypot(x - me.x, z - me.y) : Infinity, cerca = near < 4 || (e.remote && near < 12);
     // (más allá de la niebla ya es de su color; los demás jugadores no, que llevan su nombre encima. La niebla de Three va
@@ -516,6 +517,7 @@ export class Actors {
       if ((e.kid && e.lying) || (pz && lying)) {}
       else if (pz) { P.facing = pz.yaw; P.root.rotation.y = pz.yaw; }
       else if (yaw !== null) P.facing = yaw;
+      if (e.mount && e.driving && e.cartPose) P.facing = e.cartPose.yaw;   // (on a cart's bench: facing as the cart; the horse turns apart, driveHorse)
       if (m.horse) {   // (el caballo del jinete, con el pelaje del suyo; and its saddlebags, as full as they look: horseFill 0..2)
         const coat = e.horseCoat || 'castano', f = e.horseFill, bagK = e.horseBags ? 1 + (f === 0 || f === 1 || f === 2 ? f : 1) : 0;
         // (its shoes and its breed travel with the Animal; not found, as it was)
@@ -526,12 +528,14 @@ export class Actors {
         // Barca y caballo
         m.boat.visible = !!e.boat; m.horse.visible = !!e.mount;
         const seat = SEAT_HIP * (P.kid ? KID_REF : 1) - P.hipY;   // (con la cadera en el asiento)
-        if (e.aboard) { y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; P.root.position.y = 0.3 + seat; }   // (de pasajero: la barca es la del que rema)
+        if (e.aboard && e.cartSeat) P.root.position.y = cartSize().SEAT_Y + 0.02 - SEAT_HIP * (P.kid ? KID_REF : 1) + seat;   // (beside a cart's driver: on its bench, cart.js)
+        else if (e.aboard) { y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; P.root.position.y = 0.3 + seat; }   // (de pasajero: la barca es la del que rema)
         else if (e.boat) {
           y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; m.boat.rotation.y = P.root.rotation.y; m.boat.rotation.z = Math.sin(t * 1.7) * 0.03; P.root.position.y = 0.3 + seat;
           const row = Math.min(1, m.speed / 1.5);
           for (const o of m.boat.userData.oars) { const a = t * 5, sd = o.userData.side; o.rotation.y = sd * Math.sin(a) * 0.5 * row; o.rotation.z = sd * (Math.PI / 2 - OAR_DIP + Math.cos(a) * 0.15 * row); }   // (los dos a la vez; al volver, la pala sale del agua)
         }
+        else if (e.mount && e.driving && e.cartPose) this.driveHorse(m, e, P, scene, x, z, dt, t);
         else if (e.mount) this.rideHorse(m, e, P, seat, x, z, scene, dt, t);
         else P.root.position.y = 0;
         if (!e.mount && (m.reared || m.bankYaw !== undefined)) { this.unrear(m, P); P.root.rotation.z = 0; m.bankYaw = undefined; m.bankK = 0; m.banked = false; }
@@ -586,6 +590,7 @@ export class Actors {
         this.kit(m, e, P, pz, lying);
         this.carried(m, e, P, scene);
       }
+      this.placeCart(m, e, P, scene, x, y, z);
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
       m.root.scale.setScalar(scaleOf(e));
@@ -607,6 +612,7 @@ export class Actors {
         m.dirtK = m.dirtK > dirt ? Math.max(dirt, m.dirtK - dt * 0.55) : dirt;
         setHorseDirt(m.root, m.dirtK);
         this.careLook(m, m.root, e, dirt);
+        if (e.cart || m.root.userData.collar) setCollar(m.root, !!e.cart);   // (standing in a parked cart's shafts: cart.js)
         animateAnimal(m, dt, t, e, this.horseState(m, e, e.act, false, dt, vol));
         if (m.root.userData.hits && m.speed > 1.5 && this.game?.horse?.ours?.(e)) this.hooves(m, e, m.speed > 4.5 ? 2 : 1, scene, vol);
       } else animateAnimal(m, dt, t, e);
@@ -786,6 +792,45 @@ export class Actors {
     P.root.position.y = y;
     if (H.hits) this.hooves(m, e, e.gait, scene, vol);
   }
+  // Driving a cart (cart.js): the horse turns and goes on its own (its gait, its mud, its looks), with its collar; the
+  // driver sits on the bench (placeCart)
+  driveHorse(m, e, P, scene, x, z, dt, t) {
+    const vol = this.hearing(m, x, z);
+    m.horse.rotation.y = e.remote ? (e.yaw ?? 0) : Math.atan2(e.face.x, e.face.y);
+    m.horse.rotation.z = 0; m.bankK = 0; m.bankYaw = undefined;
+    if (m.reared) this.unrear(m, P);
+    P.root.rotation.z = 0;
+    setHorseDirt(m.horse, e.horseDirt || 0);
+    this.careLook(m, m.horse, this.riddenBy(m, e), e.horseDirt || 0);
+    animateHorse(m.horse, m.speed, t, null, dt, e.gait, this.horseState(m, e, e.horseAct, !!e.horseWinded, dt, vol));
+    m.gallopK = 0;
+    setCollar(m.horse, true);
+    if (m.horse.userData.hits) this.hooves(m, e, e.gait, scene, vol);
+  }
+  // The cart behind a driver's horse, hanging from the root (at the horse's feet: x, y, z): where its axle is, pitched by
+  // the ground between the axle and the horse, rolled by the ground under its wheels, the wheels turned; and the driver on
+  // the left of its bench. Hidden when nobody drives one
+  placeCart(m, e, P, scene, x, y, z) {
+    const C = e.mount && e.driving ? e.cartPose : null;
+    if (!C) { if (m.cart) m.cart.visible = false; if (m.horse?.userData.collar?.visible) setCollar(m.horse, false); return; }
+    const S = cartSize(), key = cartName(e.driving, 'd'), view = this.view, cx = nearX(C.x, x), cz = C.y, sx = Math.cos(C.yaw), sz = -Math.sin(C.yaw);
+    if (!m.cart || m.cart.userData.key !== key) {
+      if (m.cart) m.root.remove(m.cart);
+      m.cart = cartDriven(key);
+      m.root.add(m.cart);
+    }
+    const gA = view.groundY(scene, cx, cz), gl = view.groundY(scene, cx + sx * S.TRACK, cz + sz * S.TRACK), gr = view.groundY(scene, cx - sx * S.TRACK, cz - sz * S.TRACK);
+    const pitch = Math.atan2(y - gA, S.HITCH), roll = Math.atan2(gl - gr, 2 * S.TRACK);
+    m.cart.visible = true;
+    m.cart.position.set(cx - x, gA - y, cz - z);
+    m.cart.rotation.set(-pitch, C.yaw, roll);
+    rollCart(m.cart, C.roll || 0);
+    if (!m.person) return;
+    // (the driver: the hips on the bench, on its left; the bench rises and falls with the pitch)
+    const fx = Math.sin(C.yaw), fz = Math.cos(C.yaw), bx = cx + fx * S.SEAT_Z + sx * S.SEAT_X, bz = cz + fz * S.SEAT_Z + sz * S.SEAT_X;
+    const seat = SEAT_HIP * (P.kid ? KID_REF : 1) - P.hipY;
+    P.root.position.set(bx - x, gA - y + S.SEAT_Y + S.SEAT_Z * Math.sin(pitch) + 0.02 - SEAT_HIP * (P.kid ? KID_REF : 1) + seat, bz - z);
+  }
   unrear(m, P) { m.reared = false; P.root.rotation.x = 0; P.root.position.x = P.root.position.z = 0; }
   // How much a ridden horse leans now (rad, + to its right), eased: by its turning rate and its speed
   bank(m, yaw, dt) {
@@ -928,7 +973,9 @@ export class Actors {
       // (at a table game, the forearms resting on its edge: tablegames.js)
       if (pz.kind === 'sit' && e.tableHands > (this.game?.time ?? 0)) { for (let i = 0; i < 2; i++) { P.arms[i].rotation.x = -0.62; P.arms[i].rotation.z = (i === 0 ? 1 : -1) * 0.12; if (P.fore?.[i]) P.fore[i].rotation.x = -0.72; } P.torso.rotation.x = 0.07; }
     }
-    if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
+    // (on a cart's bench, the driver and the passenger alike: seated, the knees together, the feet on the footboard)
+    if ((e.mount && e.driving) || e.cartSeat) { P.legs[0].rotation.x = P.legs[1].rotation.x = -1.42; P.legs[0].rotation.z = 0.1; P.legs[1].rotation.z = -0.1; for (const k of P.shins || []) k.rotation.x = 1.25; }
+    else if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
     // (seated or in a boat, the arm with the rod is the rod's: its cast, the line out, the fish held)
     if (casting !== null && pz && !lying) P.arms[P.toolArm].rotation.x = casting;
@@ -937,7 +984,7 @@ export class Actors {
     if (e.mount) this.reinArms(m, P);
     if (!busy && (m.leadK > 0 || e.leads)) this.leadBones(m, e, P, dt, pz);   // (the reins of the horse it leads)
     if (e.emote && !busy) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
-    if (e.mount) {
+    if (e.mount && !e.driving) {
       // (astride a broader back)
       const U = m.horse?.userData, w = ((U?.wk || 1) * (U?.size || 1) - 1) * RIDE.astride;
       if (w > 0.01) { P.legs[0].rotation.z += w; P.legs[1].rotation.z -= w; }

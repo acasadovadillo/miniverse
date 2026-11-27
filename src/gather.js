@@ -470,6 +470,7 @@ export class Gathering {
     if (id === 'big_well') this.float(tr('toast.big_well.placed'), '#9ad0ff');
     if (id === 'shop_counter') this.float(tr('toast.shop_counter.placed'), '#fff3c0');
     if (id === 'wheelbarrow') this.float(tr('toast.wheelbarrow.placed'), '#fff3c0');
+    if (id === 'cart' && g.scene === g.world) { g.cart?.placed(t.free ? t.fit.anchor : t.tile); this.float(tr('toast.cart.placed'), '#fff3c0'); }   // (yours, and your partner's: cart.js)
   }
 
   // Eat or drink what is in a slot. Refused (with why) when it would do nothing: not hurt, not hungry, no effect, and

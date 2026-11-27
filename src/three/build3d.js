@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { Builder, mat, sameClamp } from './geo.js';
 import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, thatch, artwork } from './textures.js';
-import { PIECES, parsePlaced, fenceReach, fenceJoins, POST_HALF } from '../pieces.js';
+import { PIECES, parsePlaced, fenceReach, fenceJoins, gatePair, POST_HALF } from '../pieces.js';
 import { front } from '../art/stations.js';
 import { PAL } from '../arte.js';
 import { roofShape, roofPitch, SLAB, ROOF_CAP } from '../world/roof.js';
@@ -422,12 +422,16 @@ export function doorLeaf(d, mats) {
 export function gateTile(scene, tx, ty, emit) {
   const f = (x, y) => fenceJoins(scene, x, y);
   const X = f(tx - 1, ty) || f(tx + 1, ty) || !(f(tx, ty - 1) || f(tx, ty + 1)), cx = tx + 0.5, cz = ty + 0.5, B = emit('fence', 'free');
+  // (two side by side are a double gate: no post between them, each leaf from its outer post, and a little wider)
+  const pair = gatePair(scene, tx, ty, X);
   for (const s of [-0.5, 0.5]) {
+    if (pair && Math.sign(s) === pair) continue;
     const px = X ? cx + s : cx, pz = X ? cz : cz + s;
     B.box(px - 0.07, 0, pz - 0.07, px + 0.07, 1.02, pz + 0.07, { s: 0.5 });
     B.box(px - 0.09, 1.02, pz - 0.09, px + 0.09, 1.07, pz + 0.09, { s: 0.5 });
   }
-  return { tile: [tx, ty], X, gate: true, swing: 1, hinge: X ? [tx + 0.05, 0, cz] : [cx, 0, ty + 0.05], width: 0.9 };
+  if (pair < 0) return { tile: [tx, ty], X, gate: true, swing: 1, hinge: X ? [tx + 0.95, 0, cz] : [cx, 0, ty + 0.95], width: 0.94, along: -1 };
+  return { tile: [tx, ty], X, gate: true, swing: 1, hinge: X ? [tx + 0.05, 0, cz] : [cx, 0, ty + 0.05], width: pair ? 0.94 : 0.9 };
 }
 // La hoja: tres barras entre dos largueros, de lado a lado. Gira sobre la bisagra: a = 0 cerrada, 1 abierta
 export function gateLeaf(d, mats) {
@@ -436,7 +440,7 @@ export function gateLeaf(d, mats) {
   for (const x of [0.02, w - 0.09]) B.box(x, 0.18, -0.045, x + 0.07, 0.92, 0.045, { s: 0.5 });
   g.position.set(...d.hinge);
   g.add(B.mesh(mats.fence));
-  const along = d.X ? [1, 0] : [0, 1], out = d.X ? [0, d.swing] : [d.swing, 0], beta = 1.75;
+  const s = d.along || 1, along = d.X ? [s, 0] : [0, s], out = d.X ? [0, d.swing] : [d.swing, 0], beta = 1.75;
   g.userData.setAngle = a => { const b = beta * a, dx = along[0] * Math.cos(b) + out[0] * Math.sin(b), dz = along[1] * Math.cos(b) + out[1] * Math.sin(b); g.rotation.y = Math.atan2(-dz, dx); };
   return g;
 }

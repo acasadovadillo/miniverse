@@ -145,3 +145,45 @@ export function cleanBarrowKey(key) {
 }
 // 8 letters at random: a wheelbarrow's id, the mark of a big thing left in a boat, a request (barrow.js)
 export const randomId = () => { let s = ''; for (let i = 0; i < 8; i++) s += 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]; return s; };
+
+// ---------- the horse cart (cart.js; docs/planes/realismo/PLAN-R4-caballo.md §1.7, §3.8) ----------
+// A second kind of the wheelbarrow's machinery, not a copy: parked, it is a free piece of furniture 'cart' with a chest of
+// STACKS (d.chest) and up to LOADS big things on its bed (d.barrow[tile] = { id, l, o: its owner, h: the horse hitched to
+// it }); driven, a record d.pushed[id] with k: 'cart' and h (barrow.js: the host decides, the same arbitration).
+// Model space (metres): the origin is the middle of the axle, on the ground; the shafts and the horse towards +z.
+//   HITCH: from the axle to the horse's middle (where the tugs of its harness hold the shafts); MAXH: how far the horse may
+//   turn from the shafts (rad: they hold it, so the turns are wide); DEEP: the water it does not go into; UP and DOWN: the
+//   steepest grade it is pulled up and let down; FREE_KG / DRAFT_KG: what it carries before it slows down (8 % each 100 kg)
+export const CART = {
+  ID: 'cart', STACKS: 24, LOADS: 4, DEEP: 0.6, UP: 0.35, DOWN: 0.45, FREE_KG: 150, DRAFT_KG: 300, SLOW_100: 0.08,
+  HITCH: 2.15, MAXH: 0.44,
+  WHEEL_R: 0.46, TRACK: 0.62,      // the wheels' radius and their middles (±x)
+  HUB: 0.73,                       // the outer end of the hubs (±x): the cart's half width
+  BED_X: 0.52, BED_Z0: -0.98, BED_Z1: 0.84, BED_Y: 0.6, BED_H: 0.3,   // the bed: its floor's top, its sides' height
+  SEAT_Z: 0.56, SEAT_Y: 0.98, SEAT_X: 0.27,   // the bench across the front of the bed: the driver on its left (+x), the passenger on its right
+  SHAFT_X0: 0.46, SHAFT_X1: 0.34, SHAFT_Z: 2.78, SHAFT_Y: 0.86,  // the shafts, from the bed's front to their tips, at the tips' height when hitched
+};
+// What a cart's tips rest on, unhitched: it tips forward round the axle until they touch the ground (rad)
+export const CART_TILT = Math.atan2(CART.SHAFT_Y - CART.WHEEL_R, CART.SHAFT_Z) + Math.asin(CART.WHEEL_R / Math.hypot(CART.SHAFT_Y - CART.WHEEL_R, CART.SHAFT_Z));
+// The two kinds: what their chests hold and how many big things go on them
+export const VEHICLES = { wheelbarrow: { STACKS: BARROW.STACKS, LOADS: BARROW.LOADS }, cart: { STACKS: CART.STACKS, LOADS: CART.LOADS } };
+export const vehicleOf = raw => { const id = typeof raw === 'string' ? raw.split('@')[0] : ''; return VEHICLES[id] ? id : null; };
+// The key of its model: 'cart' (empty, unhitched: tipped on its shafts); 'cart:<ids, sorted>:<f>:<state>' with state ''
+// (parked, unhitched), 'h' (parked with its horse: level) or 'd' (driven: the body alone, level, without its wheels, which
+// cart3d.js turns). p.driving and st.ck carry the driven one's
+export function cartKey(ids = [], full = false, state = '') {
+  const list = (ids || []).filter(id => typeof id === 'string' && BULKY[id]).slice(0, CART.LOADS).sort();
+  if (!list.length && !full && !state) return CART.ID;
+  return `${CART.ID}:${list.join(',')}:${full ? 'f' : ''}:${state === 'h' || state === 'd' ? state : ''}`;
+}
+// → { ids, full, state } or null
+export function parseCartKey(key) {
+  if (typeof key !== 'string' || key.length > 140) return null;
+  const [kind, list = '', f = '', s = '', more] = key.split(':');
+  if (kind !== CART.ID || more !== undefined || (f !== '' && f !== 'f') || (s !== '' && s !== 'h' && s !== 'd')) return null;
+  const ids = list ? list.split(',') : [];
+  if (ids.length > CART.LOADS || ids.some(id => !BULKY[id])) return null;
+  return { ids, full: f === 'f', state: s };
+}
+// (from the network: a driven one's key, always a valid one)
+export const cleanCartKey = key => { const k = parseCartKey(key); return cartKey(k?.ids, !!k?.full, 'd'); };

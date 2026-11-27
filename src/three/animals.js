@@ -757,6 +757,7 @@ export function horseModel(breed = 'castano', bags = false, alone = false, fill 
   mesh(blob(k + ':b', pio || breed === 'tordo' ? 64 : 40, trunk({ L: P.L, W: P.W, H: P.H, belly: P.belly, chest: P.chest, hips: P.hips, withers: P.withers }), coat(cb, { back: 0.12, spot: cd, spots: pio ? patches(2, 5.5, 0.55) : breed === 'tordo' ? (n => noise(n.x * 9, n.y * 9, n.z * 9) > 0.62 ? 0.45 : 0) : null })), WHITE, { p: [0, P.by, 0] }, body);
   // Cuello y cabeza, con la crin
   const head = new THREE.Group(); head.position.set(0, P.n1y, P.n1z); body.add(head); u.head = head;
+  u.neckAt = { y0: P.n0y, z0: P.n0z, y1: P.n1y, z1: P.n1z, r: P.r0, w: P.W };   // (where a cart's collar goes: cart3d.js)
   neckRig(body, u, M(cb), [0, P.n0y, P.n0z], [0, P.n1y, P.n1z], P.r0, P.r1, 14, { beta: 0.95, S: [-0.24, 0.36] }, maneOf(P, race, mane));   // (la crin, con el cuello)
   const morro = M(cl && breed === 'palomino' ? cb : breed === 'blanco' ? '#d8cfc4' : mixc(cb, '#000000', 0.25).getStyle()), mz = P.muzzle;
   // La cabeza larga, en cuña: ancha en la frente y las quijadas y estrecha hacia el morro, con los ojos a los lados

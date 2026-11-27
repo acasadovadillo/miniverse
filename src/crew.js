@@ -13,6 +13,7 @@ import { Audio } from './audio.js';
 import { BUILDABLE } from './buildables.js';
 import { randomId } from './carry-items.js';
 import { HOLD_X } from './input.js';
+import { t } from './i18n.js';
 
 const REACH = 2.6, BEHIND = 0.7;   // desde dónde se sube y a qué distancia del que rema se va sentado
 const DEEP_BOARD = 0.3;   // (m of dive, entities.js: deeper than this, no boat is offered)
@@ -46,14 +47,16 @@ export class Crew {
     for (const peer of g.live.others) {
       const e = peer.entity;
       if (!e?.aboard) continue;
-      if (e.aboard === Profile.id) mate = peer.name;
       const d = this.driver(e.aboard);
-      if (d?.boat) this.seat(e, d);
+      if (e.aboard === Profile.id && d?.boat) mate = peer.name;   // (beside you on a cart's bench: cart.js says so)
+      if (d?.boat) { this.seat(e, d); e.cartSeat = false; }
+      else if (d?.driving && g.cart?.seat(e, d)) { /* on the bench of a cart: cart.js */ }
     }
     if (mate !== this.mate) { if (mate) { hud.toast(`${mate} se sube a tu barca`); Audio.door(); } this.mate = mate; }
-    if (!p.aboard) return;
+    if (!p.aboard) { p.cartSeat = false; return; }
     const d = this.driver(p.aboard);
-    if (d?.boat) this.seat(p, d);
+    if (d?.boat) { this.seat(p, d); p.cartSeat = false; }
+    else if (d?.driving && g.cart?.seat(p, d)) { /* beside the driver of a cart (Plan R4-5): the cart takes you */ }
     else this.leave(d);
   }
   // Un sitio en tierra, cerca de la barca (o null)
@@ -71,6 +74,8 @@ export class Crew {
   leave(d) {
     const g = this.game, p = this.p, spot = (d && this.land(nearX(d.x, p.x), d.y)) || this.land();
     p.aboard = null;
+    // (from a cart's bench: down to the ground beside it, never into a boat, even fording a river)
+    if (p.cartSeat) { p.cartSeat = false; if (spot) [p.x, p.y] = spot; Audio.door(); return; }
     // (quien remaba ha bajado a tierra y tú también: la barca se queda amarrada donde ibas; él no la amarró, yendo tú)
     if (spot && d && !d.boat && g.world.water(p.x, p.y)) g.world.moorBoat(p.x, p.y, this.turn(d));
     if (spot) [p.x, p.y] = spot;
@@ -151,6 +156,7 @@ export class Crew {
   // Lo que hace E en la barca de otro
   action() {
     const d = this.driver(this.p.aboard), name = d?.name || 'otro';
+    if (this.p.cartSeat) return { text: t('cart.get_down'), run: () => this.leave() };   // (beside a cart's driver)
     if (this.land()) return { text: 'Bajar a tierra', run: () => this.leave() };
     return { text: `En la barca de ${name}`, run: () => hud.toast('Acercaos a la orilla para bajar'), alt: { text: 'Tirarse al agua', run: () => this.dive() } };
   }

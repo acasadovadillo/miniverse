@@ -5,7 +5,7 @@ import { prewarmIcons } from './three/icons.js';
 import { itemIcon } from './art/items.js';
 import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, dxOf, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
-import { Overworld, NILO_LOOK, wellSpec, barrowSolids } from './world/scenes.js';
+import { Overworld, NILO_LOOK, wellSpec, vehicleSolids } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from './world/blueprints.js';
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, inChapel, inLawOffice, houseStands, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
@@ -88,6 +88,7 @@ import { kitOf, kitKey } from './kit.js';
 import { Carry, WeightInventory, weightMode } from './carry.js';
 import { BULKY, BARROW } from './carry-items.js';
 import { Barrow } from './barrow.js';
+import { Cart } from './cart.js';
 import { Needs, RATES } from './needs.js';
 import { Body } from './body.js';
 import { Remarks } from './remarks.js';
@@ -216,6 +217,7 @@ export class Game {
     this.freshness = this.addSystem(new Freshness(this));   // the catch going off, and cleaning and salting it (src/freshness.js)
     this.horsecare = this.addSystem(new HorseCare(this));   // what the horse eats and drinks, its shoes, being sore (Plan R4-2, src/horsecare.js)
     this.horselead = this.addSystem(new HorseLead(this));   // led by the reins, and tied (Plan R4-4, src/horselead.js)
+    this.cart = this.addSystem(new Cart(this));   // the horse cart: hitched, driven, parked; its passenger (Plan R4-5, src/cart.js)
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
     this.traps = this.addSystem(new Traps(this));   // the fish traps and their buoys (src/traps.js)
@@ -417,6 +419,7 @@ export class Game {
     document.getElementById('admin-tag').textContent = this.gamemode === 'spectator' ? 'ESPECTADOR' : 'CREATIVO';
     if (this.gamemode === 'spectator') { this.build.toggle(false); if (this.player?.pose) this.rest.stand(); }
     this.barrow?.onMode(this.gamemode);   // (the spectator pushes nothing: parked where you are)
+    this.cart?.onMode(this.gamemode);   // (nor drives a cart)
     this.carry?.onMode(this.gamemode);   // (creative and the spectator carry nothing in the arms)
   }
   // Lo que pide un op con un comando a este jugador (desde su juego o desde otro): llevarte a un sitio, darte
@@ -574,6 +577,7 @@ export class Game {
   }
   end() {
     try { this.barrow?.onEnd(); } catch (e) { reportFault(e, 'Barrow.onEnd'); }   // (pushing it: parked where you are, before leaving the shared world)
+    try { this.cart?.onEnd(); } catch (e) { reportFault(e, 'Cart.onEnd'); }   // (driving one: the same)
     this.live.left();
     hud.log.clear();   // (what was said to this one)
     this.covers = (this.covers || 0) + 1;   // (un salto a oscuras a medias ya no destapa: ver coverJump)
@@ -596,6 +600,7 @@ export class Game {
     const sc = this.scene;
     if (p.pose) return { text: t('pose.stand_up'), run: () => this.rest.stand() };
     if (this.barrow.pushing) return this.barrow.pushAction();   // (the hands on the wheelbarrow: barrow.js)
+    if (this.cart.rec) return this.cart.driveAction();   // (on a cart's bench: a door, a neighbour, or getting down; cart.js)
     if (p.aboard) return this.traps.boatAction() || this.crew.action();   // (a buoy aimed at: traps.js)
     if (p.boat) return this.traps.boatAction() || this.crew.ownAction();   // (remando: E baja a tierra y amarra la barca)
     // Swimming: a moored boat first (crew.js, only near the surface); then, with a mouse, only the systems' targets the
@@ -669,7 +674,7 @@ export class Game {
         continue;
       }
       if (o.layer === 'rug') { out.push({ kind: 'placed', o, box: { ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.06 } }); continue; }
-      let h = hull(o.placed === BARROW.ID ? barrowSolids() : solidsOf(o.model || o.placed));
+      let h = hull(vehicleSolids(o.placed) || solidsOf(o.model || o.placed));
       if (!isFinite(h[0])) h = [-0.45, 0, -0.45, 0.45, 0.1, 0.45];
       // (the box of what it draws, if it draws a model: then the ray goes against its real shape)
       const a = { kind: 'placed', o, yaw: o.yaw ?? yawOf(o.rot), box: placeBoxes([h], o.x, o.y, o.yaw ?? yawOf(o.rot))[0] }, mb = this.shapeBox(a, sc);
@@ -763,6 +768,7 @@ export class Game {
     if (o.unknown) return { text: UNKNOWN_NAME, run: () => Audio.error() };   // (de una versión más nueva: no se usa ni se recoge)
     if (o.layer === 'rug') return this.rugAction(o);
     if (o.placed === BARROW.ID) return this.barrow.parkedAction(o);   // (E pushes it, X opens it: barrow.js)
+    if (o.placed === 'cart') return this.cart.parkedAction(o);   // (E: hitch, drive, unhitch; X opens it: cart.js)
     if (BULKY[o.placed]) return this.carry.placedAction(o);   // (a log, a carcass: carry.js)
     if (this.carry.held) { const c = this.carry.stationAction(o); if (c) return c; }   // (with it in the arms: saw it at the bench, butcher it at the kitchen)
     const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v && ITEMS[v.split('@')[0]]) : null;
@@ -929,6 +935,7 @@ export class Game {
     const B = BUILDABLE[o.placed] || (PIECES[o.placed] && !ITEMS[o.placed] ? PIECES[o.placed] : null);
     // (a wheelbarrow with stacks or big things on it is not taken down nor moved: barrow.js)
     if (o.placed === BARROW.ID && this.barrow.loaded(o.tile)) { this.gather.float(t('barrow.empty_first'), '#ffb0a0'); Audio.error(); return false; }
+    if (o.placed === 'cart' && (this.barrow.loaded(o.tile) || this.cart.hitched(o.tile))) { this.gather.float(t(this.cart.hitched(o.tile) ? 'cart.unhitch_first' : 'cart.empty_first'), '#ffb0a0'); Audio.error(); return false; }
     // (una alfombra vuelve como la del telar de su tamaño; las de antes, de cualquier tamaño, se ponían con V)
     const r = o.layer === 'rug' && o.rug, id = r ? rugId(ITEMS[o.placed].rug || o.placed, RUG_MADE.find(([w, h]) => (w === r.w && h === r.h) || (w === r.h && h === r.w)) || [1, 1]) : o.placed;
     if (!B && this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
@@ -1039,6 +1046,7 @@ export class Game {
     if (!p || !this.world || !Number.isFinite(x) || !Number.isFinite(y)) return false;
     x = wrapX(x); y = Math.max(NORTH + 1, Math.min(SOUTH - 1, y));   // (dentro del planeta)
     if (this.barrow?.pushing) this.barrow.park(true);   // (the wheelbarrow stays where you were)
+    if (this.cart?.rec) this.cart.getDown(true);   // (and the cart, with its horse)
     if (cover) this.law?.freed();   // (an op takes you out of the cell)
     const far = this.scene !== this.world || Math.hypot(dxOf(x, p.x), y - p.y) > JUMP_COVER;
     if (p.pose) this.rest.stand();
@@ -1122,7 +1130,7 @@ export class Game {
       }
       const items = CHESTS[cid] ? w.chestAt(tx, ty) : null;
       // (a wheelbarrow: its id and big things too, read before unplace takes them away; with only big things it is not empty)
-      const wb = cid === BARROW.ID ? w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.barrow?.[`${tx},${ty}`] : null, loads = (wb?.l || []).filter(e => BULKY[e?.[0]]);
+      const wb = cid === BARROW.ID || cid === 'cart' ? w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.barrow?.[`${tx},${ty}`] : null, loads = (wb?.l || []).filter(e => BULKY[e?.[0]]);
       w.unplace(o);
       if (items?.some(Boolean) || loads.length) {
         const spot = this.freeTile(H, dx, dy);
@@ -1130,7 +1138,7 @@ export class Game {
           w.place(spot[0], spot[1], cid);
           const d1 = w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)), k1 = `${spot[0]},${spot[1]}`;
           d1.chest[k1] = items;
-          if (wb) (d1.barrow ||= {})[k1] = { id: wb.id || 't' + k1, l: loads };
+          if (wb) (d1.barrow ||= {})[k1] = { id: wb.id || 't' + k1, l: loads, ...(wb.o && { o: wb.o }) };   // (a cart keeps its owner; its horse is unhitched)
           return;
         }
         for (const it of items || []) if (it) this.giveBack(it.id, it.n, it);
@@ -1239,6 +1247,7 @@ export class Game {
   // Cambiar a otra escena (cuevas, mazmorras…) con fundido. `inside`: no se ve el mapa ni el cielo.
   async goTo(scene, x, y, { inside = true, sound = true } = {}) {
     if (this.barrow?.pushing) this.barrow.park(true);   // (into a cave or out of it: the wheelbarrow stays where you were)
+    if (this.cart?.rec) this.cart.getDown(true);   // (and the cart)
     this.busy = true;
     this.player.stop();
     if (sound) Audio.door();

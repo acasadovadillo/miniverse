@@ -167,7 +167,8 @@ export const RECIPES = [
   ...ARMOR_METALS.flatMap(([metal]) => ARMOR_PIECES.map(([piece], i) => R('yunque', `${piece}_${metal}`, 1, [[`lingote_${metal}`, [5, 8, 7, 4][i]]]))),
   R('cocina', 'pocion', 1, [['baba', 2], ['miel', 1]]),
   R('banco', 'barca', 1, [['tablas', 40], ['cuerda', 6]]),
-  R('banco', 'wheelbarrow', 1, [['tablas', 10], ['lingote_hierro', 1]]),   // (the wheel and its axle are iron, like the waterwheel's: see barrow.js)
+  R('banco', 'wheelbarrow', 1, [['tablas', 10], ['lingote_hierro', 1]]),
+  R('banco', 'cart', 1, [['tablas', 12], ['lingote_hierro', 2], ['cuero', 2], ['cuerda', 2]]),   // (the tyres and the axle iron, the harness leather and rope: cart.js)   // (the wheel and its axle are iron, like the waterwheel's: see barrow.js)
   R('banco', 'red', 1, [['tablas', 2], ['tela', 1], ['cuerda', 1]]),
   R('banco', 'vitrina', 1, [['tablas', 8], ['piedra', 2]]),
   R('cocina', 'tortilla', 1, [['huevo', 2]]),
