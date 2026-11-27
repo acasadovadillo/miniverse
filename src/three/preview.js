@@ -36,7 +36,7 @@ export class CharacterPreview {
     stage.position.y = -0.06; stage.receiveShadow = true;
     this.scene.add(stage);
     this.person = null; this.angle = 0; this.want = 0; this.last = 0;
-    this.walk = true;   // andando en el sitio (si no, de pie)
+    this.walk = false;   // standing still (true: walking in place; the creator used to, the user wants it still)
   }
   setLook(look) {
     if (this.person) { this.scene.remove(this.person.root); this.person.dispose(); }   // (suelta su malla: ver persona.js release)
