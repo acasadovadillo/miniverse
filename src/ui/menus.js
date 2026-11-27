@@ -4,6 +4,8 @@ import { Profile } from '../accounts.js';
 import { LOOK_OPTIONS, DEFAULT_LOOK } from '../looks.js';
 import { barberStyles, barberBill, payBarber, applyMirror, MIRROR_HIDES } from '../barber.js';
 import { CharacterPreview } from '../three/preview.js';
+import { DualPreview, NEW_PAGES, NEW_SHOTS, newRows, newStyles, ensureMh, packMh, randomNew } from './creatornew.js';
+import { opcion } from '../opciones.js';
 import { SPAWN } from '../world/village.js';
 import { hud } from './hud.js';
 import { Audio } from '../audio.js';
@@ -521,12 +523,17 @@ export function initMenus(game) {
   // ---------- Creador de personaje ----------
   // (la vista previa es el mismo modelo en 3D que en el juego)
   const look = { ...DEFAULT_LOOK };
-  const preview = new CharacterPreview($('cr-canvas'));
+  // (?creador=nuevo: the new creator of plan CR, creatornew.js, for a new character; the mirror and the barber keep this one)
+  const NEW = opcion('creador') === 'nuevo';
+  if (NEW) newStyles();
+  const preview = NEW ? new DualPreview($('cr-canvas')) : new CharacterPreview($('cr-canvas'));
+  const newMode = () => NEW && !mirror;
   // Pages (Q and E, or their tabs): body and clothes, face and hair (on the face and the hair, the camera comes closer to the head). Each has
   // its rows, «Label ‹ Value ›» (frontend.js optionRow). They are made again each time it opens (buildRows): the mirror and the
   // barber leave some out, and the language may be another
-  const PAGES = ['cuerpo', 'cara', 'pelo'];   // (gui.creator.page.*)
-  let rows = [], L = null, page = 'cuerpo', colour = null;   // colour: the player's own (0-7), or null, the one of the name (skin.js)
+  const PAGES = NEW ? NEW_PAGES : ['cuerpo', 'cara', 'pelo'];   // (gui.creator.page.*)
+  const tabOf = id => tabs.btns[PAGES.indexOf(id)];
+  let rows = [], L = null, page = 'cuerpo', colour = null, extra = null;   // colour: the player's own (0-7), or null, the one of the name (skin.js)
   const nameIn = $('cr-name');
   const tabs = tabStrip($('cr-tabs'), PAGES.map(id => ({ id, text: t(`gui.creator.page.${id}`), i18n: `gui.creator.page.${id}` })), { current: page, onPick: showPage });
   const rowOf = id => rows.find(x => x.id === id);
@@ -544,16 +551,19 @@ export function initMenus(game) {
     nameEl.addEventListener('click', () => nameIn.focus());
     add('cuerpo', 'name', { el: nameEl, refresh() {}, key: () => false }, { hide: () => !!mirror?.barber });
     named('cuerpo', 'sex');
+    extra = newMode() ? newRows({ add, look, rebuild, preview }) : null;
+    if (extra) { extra.origins(); extra.body(); }
     colours('cuerpo', 'skin');
     named('cuerpo', 'outfit');
     colours('cuerpo', 'cloth');
     add('cuerpo', 'accent', optionRow({ label: t('gui.creator.colour'), colours: ACCENTS, values: ACCENTS.map((_, i) => [i, t(`gui.settings.row.accent.${ACCENT_IDS[i]}`)]),
       get: () => accentOf(nameIn.value || Profile.name, colour), set: n => { colour = n; paintColour(); } }), { hide: () => !!mirror, desc: 'gui.settings.desc.accent' });
     rowOf('accent').el.classList.add('sw');
-    named('cara', 'eyeStyle');
+    if (extra) { extra.head(); extra.fine(); }
+    if (!extra) named('cara', 'eyeStyle');
     colours('cara', 'eyes');
     named('cara', 'brows');
-    named('cara', 'nose');
+    if (!extra) named('cara', 'nose');
     // (orejas, mofletes, boca y accesorio del pelo eran de los muñecos de antes: la persona de ahora no los dibuja. Siguen en
     // el look, guardado y por red, pero ya no se ofrecen)
     named('pelo', 'hairStyle');
@@ -569,6 +579,7 @@ export function initMenus(game) {
       add('pelo', id, opt, { win, mark: m, hide: () => m.gone });
     }
     L = list($('cr-rows'), rows.map(x => ({ id: x.id, el: x.el })), { hover: 'move', start: -1, onFocus: row => { if (row.id !== 'name' && document.activeElement === nameIn) nameIn.blur(); $('cr-desc').textContent = rowOf(row.id).desc ? t(rowOf(row.id).desc) : ''; } });
+    extra?.place(id => rowOf(id)?.el);
   }
   // Which rows are in sight: those of the page (at the barber's, the hair and the face together, without tabs: what is left of
   // the two fits one page) that this window has
@@ -577,6 +588,7 @@ export function initMenus(game) {
       const here = mirror?.barber ? x.page !== 'cuerpo' : x.page === page;
       x.el.hidden = !here || (x.win && x.win !== (mirror ? (mirror.barber ? 'barber' : 'mirror') : null)) || !!(x.key && mirror?.hides.includes(x.key)) || !!x.hide?.();
     }
+    extra?.paint();
     L.settle();
   }
   function showPage(id) {
@@ -584,8 +596,8 @@ export function initMenus(game) {
     if (document.activeElement === nameIn) nameIn.blur();
     paintRows();
     L.focus(rows.findIndex(x => !x.el.hidden));
-    const near = id === 'cara' || id === 'pelo' || !!mirror?.barber;
-    preview.focus(near ? 'face' : 'body');
+    const near = id === 'cara' || id === 'pelo' || !!mirror?.barber || (newMode() && id !== 'cuerpo');
+    preview.focus(newMode() ? NEW_SHOTS[id] : near ? 'face' : 'body');
     $('cr-stage').classList.toggle('near', near);
   }
   // Back to the first of its pages
@@ -596,13 +608,16 @@ export function initMenus(game) {
   nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') nameIn.blur(); });
 
   function rebuild() {
+    if (newMode()) ensureMh(look);
     preview.setLook(mirror ? mirrorLook() : look);
     if (mirror) paintMirror();
     for (const x of rows) x.opt.refresh();
+    extra?.paint();
   }
 
   const pickOf = arr => arr[Math.floor(Math.random() * arr.length)];
   $('cr-random').onclick = () => {
+    if (newMode()) { randomNew(look); rebuild(); return; }
     for (const [key, list] of Object.entries(LOOK_OPTIONS)) { if (mirror?.hides.includes(key)) continue; const v = pickOf(list); look[key] = Array.isArray(v) ? v[0] : v; }
     // Barba solo a veces (y no a las chicas), y casi siempre con mofletes
     if (!mirror) look.beard = look.sex === 'chico' && Math.random() < 0.4 ? pickOf(LOOK_OPTIONS.beard.slice(1))[0] : 'no';
@@ -668,11 +683,12 @@ export function initMenus(game) {
   }
   addEventListener('resize', fit);
   addEventListener('blur', () => { spin = 0; });
-  const cv = $('cr-canvas');
   let dragX = null;
-  cv.addEventListener('pointerdown', e => { dragX = e.clientX; cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointermove', e => { if (dragX === null) return; turnTo(angle + (e.clientX - dragX) * 0.012); dragX = e.clientX; });
-  for (const ev of ['pointerup', 'pointercancel']) cv.addEventListener(ev, () => { dragX = null; });
+  for (const cv of preview.canvases || [$('cr-canvas')]) {
+    cv.addEventListener('pointerdown', e => { dragX = e.clientX; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener('pointermove', e => { if (dragX === null) return; turnTo(angle + (e.clientX - dragX) * 0.012); dragX = e.clientX; });
+    for (const ev of ['pointerup', 'pointercancel']) cv.addEventListener(ev, () => { dragX = null; });
+  }
 
   // The mirror (at a basin) and the barber's window (barber.js): the creator's pages without starting anew. The mirror, free,
   // keeps the face, and shaves, tidies the beard and lets it grow or not; the hair (cut, style and colour) and the beard's
@@ -715,8 +731,8 @@ export function initMenus(game) {
       mark('shave', mirror.act === 'shave', t('mirror.shave'));
       mark('tidy', mirror.act === 'tidy', t('mirror.tidy'));
       mark('grow', mirror.grow, t('mirror.grow'));
-      tabs.btns[2].hidden = !some && !male;   // (no beard to see to: no tab)
-      if (tabs.btns[2].hidden && page === 'pelo') firstPage('cara');
+      tabOf('pelo').hidden = !some && !male;   // (no beard to see to: no tab)
+      if (tabOf('pelo').hidden && page === 'pelo') firstPage('cara');
     }
     paintRows();
   }
@@ -729,6 +745,7 @@ export function initMenus(game) {
     if (barber && wear.cabeza?.id !== 'hijab') delete wear.cabeza;   // (the hat off, to see the hair; a hijab stays on)
     mirror = { wear, hides, barber, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle) : null };
     Object.assign(look, DEFAULT_LOOK, game.player.look);
+    if (NEW) { preview.use('old'); for (const id of ['cabeza', 'ajuste']) tabOf(id).hidden = true; }
     if (typeof look.beard !== 'string') look.beard = look.beard ? 'completa' : 'no';   // (an old look's true)
     nameIn.value = game.player.name; nameIn.disabled = true;
     $('cr-random').hidden = barber;
@@ -743,7 +760,7 @@ export function initMenus(game) {
     return true;
   };
   function setTitle(key) { const h = document.querySelector('#s-creator h2'); h.dataset.i18n = key; applyDom(h); }
-  function tabLabel(key) { tabs.btns[2].dataset.i18n = key; applyDom(tabs.btns[2]); }
+  function tabLabel(key) { tabOf('pelo').dataset.i18n = key; applyDom(tabOf('pelo')); }
   // Back to the creator as it is for a new character (also when the game ended with one of these windows open)
   function leaveMirror() {
     mirror = null;
@@ -751,7 +768,8 @@ export function initMenus(game) {
     setTitle('gui.creator.title');
     setStartLabel('gui.creator.start');
     billEl.hidden = true;
-    tabs.el.hidden = false; tabs.btns[2].hidden = false; tabLabel('gui.creator.page.pelo');
+    tabs.el.hidden = false; tabOf('pelo').hidden = false; tabLabel('gui.creator.page.pelo');
+    if (NEW) { preview.use('new'); for (const id of ['cabeza', 'ajuste']) tabOf(id).hidden = false; }
   }
   // The basin (E on a lavabo, game.placedAction): wash your face and hands (body.washFace, src/body.js) or look in the
   // mirror, asked like the bed's menu. Without Body, or with ?cuerpo=0 (no dirt to wash), straight to the mirror as
@@ -790,7 +808,7 @@ export function initMenus(game) {
     const name = nameIn.value.trim();
     if (!name) { $('cr-err').textContent = t('gui.creator.need_name'); return; }
     // A new character starts from scratch
-    const save = { player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, lang: savedLang(), ...(colour !== null && { ui: { accent: colour } }) };
+    const save = { player: { name, look: { ...look, ...(NEW && look.mh && { mh: packMh(look.mh) }) }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, lang: savedLang(), ...(colour !== null && { ui: { accent: colour } }) };
     // SINGLE PLAYER: a new game, with its world from scratch (the same map: nothing of any other game), and into it
     if (creatorFor === 'single') {
       if (creating) return;
@@ -819,6 +837,7 @@ export function initMenus(game) {
     $('cr-err').textContent = '';
     spin = 0;
     turnTo(0);
+    if (NEW) preview.use('new');
     buildRows();
     rebuild();
     paintColour();

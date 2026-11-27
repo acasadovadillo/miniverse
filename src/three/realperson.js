@@ -75,9 +75,9 @@ export function toReal(look, kid = false) {
   // sin rehacer la persona)
   // (and without the growth steps, hairGrow and beardGrow, that game.appearance() adds, nor the tear stage of a piece,
   // wear[slot].r: hair that grows and a shirt that tears keep the face and the posture; a look without them hashes as it
-  // always did)
-  const hat = W.cabeza?.id, lw = look.wear, grown = look.hairGrow !== undefined || look.beardGrow !== undefined;
-  const bare = grown ? { ...look, hairGrow: undefined, beardGrow: undefined } : look, tears = lw && Object.values(lw).some(it => it && it.r !== undefined);
+  // always did). Nor the new creator's shapes (look.mh, plan CR): this person does not draw them yet
+  const hat = W.cabeza?.id, lw = look.wear, grown = look.hairGrow !== undefined || look.beardGrow !== undefined || look.mh !== undefined;
+  const bare = grown ? { ...look, hairGrow: undefined, beardGrow: undefined, mh: undefined } : look, tears = lw && Object.values(lw).some(it => it && it.r !== undefined);
   let wearH = null;
   if (lw?.espalda || lw?.outer || tears) {
     wearH = { ...lw, espalda: undefined, outer: undefined };

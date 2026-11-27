@@ -2667,6 +2667,89 @@ async function soloTests(game) {
       game.mode = 'play'; $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-multi').click(); check(!$('cr-tabs').hidden && !$('cr-random').hidden && $('cr-bill').hidden && crRows().startsWith('name,sex') && $('cr-start').textContent === t('gui.creator.start') && document.querySelector('#cr-tabs [data-tab=pelo]').textContent === t('gui.creator.page.pelo'), 'the creator after the barber');
     } finally { p().look = look; game.money = money; if (body) Object.assign(game.body.applied, body); game.inv.v++; }
   }));
+  // ---------- Plan CR, P1: the new character creator with MakeHuman people (?creador=nuevo; src/three/mh/, ui/creatornew.js) ----------
+  const mhMods = () => Promise.all([import('./three/mh/data.js'), import('./three/mh/person.js'), import('./three/mh/presets.js'), import('./ui/creatornew.js'), import('./three/mh/shape.js')]);
+  await test('mh creator (english): the MakeHuman pack loads; its sliders, heads and texts agree; a look is built in time, on the ground, and a face slider moves only the head', async () => {
+    const [{ loadMh, target }, { MhPerson }, { PRESETS }, { FACE_SLIDERS, ensureMh }, { blend, joint }] = await mhMods();
+    const en = await (await fetch('./src/lang/en.json')).json(), es = await (await fetch('./src/lang/es.json')).json(), both = k => en[k]?.length > 0 && es[k]?.length > 0;
+    const D = await loadMh();
+    check(D.nv > 13380 && D.body.idx.length / 3 > 20000 && D.downloaded > 1e6, `the mesh: ${D.nv} vertices`);
+    const ids = D.face.map(f => f.id);
+    check(ids.length >= 40 && [...ids].sort().join() === [...FACE_SLIDERS].sort().join(), `the sliders of the pack and of the creator: ${ids.length}, ${FACE_SLIDERS.length}`);
+    const empty = D.face.filter(f => !(f.neg && f.pos && target(D, f.neg)?.idx.length && target(D, f.pos)?.idx.length)).map(f => f.id);
+    check(!empty.length, `sliders without their two shapes: ${empty}`);
+    check(ids.every(id => both(`mh.slider.${id}`)) && ['eyes', 'brows', 'nose', 'mouth', 'jaw', 'cheeks', 'forehead', 'ears', 'head'].every(g => both(`mh.group.${g}`)), 'a text for every slider and group');
+    const groups = {};
+    for (const p of PRESETS) { groups[p.o + p.sex] = (groups[p.o + p.sex] || 0) + 1; check(both(`mh.preset.${p.id}`) && Object.entries(p.face).every(([k, v]) => ids.includes(k) && Math.abs(v) <= 100), `head ${p.id}`); }
+    check(Object.keys(groups).length === 6 && Object.values(groups).every(n => n === 8), `eight heads per origin and sex: ${JSON.stringify(groups)}`);
+    for (const sex of ['chica', 'chico']) {
+      const look = { ...LOOK, sex, hairStyle: sex === 'chica' ? 'coleta' : 'corto' };
+      ensureMh(look);
+      const t0 = performance.now(), P = new MhPerson(D, look), ms = performance.now() - t0, box = new THREE.Box3().setFromObject(P.root);
+      console.log(`▶ mh: a ${sex} built in ${ms.toFixed(1)} ms (blend, fit, pose: ${P.ms.toFixed(1)} ms), ${P.tris} triangles, ${P.height.toFixed(2)} m`);
+      check(P.height > 1.45 && P.height < 2 && Math.abs(box.min.y) < 0.03 && box.max.y < 2.1, `${sex}: ${P.height} m, from ${box.min.y} to ${box.max.y}`);
+      check(P.tris < 60000 && ms < 1500, `${sex}: ${P.tris} triangles, ${ms} ms`);
+      const sameShape = MhPerson.shapeKey({ ...look, skin: '#4a2a1c', eyes: '#c83a4a', hair: '#e8c060' }) === P.key;
+      check(sameShape, 'colours do not make the shape again');
+      P.dispose();
+    }
+    const a = blend(D, { macro: {}, face: {} }, 'chica'), b = blend(D, { macro: {}, face: { nose_length: 100, jaw_width: -100 } }, 'chica'), neck = joint(D, a, 'joint-neck')[1];
+    let moved = 0, low = 0;
+    for (let i = 0; i < D.head.nbody; i++) { const d = Math.abs(a[i * 3] - b[i * 3]) + Math.abs(a[i * 3 + 1] - b[i * 3 + 1]) + Math.abs(a[i * 3 + 2] - b[i * 3 + 2]); if (d > 1e-4) { moved++; if (a[i * 3 + 1] < neck - 0.5) low++; } }
+    check(moved > 100 && !low, `a face slider moves ${moved} vertices, ${low} under the neck`);
+  });
+  await test('mh creator (english): look.mh is optional and small; an old look gets a head of its sex; the game\'s person ignores it', async () => {
+    const [, , { presetOf }, { ensureMh, packMh, randomNew }] = await mhMods();
+    const look = { ...LOOK };
+    delete look.mh;
+    check(presetOf(ensureMh(look).preset)?.sex === 'chica', 'an old look: a head of hers');
+    look.sex = 'chico';
+    check(presetOf(ensureMh(look).preset)?.sex === 'chico', 'the sex changed: a head of his');
+    for (let i = 0; i < 30; i++) {
+      randomNew(look);
+      const mh = packMh(look.mh), size = JSON.stringify({ ...look, mh }).length;
+      check(presetOf(mh.preset) && JSON.stringify(mh).length < 1024 && size < 1600, `a random look: ${size} characters`);
+      check(Object.values(mh.face).concat(Object.values(mh.macro)).every(v => Number.isInteger(v) && Math.abs(v) <= 100), 'whole numbers within the sliders');
+      check(toReal({ ...look, mh }).semilla === toReal({ ...look, mh: undefined }).semilla, 'the game\'s face does not change with it');
+    }
+  });
+  await test('menu (english): the new creator (?creador=nuevo): body, head, fine tune, face and hair pages; a new character saves look.mh; the mirror keeps the creator of before', () => keepMenus(async $ => {
+    if (new URLSearchParams(location.search).get('creador') !== 'nuevo') { check(!$('cr-canvas-mh') && !document.getElementById('cr-new-style'), 'without the switch, nothing of it'); return; }
+    const [, , { presetsFor }, { FACE_SLIDERS }] = await mhMods();
+    game.mode = 'menu';
+    let saved = null; Object.defineProperty(Profile, 'data', { get: () => (saved ? { save: saved, deltas: [] } : null), configurable: true }); Profile.store = async st => { saved = { ...st, savedAt: Date.now() }; return { local: true, remote: null }; };
+    $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-multi').click();
+    check([...document.querySelectorAll('#cr-tabs .fe-tab')].map(b => b.dataset.tab).join() === 'cuerpo,cabeza,ajuste,cara,pelo', 'the five pages');
+    const pages = { cuerpo: ['name', 'sex', 'origin_af', 'origin_as', 'origin_ca', 'body_height', 'body_weight', 'body_muscle', 'body_age', 'body_chest', 'body_prop', 'skin', 'outfit', 'cloth', 'accent'],
+      cabeza: ['light', 'head'], ajuste: ['reset_face', ...FACE_SLIDERS.map(id => 'face_' + id)], cara: ['eyes', 'brows'], pelo: ['hairStyle', 'hair', 'beard'] };
+    for (const [pg, ids] of Object.entries(pages)) {
+      document.querySelector(`#cr-tabs [data-tab=${pg}]`).click();
+      check(crTab() === pg && crRows() === ids.join(), `${pg}: ${crRows()}`);
+      check(![...document.querySelectorAll('#cr-rows .row:not([hidden])')].some(r => /mh\.|gui\./.test(r.textContent)), `${pg}: a raw key`);
+      check(document.querySelectorAll('#cr-rows h4.cr-group:not([hidden])').length === (pg === 'ajuste' ? 9 : 0), `${pg}: the group titles of the fine tune`);
+    }
+    document.querySelector('#cr-tabs [data-tab=cabeza]').click();
+    const grid = document.querySelector('#cr-rows .cr-heads'), headName = () => crRow('head').querySelector('b').textContent;
+    check(grid && !grid.hidden && grid.children.length === presetsFor(saved?.player?.look?.sex || 'chica').length, 'the grid of heads');
+    const first = headName();
+    while (!crRow('head').classList.contains('sel')) pauseKey('ArrowDown');
+    pauseKey('ArrowRight'); check(headName() !== first && grid.querySelector('.on')?.title === headName(), `→ the next head: ${first} ${headName()}`);
+    grid.children[5].click(); check(headName() === grid.children[5].title, 'a click on a portrait');
+    document.querySelector('#cr-tabs [data-tab=ajuste]').click();
+    const nose = crRow('face_nose_length'), v0 = nose.querySelector('b').textContent;
+    while (!nose.classList.contains('sel')) pauseKey('ArrowDown');
+    pauseKey('ArrowRight'); check(+nose.querySelector('b').textContent === +v0 + 5, `a slider: ${v0} ${nose.querySelector('b').textContent}`);
+    pauseKey('KeyR'); await sleep(50);
+    await sleep(1500);
+    $('cr-name').value = 'Vera'; Object.defineProperty(Profile, 'admin', { get: () => false, configurable: true }); game.live.status = 'off'; $('cr-start').click(); await sleep(60);
+    const mh = saved?.player.look.mh;
+    check(mh && mh.preset && mh.macro && mh.face && JSON.stringify(mh).length < 1024, `saved: ${JSON.stringify(mh)}`);
+    const look = { ...p().look };
+    try {
+      game.mode = 'play'; check(game.onMirror('mirror') && crRows() === 'eyeStyle,eyes,brows,nose' && $('cr-canvas-mh').hidden && !$('cr-canvas').hidden, `the mirror: ${crRows()}`);
+      pauseKey('Escape'); await sleep(100);
+    } finally { p().look = look; }
+  }).finally(() => Object.defineProperty(Profile, 'admin', { get: () => WHO === 'a', configurable: true })));
   await test('menu (english): the front screens in English: no Spanish left, no raw keys; with ?lang=keys every text is a key', () => keepMenus(async $ => {
     const was = getLang(), spanish = /[ñ¿¡áéíóúÁÉÍÓÚ]|\b(el|la|los|las|una?|del|para|con|por|que|más|tu|jugar|entrar|servidor)\b/i, txt = id => [...$(id).querySelectorAll('*')].filter(e => !e.children.length && e.checkVisibility?.()).map(e => e.textContent).join(' | ');
     try {
