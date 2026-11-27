@@ -50,6 +50,7 @@ import { footTile, front, extraTiles, yawOf } from './art/stations.js';
 import { solidsOf, hull, placeBoxes, aabb, distTo, rayHits } from './world/fit.js';
 import { HOTBAR, extraOf } from './inventory.js';
 import { Visitors } from './visitors.js';
+import { Travellers } from './travellers.js';
 import { Neighbors } from './neighbors.js';
 import { Reputation } from './reputation.js';
 import { Social } from './social.js';
@@ -260,6 +261,7 @@ export class Game {
     this.missions = this.addSystem(new Missions(this));   // the jobs, alone or in company (src/missions.js; after ranch, talk and live)
     this.rumours = this.addSystem(new Rumours(this));   // the places the neighbours tell you of (src/rumours.js; after places and talk)
     this.chatter = this.addSystem(new Chatter(this));   // the neighbours talking among themselves (src/chatter.js)
+    this.travellers = this.addSystem(new Travellers(this));   // the travellers of the roads (src/travellers.js; after places, talk and rumours)
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }
     // Slow motion (see slowScale): timeScale, where it is now; timeScaleTarget, where it goes; simScale, what the last

@@ -28,7 +28,7 @@ const frame = () => new Promise(r => { const x = setTimeout(r, 150); requestAnim
 
 // ---------- tips ----------
 // How many there are: the keys tip.1 … tip.N of the language files (a new one, at the end)
-export const TIPS = 52;
+export const TIPS = 53;
 export const tipText = n => t(`tip.${n}`);
 // Shuffled, and none again until all have been seen (they go on from one loading to the next)
 let deck = [];

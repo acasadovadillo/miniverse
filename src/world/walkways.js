@@ -6,12 +6,13 @@ import { ITEMS } from '../items.js';
 import { pondDist } from './village.js';
 
 const MARGIN = 14, MAX_OPEN = 3000;
-// What they go round: walls, fences, posts, furniture… (not doors, gates, rugs, crops or what is hung)
-function solid(w, tx, ty) {
+// What they go round: walls, fences, posts, furniture… (not doors, gates, rugs, crops or what is hung). strict: doors and gates
+// too (a traveller of the roads never goes in through a player's door: travellers.js)
+export function solid(w, tx, ty, strict = false) {
   const raw = w.at('placed', tx, ty);
   if (raw) {
     const id = parsePlaced(raw)[0], kind = PIECES[id]?.kind;
-    if (kind) return kind !== 'door' && kind !== 'gate';
+    if (kind) return strict || (kind !== 'door' && kind !== 'gate');
     const place = ITEMS[id]?.place;
     if (place !== 'flat' && place !== 'rug') return true;
   }
@@ -30,7 +31,7 @@ function blockedLine(w, a, b, memo) {
   }
   return false;
 }
-function isSolid(w, x, y, memo) { const k = key(x, y); let v = memo.get(k); if (v === undefined) memo.set(k, v = solid(w, x, y)); return v; }
+function isSolid(w, x, y, memo) { const k = key(x, y); let v = memo.get(k); if (v === undefined) memo.set(k, v = solid(w, x, y, memo.strict)); return v; }
 // The tiles between two points, round what is solid (A*, eight ways without cutting corners), or null
 function search(w, a, b, memo, max = MAX_OPEN) {
   const sx = Math.floor(a[0]), sy = Math.floor(a[1]), ex = Math.floor(b[0]), ey = Math.floor(b[1]);
@@ -63,9 +64,11 @@ function search(w, a, b, memo, max = MAX_OPEN) {
 }
 // Is there a way on foot from one point to another, straight or round what is in between? (business.js: to a player's counter)
 export function canWalk(w, a, b) { const memo = new Map(); return !blockedLine(w, a, b, memo) || !!search(w, a, b, memo); }
-// The way on foot between two points, round what is solid, as points (the last one b); null if there is none (law.js: Ramiro)
-export function wayTo(w, a, b) {
+// The way on foot between two points, round what is solid, as points (the last one b); null if there is none (law.js: Ramiro;
+// travellers.js, strict)
+export function wayTo(w, a, b, strict = false) {
   const memo = new Map();
+  memo.strict = strict;
   if (!blockedLine(w, a, b, memo)) return [b];
   const tiles = search(w, a, b, memo, 900);
   if (!tiles) return null;

@@ -148,7 +148,7 @@ export class Talk {
     if (was && was.npc !== m.npc) this.letGo(conn, was);
     this.peers.set(conn, { npc: m.npc, until: g.time + TK_TTL, e: peer.entity, name: peer.name, peer });
   }
-  send(id, on) { const L = this.game.live; if (L?.joined && !Profile.server) L.net?.send({ t: 'tk', npc: id, on }); }
+  send(id, on) { const L = this.game.live; if (L?.joined && !Profile.server && !String(id).startsWith('tv:')) L.net?.send({ t: 'tk', npc: id, on }); }   // (a stranger's talk is nobody else's: stranger)
 
   // ---------- a talk ----------
   can() {
@@ -176,6 +176,23 @@ export class Talk {
     g.rumours?.prepare(id);   // (what they would tell of, looked for meanwhile)
     this.ui?.open();
     try { await this.run(T, other); }
+    finally { this.close(T, 'done'); }
+  }
+  // A stranger: a traveller of the roads (travellers.js). The same subtitles and list, with their own words and what they offer;
+  // no friendship, nothing sent. s: { id ('tv:…'), e, name, temper, say(key) (their words for 'so', 'bye', 'cut.…'), run(T) (the talk) }
+  async stranger(s) {
+    const g = this.game, e = s.e, p = g.player;
+    if (!e || this.cur || !this.can()) return;
+    g.social.cancel();
+    if (g.build?.on) g.build.toggle(false);
+    p.stop();
+    if (!CAM.first && !p.mount) { const [dx, dy] = gap(e, p), d = Math.hypot(dx, dy); if (d > 0.05) { p.face = { x: dx / d, y: dy / d }; p.dir = [dx, dy]; } }
+    const T = this.cur = { id: s.id, npc: null, e, def: { name: s.name, temper: s.temper || 'kind' }, f: {}, stranger: s, live: true, line: null, menu: null, mainSel: null, last: '', chats: 0, rounds: 0,
+      t: 0, idle: 0, away: 0, d: null, slow: 0, turn: 0, tk: Infinity, wins: !!g.windowsOpen, partner: true, pointing: 0, mood: 0, slot: null, open: false };
+    e.lookTarget = p;
+    this.turnTo(T);
+    this.ui?.open();
+    try { await s.run(T); }
     finally { this.close(T, 'done'); }
   }
   async run(T, other) {
@@ -262,7 +279,7 @@ export class Talk {
   }
   // The last thing they say: it stays on the screen a moment, but the talk is over. bubble: over their head (you are leaving)
   last(id, e, text, bubble = false) {
-    const name = PEOPLE[id].name;
+    const name = PEOPLE[id]?.name ?? e?.name ?? '';
     if (!text || !e || this.auto) return;
     if (bubble) { this.game.social.say(e, text, { name }); hud.log.say(name, text); }
     else this.show(name, nameColor(e.look?.cloth), text, lineTime(text));
@@ -277,7 +294,7 @@ export class Talk {
   // Rows [{ id, text }]: gives the id picked, or null (back, Esc). main: the options of the talk, which what is in the hand changes
   menu(T, rows, main = false) {
     if (!T.live || !rows.length) return Promise.resolve(null);
-    if (this.auto) return Promise.resolve(this.auto.ask(`${T.def.name}  ${'♥'.repeat(this.game.neighbors.hearts(T.id)) || '·'}`, T.last, rows.map(r => r.text))).then(i => rows[i]?.id ?? null);
+    if (this.auto) return Promise.resolve(this.auto.ask(T.stranger ? T.def.name : `${T.def.name}  ${'♥'.repeat(this.game.neighbors.hearts(T.id)) || '·'}`, T.last, rows.map(r => r.text))).then(i => rows[i]?.id ?? null);
     return new Promise(done => {
       const sel = main && T.mainSel ? Math.max(0, rows.findIndex(r => r.id === T.mainSel)) : 0;
       T.menu = { rows, sel, done, sig: main ? this.handSig() : null };
@@ -325,6 +342,7 @@ export class Talk {
   // ---------- the end ----------
   bye(T) {
     const N = this.game.neighbors, h = this.game.days.hour;
+    if (T.stranger) { this.end('bye', T.stranger.say('bye'), 'wave'); return; }
     this.end('bye', this.wet(T) ? N.say(T.id, 'cut.rain') : N.say(T.id, T.mood < 0 ? 'bye.low' : h >= 21 || h < 6 ? 'bye.night' : 'bye'), T.mood < 0 ? 'dismiss' : 'wave');
   }
   // Whatever it was, the talk is over. text: their last words; gesture: with them; bubble: over their head
@@ -335,7 +353,7 @@ export class Talk {
     if (gesture) this.gesture(T.e, gesture);
     this.last(T.id, T.e, text, bubble);
   }
-  cut(why, gesture = '', bubble = false) { if (this.cur) this.end(why, this.game.neighbors.say(this.cur.id, `cut.${why}`), gesture, bubble); }
+  cut(why, gesture = '', bubble = false) { const T = this.cur; if (T) this.end(why, T.stranger ? T.stranger.say(`cut.${why}`) : this.game.neighbors.say(T.id, `cut.${why}`), gesture, bubble); }
   hurt() { this.cut('hurt'); }   // (combat.js hit)
   close(T, why) {
     if (!T.live) return;
@@ -376,7 +394,7 @@ export class Talk {
       const was = T.idle;
       T.idle += dt;
       if (T.idle >= IDLE_S) { this.cut('idle', 'shrug'); return; }
-      if (was < SO_S && T.idle >= SO_S) { const s = g.neighbors.say(T.id, 'so'); if (s) { this.show(T.def.name, nameColor(e.look?.cloth), s, 2.5); this.gesture(e, 'nod'); } }
+      if (was < SO_S && T.idle >= SO_S) { const s = T.stranger ? T.stranger.say('so') : g.neighbors.say(T.id, 'so'); if (s) { this.show(T.def.name, nameColor(e.look?.cloth), s, 2.5); this.gesture(e, 'nod'); } }
     }
     if (T.menu && T.menu.sig !== null && T.menu.sig !== this.handSig()) this.resolve(T, AGAIN);
     if ((T.tk -= dt) <= 0) { T.tk = TK_AGAIN; this.send(T.id, 1); }
@@ -399,6 +417,7 @@ export class Talk {
   // in sight, it is just a goodbye
   walked(T) {
     const N = this.game.neighbors;
+    if (T.stranger) { this.end('walked', T.stranger.say('bye'), 'nod', true); return; }
     if (!T.line || T.line.me || T.line.think) { const h = this.game.days.hour; this.end('walked', N.say(T.id, h >= 21 || h < 6 ? 'bye.night' : 'bye'), 'nod', true); return; }
     if (Array.isArray(T.f.mem)) T.f.mem = T.f.mem.filter(m => m?.[1] !== 'walked_off');
     N.remember(T.id, 'walked_off');

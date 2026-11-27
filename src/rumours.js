@@ -38,6 +38,9 @@ export const SPECIALTY = {
   eusebio: ['torre', 'risco'], nilo: ['mina', 'torre'], dani: ['templo'], anselmo: null,
 };
 const HUB = 'anselmo', MAPS = 'ines', WRECK = { npc: 'lia', kind: 'barco' };
+// A traveller of the roads (travellers.js: the pilgrim) tells of the places talked of on the roads; their rumour keeps their name (e[5])
+export const TRAVELLER = 'traveller';
+const ROAD_KINDS = ['templo', 'torre', 'faro', 'aldea', 'mina', 'cueva'];
 const ANY = Object.keys(TIER_OF);
 export const kindsOf = id => (!Object.prototype.hasOwnProperty.call(SPECIALTY, id) ? [] : SPECIALTY[id] || ANY);
 export const MAX = 12, TOLD_MAX = 8;       // rumours kept; told keys per neighbour
@@ -74,7 +77,9 @@ export class Rumours {
   get flags() { return this.game.neighbors.flags; }
   get day() { return this.game.days.realDay; }
   // The rumours that are well formed (a newer game's other ones stay where they are)
-  entries() { const l = this.flags.rumours; return Array.isArray(l) ? l.filter(e => Array.isArray(e) && typeof e[0] === 'string' && KEY.test(e[0]) && typeof e[1] === 'string' && Object.prototype.hasOwnProperty.call(PEOPLE, e[2])) : []; }
+  entries() { const l = this.flags.rumours; return Array.isArray(l) ? l.filter(e => Array.isArray(e) && typeof e[0] === 'string' && KEY.test(e[0]) && typeof e[1] === 'string' && (Object.prototype.hasOwnProperty.call(PEOPLE, e[2]) || e[2] === TRAVELLER)) : []; }
+  // Who told of a rumour, by name
+  whoOf(e) { return e[2] === TRAVELLER ? (typeof e[5] === 'string' ? e[5].slice(0, 40) : t('traveller.someone')) : PEOPLE[e[2]].name; }
   // Is the list of this world's places here? (a guest waits for the host's: explore.js share)
   get settled() { const g = this.game; return !!this.places.places1 || !g.live?.joined || !g.live.guest; }
   // The place a rumour speaks of, or null (it is another one now, or none)
@@ -236,6 +241,26 @@ export class Rumours {
     this.noted(p, id);
   }
   noted(p, id) { hud.toast(t('talk.rumour.marked', { kind: kindName(p.kind), who: PEOPLE[id].name }), 'place'); this.game.onSave?.(); }
+  // A traveller of the roads tells of a place (travellers.js, the pilgrim): the nearest to the village of those talked of on the roads that
+  // you have not been to, one a day (flags.rumRoad). → the place, 'told' (one today already) or null; it is not on the maps until
+  // notedRoad, once it has been said
+  async fromRoad() {
+    if (this.off || !this.places?.sites || !this.settled) return null;
+    if (this.flags.rumRoad === this.day) return 'told';
+    const q = this.look(TRAVELLER, 'road', [ROAD_KINDS], FAR);
+    if (this.game.talk?.auto) this.run(Infinity, Infinity);
+    const p = await q;
+    this.flags.rumRoad = this.day;
+    return p || null;
+  }
+  notedRoad(p, name) {
+    const F = this.flags, l = Array.isArray(F.rumours) ? F.rumours : (F.rumours = []);
+    if (!l.some(e => e?.[0] === p.key)) l.push([p.key, p.kind, TRAVELLER, this.day, 0, String(name || '').slice(0, 40)]);
+    if (l.length > MAX) l.splice(0, l.length - MAX);
+    this.sig = null;
+    hud.toast(t('talk.rumour.marked', { kind: kindName(p.kind), who: name || t('traveller.someone') }), 'place');
+    this.game.onSave?.();
+  }
   add(p, id) {
     const F = this.flags, f = this.game.neighbors.friend(id), l = Array.isArray(F.rumours) ? F.rumours : (F.rumours = []);
     if (!l.some(e => e?.[0] === p.key)) l.push([p.key, p.kind, id, this.day, 0]);
@@ -276,7 +301,8 @@ export class Rumours {
       if (!p) { if (this.settled) (gone ||= new Set()).add(e); continue; }
       if (!P.known(p)) continue;
       e[4] = 1;
-      hud.toast(t('talk.rumour.right', { who: PEOPLE[e[2]].name, place: P.title(p) }), 'place');
+      hud.toast(t('talk.rumour.right', { who: this.whoOf(e), place: P.title(p) }), 'place');
+      if (e[2] === TRAVELLER) (gone ||= new Set()).add(e);   // (nobody in the village to hear of it: it goes)
     }
     if (gone) F.rumours = F.rumours.filter(e => !gone.has(e));
     if (F.pista_barco && !F.wreck && !this.wreckAt && !this.game.talk?.on && this.settled && F.wreckDay !== this.day) {
@@ -332,7 +358,7 @@ export class Rumours {
         const p = e[4] ? null : this.placeOf(e);
         if (!p || this.places.known(p)) continue;
         const c = this.circle(p);
-        this.list.push({ key: e[0], kind: e[1], npc: e[2], ...c, to: { x: c.x, y: c.y, kind: 'point' } });
+        this.list.push({ key: e[0], kind: e[1], npc: e[2], who: this.whoOf(e), ...c, to: { x: c.x, y: c.y, kind: 'point' } });
       }
     }
     return this.list;
@@ -344,6 +370,6 @@ blips.source('rumours', (out, { game }) => {
   for (const m of game.rumours?.marks() || []) {
     const b = out.add('rumour', m.x, m.y);
     b.r = m.r;
-    b.name = t('map.rumour', { kind: kindName(m.kind), who: PEOPLE[m.npc].name }); b.sub = t('map.card.rumour'); b.to = m.to;
+    b.name = t('map.rumour', { kind: kindName(m.kind), who: m.who }); b.sub = t('map.card.rumour'); b.to = m.to;
   }
 });

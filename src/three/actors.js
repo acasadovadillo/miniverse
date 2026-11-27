@@ -428,6 +428,7 @@ export class Actors {
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
       if (look?.armband) armband(person);   // (the constable's: law3d.js)
+      if (typeof e.gear === 'function') e.gear(person, m);   // (what a traveller of the roads carries: three/travellers3d.js)
       if (e.kid) root.rotation.order = 'YXZ';   // (la persona ya es de niño: ver realperson.js)
       if (isPlayer || e.remote) {
         // Con algo en la mano, caballo y barca (el jugador, además, con sus propios materiales para dibujar

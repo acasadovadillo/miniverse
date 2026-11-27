@@ -536,6 +536,8 @@ export class Explore {
     const L = this.planOf(p);
     if (!L) return;
     const k = `${cx},${cy}`, a = L.chunks[k], list = L.objs.get(k);
+    // (a camp where a traveller of the roads sleeps tonight: its fire lit and its tent shut; in the morning, cold ashes: travellers.js)
+    const camp = p.kind === 'campamento' && !this.deserted(p) ? this.game.travellers?.campState(p) || 0 : 0;
     if (a) this.world.addBuilt(a, out, true);
     for (const o of list || []) {
       if (o.treasure) { out.objects.push({ ...o, treasure: p, open: !!this.world.delta(Math.floor(p.x / CHUNK), Math.floor(p.y / CHUNK))?.opened?.[p.key] }); out.colliders.push({ x: o.x, y: o.y, r: 0.35 }); continue; }
@@ -547,10 +549,11 @@ export class Explore {
       }
       // (a fire that somebody has lit; and what a lit fire is for the cold: body.js)
       if (o.fireId) {
-        const lit = this.fireLit(o.fireId, p) || o.decor.includes(':lit'), m = lit ? o.decor.replace(/:(laid|cold)/, ':lit') : o.decor;
-        out.objects.push({ ...o, decor: m, key: `${o.key}:${lit ? 1 : 0}`, glow: lit ? FIRE_GLOW : null });
+        const lit = this.fireLit(o.fireId, p) || o.decor.includes(':lit') || camp === 1, m = lit ? o.decor.replace(/:(laid|cold)/, ':lit') : camp === 2 ? o.decor.replace(':laid', ':cold') : o.decor;
+        out.objects.push({ ...o, decor: m, key: `${o.key}:${lit ? 1 : camp === 2 ? 2 : 0}`, glow: lit ? FIRE_GLOW : null });
         if (lit) out.lights.push({ x: o.x, y: o.y, z: 6, r: 60 });
       } else if (o.decor.startsWith('signpost')) { const m = this.postOf(p, o); out.objects.push(m ? { ...o, decor: m } : o); }
+      else if (camp === 1 && o.decor.startsWith('tent:')) out.objects.push({ ...o, decor: o.decor.replace(':open', ':shut'), key: `${o.key}:shut` });
       else out.objects.push(o);
       if (o.walk) continue;
       const m = o.decor, local = solidsOf(m);

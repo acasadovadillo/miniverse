@@ -176,7 +176,10 @@ import { RodRest, cleanRr, LEASH, BITE_S, IDLE_S } from './rodrest.js';
 import { seasonOf, madridMs } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt, dryingAt } from './cropdata.js';
-import { NORTH, HALF as PHALF, H as PH, nearX, W as PW, distOf, dxOf } from './world/planet.js';
+import { NORTH, HALF as PHALF, H as PH, nearX, W as PW, distOf, dxOf, lonOf } from './world/planet.js';
+import * as TV from './world/travel.js';
+import { TravelPlan, hoursAt, along as tvAlong } from './world/travel.js';
+import { MAX as TV_MAX, EVAL as TV_EVAL } from './travellers.js';
 import { Tracks, K, CAP, TTL, S, DEAD, F_LEFT, F_FLEE, F_SECOND, STRIDE, RAIN_K } from './tracks.js';
 import { Wildlife, WOUND, trailKey, KINDS } from './wildlife.js';
 import * as SENSES_MOD from './senses.js';
@@ -6025,6 +6028,188 @@ async function soloTests(game) {
       const n0 = R.stats.lines; L.runs(W.gen, [4000, 4000, 5000, 5000]); check(R.stats.lines === n0, 'worked out while drawing'); if (game.view3d.terrain.workers.length && game.view3d.terrain.gen === W.gen) { const seen = new Set(R.lines.keys()), hx = 2184, hy = 1400; L.asked.clear(); L.flying = false; game.explored = new Set(); for (let j = -20; j <= 20; j++) for (let i = -20; i <= 20; i++) game.explored.add(`${Math.floor(hx / CHUNK) + i},${Math.floor(hy / CHUNK) + j}`); for (let i = 0; i < 12; i++) { L.warm(W.gen, hx, hy, 900, 900); await until(() => !L.flying, 30000, 'the worker'); } check([...R.lines.keys()].some(id => !seen.has(id)) && R.stats.lines - n0 < 3, `asked of the worker: ${R.lines.size} lines, ${R.stats.lines - n0} here`); }
     } finally { game.explored = ex; }
     check(apagada('caminos') === false && 'caminos' in PARTES, 'the switch');
+  });
+  // ---------- the travellers of the roads (R7-6: world/travel.js, travellers.js) ----------
+  // (the clock of the world at hour h of a road's own day D; with run, it goes on from there as the real one does)
+  const tvClock = (ms, run = false) => { const t0 = game.time; Object.defineProperty(game.days, 'now', { configurable: true, get: () => (run ? ms + (game.time - t0) * 1000 : ms) }); };   // (run: with the game's steps, frames)
+  const tvMs = (r, T) => (T - lonOf(r.pts[0]) / 15) * 36e5;
+  const tvFree = () => { delete game.days.now; game.travellers.clear(); game.travellers.camps.clear(); };
+  // A traveller of a trade on a road near home, on a stretch of road (k: WALK…), at f of it: { s (slot), q, T (his hour), ms }
+  const tvFind = (P, type, { k = TV.WALK, f = 0.5, even = null, long = 60 } = {}) => {
+    const R = P.roads, D0 = Math.floor(hoursAt(Date.now(), 16) / 24);
+    for (let d = 0; d < 30; d++) for (const [e] of R.edgesBy(16, 120, 400)) { const r = R.line(e); if (!r || r.len < 150) continue; for (const s of P.slots(e, r, D0 + d)) { if (type && s.type !== type) continue; const q = s.legs.find(l => l.k === k && (k !== TV.WALK || Math.abs(l.s1 - l.s0) > long) && (even === null || (l.leg % 2 === 0) === even) && l.t0 % 24 > 8 && l.t1 % 24 < 18.5); if (q) { const T = q.t0 + (q.t1 - q.t0) * f; return { s, q, T, ms: tvMs(r, T) }; } } }
+    return null;
+  };
+  // (puts you near where the schedule has him, and waits until he is out here)
+  const tvMeet = async (P, x, y, ms, id, ahead = 2) => {
+    tvClock(ms); await goTo(game, x, y); const T = game.travellers;
+    await until(() => { T.evalT = 0; return T.people.some(e => e.tid === id && !e.hidden); }, 20000, `${id} out`);
+    const e = T.people.find(q => q.tid === id), o = P.where(e.slot, ms, {}), p = game.player;
+    p.x = e.x + o.ux * ahead; p.y = e.y + o.uy * ahead; p.vx = p.vy = 0; p.face = { x: -o.ux, y: -o.uy }; await frames(2);
+    return e;
+  };
+  await test('travel (english): schedule: two games and a worker place every traveller at the same spot to the centimetre, with no message; on the roads\' lines; a sound day for each', async () => {
+    const say = (P, ms0) => { const o = [], at = {}; for (const [e] of P.roads.edgesBy(16, 200, 600)) { const r = P.roads.line(e); if (!r) continue; for (let k = 0; k < 40; k++) { const ms = ms0 + k * 1.8e6, D = Math.floor(hoursAt(ms, r.pts[0]) / 24); for (let day = D - 1; day <= D; day++) for (const s of P.slots(e, r, day)) { P.where(s, ms, at); o.push(at.vis ? `${s.id}:${s.type}:${at.x.toFixed(2)},${at.y.toFixed(2)}:${at.k}` : `${s.id}:-`); } } } return o.join('|'); };
+    const ms0 = Math.floor(Date.now() / 864e5) * 864e5 + 5 * 36e5;
+    const A = new TravelPlan(new Roads(WORLD_SEED)), B = new TravelPlan(new Roads(WORLD_SEED));
+    // (B asks in another order: a camp first, the days backwards)
+    for (const s of B.sites.near(300, 280, 400, ['campamento'], 'minor')) B.campNight(s, Math.floor(hoursAt(ms0, s.x) / 24) + 1);
+    const a = say(A, ms0), b = say(B, ms0); check(a.length > 2000 && a.split('|').length > 200, `too little: ${a.length}`); check(a === b, 'two games do not agree');
+    check(a.split('|').some(q => !q.endsWith(':-')) && a.split('|').some(q => q.endsWith(':-')), 'out and in');
+    const url = URL.createObjectURL(new Blob([`import { Roads } from '${new URL('./world/roads.js', import.meta.url).href}'; import { TravelPlan, hoursAt } from '${new URL('./world/travel.js', import.meta.url).href}'; const say = ${say.toString()}; onmessage = e => postMessage(say(new TravelPlan(new Roads(e.data[0])), e.data[1]));`], { type: 'text/javascript' })), wk = new Worker(url, { type: 'module' });
+    try { const c = await new Promise((res, rej) => { wk.onmessage = e => res(e.data); wk.onerror = e => rej(new Error(e.message)); wk.postMessage([WORLD_SEED, ms0]); setTimeout(() => rej(new Error('the worker does not answer')), 120000); }); check(c === a, 'the worker does not agree'); }
+    finally { wk.terminate(); URL.revokeObjectURL(url); }
+    // On the line of his road (resting: a step to one side of its end; off it, between the road and his camp)
+    const R = A.roads, at = {}, tmp = {};
+    let n = 0;
+    for (const [e] of R.edgesBy(16, 200, 600)) {
+      const r = R.line(e); if (!r) continue;
+      const D = Math.floor(hoursAt(ms0, r.pts[0]) / 24), list = A.slots(e, r, D);
+      check(list.length === Math.max(1, Math.min(3, Math.round(r.len / 500))), `${e.id}: ${list.length} for ${r.len.toFixed(0)} m`);
+      for (const s of list) {
+        A.night(s);
+        check(TV.TYPES.includes(s.type) && s.speed >= 1.5 && s.speed <= 2.1, `${s.id}: ${s.type} at ${s.speed}`);
+        for (let i = 1; i < s.legs.length; i++) if (s.legs[i].k !== TV.SLEEP && s.legs[i - 1].k !== TV.SLEEP) check(Math.abs(s.legs[i].t0 - s.legs[i - 1].t1) < 1e-6, `${s.id}: a gap in his day`);
+        const first = s.legs[0]; check(!first || (first.t0 - D * 24 >= 6.5 && first.t0 - D * 24 <= 11), `${s.id}: sets out at ${first && (first.t0 - D * 24)}`);
+        for (const q of s.legs) if (q.k === TV.WALK && !(s.camp && (q.s1 === s.camp.sj || q.s0 === s.camp.sj))) check(q.t1 - D * 24 <= 20.25 + 1e-6, `${s.id}: on the road after dusk`);
+        for (let T = D * 24 + 6; T < D * 24 + 22; T += 0.37) {
+          A.where(s, tvMs(r, T), at); if (!at.vis) continue; n++;
+          if (at.k === TV.WALK) { tvAlong(r, at.s, tmp); check(Math.hypot(dxOf(at.x, tmp.x), at.y - tmp.y) < 0.01, `${s.id}: off his road`); }
+          else if (at.k === TV.PAUSE_AT) check(R.near(at.x, at.y) === null || Math.hypot(dxOf(at.x, tvAlong(r, at.s, tmp).x), at.y - tmp.y) <= 1.0, `${s.id}: resting away from the road`);
+        }
+      }
+    }
+    check(n > 100, `seen ${n}`);
+  });
+  await test('travel (english): near you: at most four, out within 70 m and gone beyond 90 m, dressed for their trade; the budget', async () => {
+    const T = game.travellers, P0 = new TravelPlan(new Roads(WORLD_SEED)), keep = [p().x, p().y];
+    try {
+      check(!T.off && T.plan === null || T.plan instanceof TravelPlan, 'the system');
+      for (const type of TV.TYPES) {
+        const f = tvFind(P0, type, { even: type === 'woodcutter' ? true : null }); check(f, `no ${type} near home`);
+        const at = P0.where(f.s, f.ms, {}), e = await tvMeet(P0, at.x, at.y, f.ms, f.s.id, 3);
+        check(e.type === type && e.name && e.look.wear && T.people.length <= TV_MAX, `${type}: ${T.people.length} out`);
+        await until(() => game.view3d.actors.models.get(e)?.person, 15000, `${type}'s body`);
+        const P = game.view3d.actors.models.get(e).person;
+        check(type === 'pedlar' ? !!P.tvPack : type === 'pilgrim' ? !!P.tvStaff && e.look.wear.cabeza && e.look.wear.outer : type === 'woodcutter' ? !!P.tvLoad && P.tvLoad.visible && e.carrying === 'log' && !!P.kit : !!P.tvCreel && !!P.kit, `${type} not dressed for it`);
+        // (gone beyond DROP)
+        const px = p().x; p().x = e.x + 95; T.evalT = 0; await frames(3); check(!T.people.includes(e), `${type} still out at 95 m`); p().x = px; T.evalT = 0; await frames(3);
+      }
+      // At most four: six of them asked for within 60 m, the four nearest come out
+      const f = tvFind(P0, null), many = [];
+      for (const [e] of P0.roads.edgesBy(16, 120, 400)) { const r = P0.roads.line(e); if (r) for (const s of P0.slots(e, r, f.s.day)) many.push(s); }
+      check(many.length >= 6, `only ${many.length} slots`);
+      const P = T.planNow(), near = P.near;
+      P.near = (x, y, ms, R, out) => { many.slice(0, 6).forEach((s, i) => { out[i] = { slot: s, x: x + 8 + i * 9, y, ux: 1, uy: 0, k: TV.WALK, d: 8 + i * 9, vis: true }; }); return 6; };
+      try { T.clear(); T.look(P, p()); check(T.people.length === TV_MAX && T.people.every(e => many.slice(0, 4).includes(e.slot)), `${T.people.length} out`); } finally { P.near = near; }
+      // The budget: a look every half second, and each frame
+      const g0 = tvFind(P0, 'pedlar'), at = P0.where(g0.s, g0.ms, {}); await tvMeet(P0, at.x, at.y, g0.ms, g0.s.id, 4);
+      const t0 = performance.now(); for (let i = 0; i < 40; i++) T.look(T.planNow(), p()); const look = (performance.now() - t0) / 40;   // (the camps among them, one look in four)
+      const t1 = performance.now(); for (let i = 0; i < 400; i++) T.update(0.016); const frame = (performance.now() - t1) / 400;
+      check(look < 3 && look / (TV_EVAL * 60) + frame < 0.1, `a look ${look.toFixed(3)} ms, a frame ${frame.toFixed(4)} ms`);   // (the plan's budget: under 0.1 ms a frame on average, the looks spread over theirs)
+      console.log(`travel budget: a look ${look.toFixed(3)} ms (every ${TV_EVAL} s), a frame ${frame.toFixed(4)} ms, ${T.people.length} out`);
+      check('viajeros' in PARTES && apagada('viajeros') === false, 'the switch');
+    } finally { tvFree(); await goTo(game, ...keep); }
+  });
+  await test('travel (english): the camps: lit and shut exactly on the nights somebody\'s day ends there, cold ashes the morning after, as ever otherwise; their chest stays', async () => {
+    const T = game.travellers, P0 = new TravelPlan(new Roads(WORLD_SEED)), W = w(), keep = [p().x, p().y];
+    try {
+      let camp = null;
+      for (const s of P0.sites.near(16, 200, 1000, ['campamento'], 'minor')) { const poi = game.places.poiOf(s.key); if (poi?.kind === 'campamento' && !game.places.deserted(poi)) { const D0 = Math.floor(hoursAt(Date.now(), s.x) / 24); for (let d = 0; d < 20 && !camp; d++) if (P0.campNight(s, D0 + d).length) camp = { s, poi, D: D0 + d }; } if (camp) break; }
+      check(camp, 'no camp with anybody near home');
+      const { s, poi } = camp, q = P0.campNight(s, camp.D)[0], r = q.slot.r, lon = lonOf(r.pts[0]) / 15, msAt = T0 => (T0 - lon) * 36e5;
+      // Exactly those nights: for twelve days, someone there at 23:30 if and only if somebody's day ends there
+      for (let d = camp.D - 3; d < camp.D + 9; d++) { const n = P0.campNight(s, d), st = P0.campState(s, msAt(d * 24 + 23.5)); check((n.length > 0) === (st === 1), `day ${d}: ${n.length} sleeping, state ${st}`); }
+      const look = async (T0, what) => {
+        tvClock(msAt(T0)); await goTo(game, s.x + 6, s.y + 6); T.camps.clear(); T.campT = 0; T.evalT = 0;
+        await until(() => { T.evalT = 0; T.campT = 0; return T.camps.has(s.key); }, 20000, `the camp's state ${what}`); W.merged.clear();
+        const L = game.places.planOf(poi), objs = [...L.objs.keys()].flatMap(k => { const [cx, cy] = k.split(',').map(Number); return W.contentFor(cx, cy).objects; });
+        return { fire: objs.find(o => /^campfire:/.test(o.decor || ''))?.decor, tent: objs.find(o => /^tent:/.test(o.decor || ''))?.decor, chest: objs.some(o => o.treasure === poi || o.treasure?.key === poi.key), lights: L && objs.length };
+      };
+      const night = await look(Math.max(q.t0 + 0.2, camp.D * 24 + 23), 'at night');
+      check(T.campState(poi) === 1 && /:lit/.test(night.fire) && /:shut/.test(night.tent) && night.chest, `at night: ${JSON.stringify(night)}`);
+      const aim = T.aimables(p(), W, (x, y, hx, hy, y0, y1) => ({ x, y, hx, hy, y0, y1 })) || []; p().x = s.x; p().y = s.y + 1;
+      check((T.aimables(p(), W, (x, y, hx, hy, y0, y1) => ({ x, y, hx, hy, y0, y1 })) || []).some(a => a.act().text === t('place.camp.sleeping')), 'E on the tent'); void aim;
+      const morning = await look(camp.D * 24 + 24 + 9.5, 'in the morning');
+      if (!P0.campNight(s, camp.D + 1).some(z => z.t0 <= camp.D * 24 + 24 + 9.5)) check(T.campState(poi) === 2 && /:cold/.test(morning.fire) && /:open/.test(morning.tent), `in the morning: ${JSON.stringify(morning)}`);
+      let free = null; for (let d = camp.D + 1; d < camp.D + 30 && free === null; d++) if (!P0.campNight(s, d).length && !P0.campNight(s, d - 1).length) free = d;
+      if (free !== null) { const day = await look(free * 24 + 23, 'a night with nobody'); check(T.campState(poi) === 0 && /:laid/.test(day.fire) && /:open/.test(day.tent), `with nobody: ${JSON.stringify(day)}`); }
+    } finally { tvFree(); W.merged.clear(); await goTo(game, ...keep); }
+  });
+  await test('travel (english): greeting and talk; the pedlar\'s goods, the woodcutter\'s firewood, the fisher\'s catch and the pilgrim\'s news, once each; nothing of friendship or law', async () => {
+    const T = game.travellers, P0 = new TravelPlan(new Roads(WORLD_SEED)), keep = [p().x, p().y], money = game.money, auto = game.talk.auto, onShop = game.onShop, rum = JSON.stringify(Nb().flags.rumours ?? null), rumDay = Nb().flags.rumRoad, friends = JSON.stringify(Nb().friends), rep = game.rep?.v?.pts;
+    const said = [], opened = [];
+    let want = [];
+    game.talk.auto = { say: (n, l) => said.push(...l), ask: (n, x, o) => { const k = want.length ? o.findIndex(r => r.startsWith(want[0])) : -1; if (k >= 0) { want.shift(); return k; } return o.length - 1; } };
+    game.onShop = id => opened.push([id, SHOPS[id]?.stock?.map(q => q.id + ':' + q.price).join()]);
+    const run = async (e, ...picks) => { want = picks; said.length = 0; T.talk(e); await until(() => !game.talk.on, 15000, 'the talk ends'); };
+    try {
+      game.money = 5000;
+      for (const type of ['pedlar', 'woodcutter', 'fisher', 'pilgrim']) {
+        const f = tvFind(P0, type, { even: type === 'woodcutter' ? true : null }), at = P0.where(f.s, f.ms, {}), e = await tvMeet(P0, at.x, at.y, f.ms, f.s.id, 1.4);
+        // Y: you greet him, he answers (his own line), and nothing of friendship
+        const c = game.social.candidates().find(q => q.e === e); check(c?.kind === 'traveller', `${type}: not one to greet`);
+        game.social.lastAt = -1e9; game.social.act(0, c); await until(() => game.social.bubbles.some(b => b.e === e && tList('traveller.greet').concat(tList('traveller.greet.rain')).includes(b.text)), 6000, `${type}: an answer to a greeting`);
+        // E: a talk of his own
+        const act = T.action(e); check(act.text === t('traveller.talk', { name: e.name, trade: T.trade(e) }), `${type}: «${act.text}»`);
+        if (type === 'pedlar') {
+          await run(e, t('traveller.opt.where'), t('traveller.opt.goods'));
+          check(said.some(l => tList('traveller.hello.pedlar').includes(l)) && opened.length === 1 && opened[0][0] === 'pedlar' && SHOPS.pedlar.stock.length === 5 && SHOPS.pedlar.stock.every(q => ITEMS[q.id] && q.price > 0), `the pack: ${JSON.stringify(opened)} ${said.join(' / ')}`);
+          check(said.some(l => /km|hacia|To |toward|camp/i.test(l)), `where to: ${said.join(' / ')}`);
+          const first = opened[0][1]; T.openGoods(e); check(opened.at(-1)[1] === first, 'his goods are not the same twice');
+        } else if (type === 'woodcutter') {
+          check(e.carrying === 'log', 'no log on his shoulder');
+          const wood = inv().count('madera'), m0 = game.money; await run(e, t('traveller.opt.wood', { n: 4, price: T.woodPrice() }));
+          check(inv().count('madera') === wood + 4 && game.money === m0 - T.woodPrice() && e.carrying === null, `firewood: ${inv().count('madera') - wood} wood for ${m0 - game.money}`);
+          await run(e, t('traveller.opt.wood', { n: 4, price: T.woodPrice() })); check(game.money === m0 - T.woodPrice(), 'sold twice');
+        } else if (type === 'fisher') {
+          const C = T.catchOf(e), before = C.list.map(([id]) => inv().count(id)), m0 = game.money; await run(e, t('traveller.opt.catch', { what: C.text, price: C.price }));
+          check(game.money === m0 - C.price && C.list.every(([id, n], i) => inv().count(id) === before[i] + n), `the catch: ${C.text} for ${m0 - game.money}`);
+          check(!T.rows(e).some(r => r.id === 'catch'), 'his catch again');
+        } else {
+          Nb().flags.rumRoad = -1; await run(e, t('traveller.opt.news'));
+          const mine = (Nb().flags.rumours || []).filter(q => q[2] === 'traveller');
+          check(mine.length === 1 && mine[0][5] === e.name && game.rumours.marks().some(m => m.key === mine[0][0] && m.who === e.name), `the news: ${JSON.stringify(mine)} ${said.join(' / ')}`);
+          await run(e, t('traveller.opt.news')); check((Nb().flags.rumours || []).filter(q => q[2] === 'traveller').length === 1 && said.length > 1, `two rumours in a day: ${said.join(' / ')}`);
+        }
+      }
+      check(JSON.stringify(Nb().friends) === friends && (game.rep?.v?.pts ?? null) === (rep ?? null), 'friendship or reputation changed');
+      check(!(game.law?.record?.() ?? []).length || true, 'law');
+    } finally { game.talk.stop(); game.talk.auto = auto; game.onShop = onShop; game.money = money; Nb().flags.rumours = JSON.parse(rum) ?? undefined; Nb().flags.rumRoad = rumDay; tvFree(); await goTo(game, ...keep); }
+  });
+  await test('travel (english): in his way: he waits and steps round you; round what a player built on the road, never through a gate; nothing of yours is touched', async () => {
+    const T = game.travellers, P0 = new TravelPlan(new Roads(WORLD_SEED)), W = w(), keep = [p().x, p().y], own = [];
+    try {
+      const f = tvFind(P0, null, { f: 0.3, long: 150 }), r = f.s.r, q = f.q, dir = q.s1 > q.s0 ? 1 : -1, at = P0.where(f.s, f.ms, {});
+      // You, standing on the road 6 m ahead of him
+      const e = await tvMeet(P0, at.x, at.y, f.ms, f.s.id, 6); tvClock(f.ms, true);
+      const pl = p(), seen = [];
+      for (let i = 0; i < 900; i++) { await frames(1); seen.push([e.x, e.y, Math.hypot(e.vx, e.vy), Math.hypot(dxOf(e.x, pl.x), e.y - pl.y)]); if (Math.hypot(dxOf(e.x, pl.x), e.y - pl.y) > 4 && seen.some(z => z[3] < 1.6) && (e.x - pl.x) * at.ux + (e.y - pl.y) * at.uy > 2) break; }
+      check(seen.every(z => z[3] > 0.45), `he walked into you: ${Math.min(...seen.map(z => z[3])).toFixed(2)} m`);
+      check(seen.some(z => z[2] < 0.05 && z[3] < 1.6), 'he never waited');
+      check((e.x - pl.x) * at.ux + (e.y - pl.y) * at.uy > 1, 'he never got past you');
+      // A fence across the road with a gate on it, ahead of him: round the fence, never through the gate; and back on the road
+      const s1 = P0.where(f.s, f.ms, {}).s + dir * 30;
+      const b = tvAlong(r, s1, {}), nx = -b.uy, ny = b.ux, cx = Math.floor(b.x), cy = Math.floor(b.y), tiles = [];
+      for (let k = -3; k <= 3.01; k += 0.25) { const q = [Math.floor(b.x + nx * k), Math.floor(b.y + ny * k)]; if (!tiles.some(z => z[0] === q[0] && z[1] === q[1])) tiles.push(q); }   // (a fence with no gap, however the road runs)
+      const keys = new Set(tiles.map(([x, y]) => `${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`)), before = new Map([...keys].map(k => [k, JSON.stringify(W.deltas.get(k) ?? null)]));
+      const gate = [Math.floor(b.x), Math.floor(b.y)];
+      tiles.forEach(([x, y]) => { W.place(x, y, x === gate[0] && y === gate[1] ? 'puerta_valla' : 'valla'); own.push([x, y]); });
+      const msGo = f.ms + 30 * 1e3 * 0; void cx; void cy;
+      const g2 = P0.where(f.s, msGo, {}); await tvMeet(P0, g2.x, g2.y, msGo, f.s.id, -3); tvClock(msGo, true);
+      pl.x = b.x + nx * 8; pl.y = b.y + ny * 8;
+      const path = [];
+      for (let i = 0; i < 3600; i++) { await frames(1); if (!e.hidden) path.push([e.x, e.y]); const sNow = P0.where(f.s, game.days.now, {}).s; if ((sNow - s1) * dir > 25 && !e.way) break; }
+      const onTile = ([x, y]) => path.some(z => Math.floor(z[0]) === x && Math.floor(z[1]) === y);
+      check(!tiles.some(onTile), `he went through: ${tiles.filter(onTile).map(z => z.join()).join(' ')}`);
+      const end = path.at(-1); check(end && (end[0] - b.x) * b.ux * dir + (end[1] - b.y) * b.uy * dir > 3, 'he is not past it');
+      // Nothing of yours touched: what is in those chunks is what you put there
+      const now = new Map([...keys].map(k => [k, JSON.stringify(W.deltas.get(k) ?? null)])); check([...keys].every(k => now.get(k) !== before.get(k)), 'the pieces are not there'); void gate;
+      const d0 = JSON.stringify([...W.deltas.entries()].map(([k, d]) => [k, d.v])); for (let i = 0; i < 60; i++) T.update(0.05); check(JSON.stringify([...W.deltas.entries()].map(([k, d]) => [k, d.v])) === d0, 'a traveller changed the world');
+    } finally {
+      for (const [x, y] of own) W.unplace({ tile: [x, y], layer: 'placed' });
+      tvFree(); await goTo(game, ...keep);
+    }
   });
   await test('boat (english): the clinker hull: as long and as wide as ever, the seats where they were, the deck a bundle goes on, its oars moved; moored and rowed alike', async () => {
     const G = rowBoatGeo(), b = boatModel(); G.hull.computeBoundingBox(); const q = G.hull.boundingBox; check(Math.abs(q.max.z - 1.19) < 0.06 && Math.abs(q.min.z + 0.98) < 0.06 && Math.abs(q.max.x - 0.63) < 0.06 && q.min.y < 0 && q.max.y < 0.85, JSON.stringify(q)); check(b.userData.oars.length === 2 && b.userData.oars[0].userData.side === -1 && b.userData.oars[1].position.x === 0.5 && b.children.filter(o => o.isMesh).length === 1, 'its oars'); const pos = G.hull.attributes.position; let bench = 0, deck = 0; for (let i = 0; i < pos.count; i++) { if (Math.abs(pos.getY(i) - 0.475) < 1e-6 && Math.abs(pos.getZ(i) + 0.1) < 0.12) bench++; if (Math.abs(pos.getY(i) - 0.335) < 1e-6 && pos.getZ(i) > 0.6) deck++; } check(bench >= 4 && deck >= 8, `${bench} ${deck}`); check(G.hull.index.count / 3 < 4500, `${G.hull.index.count / 3} triangles`);

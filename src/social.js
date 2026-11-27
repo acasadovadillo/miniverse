@@ -42,7 +42,7 @@ const MY_LIFE = 2.6, NPC_LIFE = 2.8, STAY = 1.8;   // s: how long the bubbles la
 // client without it shows 'wave', live.js). 'scrub': washing at a river or a lake, or at a basin (body.js, Plan E §4.2);
 // 'shiver': the cold as a gesture (actors.js EMOTES; the idle shiver itself is drawn from st.bd)
 export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink', 'scrub', 'shiver', 'brush', 'pat', 'whistle', 'talk', 'think', 'inspect', 'pay', 'stagger', 'arrest', 'push', 'pull'];   // (append only: the index travels as st.ek; brush, pat and whistle: the horse, Plan F §5.3; talk and think: a talk's, never sent, talk.js)
-export const PLAYER_LINES = ['social.say.greet.morning', 'social.say.greet.day', 'social.say.greet.evening', 'social.say.greet.night', 'social.say.greet_player', 'social.say.greet_partner', 'social.say.insult', 'social.say.insult_player', 'social.say.air'];
+export const PLAYER_LINES = ['social.say.greet.morning', 'social.say.greet.day', 'social.say.greet.evening', 'social.say.greet.night', 'social.say.greet_player', 'social.say.greet_partner', 'social.say.insult', 'social.say.insult_player', 'social.say.air', 'social.say.greet_stranger'];   // (only added at the end: they travel by index)
 const RELS = ['friend', 'neutral', 'cold'];
 const MEM_DAYS = 2;   // (a memory of today or the 2 days before: «the last 3 days» of relation())
 // ('' : by character and relation; 'remark': about how you look, remarks.js, with the message's rc = the REMARKS index.
@@ -155,6 +155,7 @@ export class Social {
     if (w.nilo) out.push({ kind: 'npc', id: 'nilo', e: w.nilo, name: PEOPLE.nilo.name });
     for (const n of g.neighbors.people) if (!n.hidden) out.push({ kind: 'npc', id: n.id, e: n, name: n.def.name });
     for (const [id, e] of g.family.ents) if (!e.baby && !e.lying) out.push({ kind: 'kid', id, e, name: e.name });
+    for (const e of g.travellers?.people || []) if (!e.hidden) out.push({ kind: 'traveller', id: e.tid, e, name: e.name });   // (the roads': travellers.js)
     if (g.live.joined) for (const [conn, peer] of g.live.peers) if (peer.playing && !peer.server && peer.sc === 'world' && peer.entity && peer.entity.gm !== 3) out.push({ kind: 'player', id: peer.id, e: peer.entity, name: peer.name, conn, peer });
     return out;
   }
@@ -194,7 +195,7 @@ export class Social {
     const c = this.picked;
     if (!c) return '';
     if (near && !(aimE && c.e === aimE)) return '';
-    return this.ringOn && c.kind !== 'kid' && this.hold?.target?.e === c.e ? t('social.hold') : c.kind === 'npc' ? t('talk.row.greet') : t('social.prompt.far', { name: c.name });
+    return this.ringOn && c.kind !== 'kid' && this.hold?.target?.e === c.e ? t('social.hold') : c.kind === 'npc' || c.kind === 'traveller' ? t('talk.row.greet') : t('social.prompt.far', { name: c.name });
   }
   // The neighbour those rows are about, for the tag over them (talk.js focus) and the row of provoking: { id, n } or null
   focused() { const c = this.picked; return c?.kind === 'npc' ? { id: c.id, n: c.id === 'nilo' ? undefined : c.e, ringing: this.ringOn && this.hold?.target?.e === c.e } : null; }
@@ -269,7 +270,7 @@ export class Social {
     let key = null;
     if (!c) key = a ? null : 'social.say.air';
     else if (c.kind === 'player') key = a ? 'social.say.insult_player' : this.isPartner(c.peer) ? 'social.say.greet_partner' : 'social.say.greet_player';
-    else key = a ? 'social.say.insult' : this.dayKey();
+    else key = a ? 'social.say.insult' : c.kind === 'traveller' ? 'social.say.greet_stranger' : this.dayKey();   // (a traveller's name you do not know)
     this.emote(p, a ? (Math.random() < 0.5 ? 'fist' : 'point') : 'wave');   // (provoking: never a hand that could read as a wave)
     if (key) {
       const list = this.lines(key), li = rnd(Math.max(1, list.length));
@@ -282,6 +283,10 @@ export class Social {
         const w = this.witnessOf();
         if (w && R?.change(-3, 'insult_player')) { const l = this.lines('npc.witness.quarrel'); this.later(() => this.say(w.e, say1(l, rnd(l.length), { name: p.name }), { name: w.name })); }
       }
+    } else if (c?.kind === 'traveller') {
+      // (a traveller of the roads: no friendship, no reputation; their own answer, here only)
+      const r = g.travellers.answer(c.e, a);
+      this.later(() => this.reply(c.e, r.text, r.gesture, c.name, true));
     } else if (c) {
       const rel = c.kind === 'kid' ? 'friend' : this.relation(c.id);
       if (c.kind === 'npc' && !c.e?.asleep) this.count(a, c);
