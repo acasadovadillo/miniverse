@@ -1559,6 +1559,7 @@ async function soloTests(game) {
   await test('colocar: el banco se pone libre, se usa y se recoge', async () => {
     await goTo(game, 60, 36);
     const f = w().fitFree('banco', p().x + 1.5, p().y, 0, 0, p()); check(f.ok, `no cabe: ${f.why}`);
+    for (const [m, n] of BUILDABLE.banco.cost) inv().add(m, n);   // (what it costs: a new character starts with nothing of it)
     const B = game.build, had = BUILDABLE.banco.cost.map(([m]) => inv().count(m));
     B.toggle(true); B.select('banco');
     try { w().placeFree('banco', f); B.paid('banco'); } finally { B.select(PIECE_IDS[0]); B.toggle(false); }
@@ -11174,7 +11175,7 @@ async function soloTests(game) {
   await test('biz (english): the window, the tip and the till\'s chip', biz(async ({ B, key, put, give }) => {
     const tick = async () => { await frames(2); game.onFrame?.(); }, el = id => document.getElementById(id), btn = s => [...document.querySelectorAll('#s-biz button')].find(b => b.textContent === s && !b.disabled), press = s => { const b = btn(s); if (!b) throw new Error(`no button ${s}: ${el('biz-body').textContent.slice(0, 200)}`); b.click(); }, o = () => w().placedNear(p().x, p().y, 6).find(q => q.placed === 'shop_counter');
     const C = B.counter(key); p().x = C.fx; p().y = C.fy + 0.3; await tick();
-    const act = game.placedAction(o()); check(act.text === t('biz.action.open') && act.alt, `E: ${act.text}`); act.run(); await tick();
+    const act = game.placedAction(o()); check(act.text === t('biz.action.open') && !act.alt, `E: ${act.text}`); act.run(); await tick();
     check(el('s-biz').classList.contains('show') && el('biz-title').textContent === t('biz.new.title') && game.mode === 'play', 'the window'); press(t('biz.open.shop')); await tick();
     check(B.at(key) && el('biz-title').textContent === B.nameOf(B.at(key)), `opened: ${el('biz-title').textContent}`); give('huevo', 6); await tick(); await sleep(50); press(t('biz.put.all')); await tick(); const s = () => Object.values(B.at(key).goods)[0]; check(s()?.n === 6, 'put from the window');
     const m = s().m; [...document.querySelectorAll('#s-biz .biz-price button')].at(-1).click(); await tick(); check(s().m === m + BR.PCT.step, 'dearer');
