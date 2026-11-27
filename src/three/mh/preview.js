@@ -10,9 +10,9 @@ import { MhPerson, texturesReady } from './person.js';
 
 // The lights: key (colour, strength, where from), fill (sky, ground, strength), rim (colour, strength)
 export const LIGHTS = {
-  day: { key: ['#fff1de', 1.7, [1.2, 2.6, 2.4]], hemi: ['#dfe9ff', '#6a5440', 0.5], rim: ['#cfe0ff', 0.8], env: 0.4 },
-  indoor: { key: ['#ffd2a0', 1.5, [-1.6, 1.9, 1.8]], hemi: ['#f0d8bc', '#3a2c22', 0.45], rim: ['#ffb070', 0.5], env: 0.3 },
-  evening: { key: ['#ff9a52', 2.0, [-2.6, 0.9, 1.4]], hemi: ['#7a8ab8', '#4a3424', 0.5], rim: ['#a8b8ff', 0.8], env: 0.35 },
+  day: { key: ['#fff1de', 1.35, [1.2, 2.6, 2.4]], hemi: ['#dfe9ff', '#6a5440', 0.38], rim: ['#cfe0ff', 0.6], env: 0.3 },
+  indoor: { key: ['#ffd2a0', 1.2, [-1.6, 1.9, 1.8]], hemi: ['#f0d8bc', '#3a2c22', 0.34], rim: ['#ffb070', 0.4], env: 0.24 },
+  evening: { key: ['#ff9a52', 1.6, [-2.6, 0.9, 1.4]], hemi: ['#7a8ab8', '#4a3424', 0.38], rim: ['#a8b8ff', 0.6], env: 0.28 },
 };
 
 // A soft studio round the person, for the reflections on the eyes and the skin: a grey dome, lighter above, and two
@@ -31,6 +31,16 @@ function studioEnv(renderer) {
   pm.dispose();
   return env;
 }
+
+// The faces the creator can try (a row of the Head page): MakeHuman expression units mixed. 'talk' moves the mouth on its
+// own (the same shapes the game will use while somebody speaks, P5)
+export const MOODS = {
+  neutral: {}, smile: { smile: 0.8, smile_up: 0.35, squint: 0.2 }, laugh: { smile: 1, smile_up: 0.6, jaw_open: 0.45, squint: 0.4, brow_up: 0.2 },
+  talk: {}, surprise: { brow_up: 0.9, wide: 0.7, jaw_open: 0.35 }, angry: { brow_down: 0.9, frown: 0.4, press: 0.5, sneer: 0.3, squint: 0.25 },
+  sad: { brow_inner: 0.9, frown: 0.7, squint: 0.1 },
+};
+// The mouth's shapes while talking, one after another (open, round, wide, closed)
+const VISEMES = [{ jaw_open: 0.4 }, { pucker: 0.7, jaw_open: 0.15 }, { stretch: 0.6, jaw_open: 0.2 }, { press: 0.3 }, { jaw_open: 0.25, lip_up: 0.3 }, {}];
 
 export class MhPreview {
   constructor(canvas) {
@@ -57,6 +67,7 @@ export class MhPreview {
     this.person = null; this.angle = 0; this.want = 0; this.last = 0; this.look = null; this.D = null;
     this.shot = 'body'; this.cam = [new THREE.Vector3(0, 1.2, 4.9), new THREE.Vector3(0, 0.9, 0)];
     this.stats = { buildMs: 0, frameMs: 0, tris: 0, download: 0 };
+    this.mood = 'neutral'; this.blinkAt = 2500; this.saccade = [0, 0]; this.saccadeAt = 0; this.live = true;
     this.ready = loadMh().then(D => { this.D = D; this.stats.download = D.downloaded; if (this.look) this.setLook(this.look); return D; })
       .catch(err => { console.warn('Miniverse: MakeHuman data did not load', err); throw err; });
     this.ready.catch(() => {});
@@ -97,6 +108,32 @@ export class MhPreview {
     };
   }
   setKit() {}
+  // The face it makes (MOODS), and whether it blinks, looks about and talks by itself (live) or holds still (pictures)
+  setMood(id) { this.mood = MOODS[id] ? id : 'neutral'; }
+  // The face's morphs and the eyes for this moment: the mood, a blink now and then, the mouth while talking, and the eyes
+  // on the camera with small glances aside
+  animate(t) {
+    const P = this.person;
+    if (!P) return;
+    const w = { ...(MOODS[this.mood] || {}) };
+    if (this.mood === 'talk' && this.live) {
+      const k = t / 110, i = Math.floor(k), f = k - i, a = VISEMES[i % VISEMES.length], b = VISEMES[(i + 1) % VISEMES.length];
+      for (const id of new Set([...Object.keys(a), ...Object.keys(b)])) w[id] = (a[id] || 0) * (1 - f) + (b[id] || 0) * f;
+      w.brow_up = 0.15 + 0.15 * Math.sin(t / 700);
+    } else if (this.mood === 'talk') Object.assign(w, VISEMES[0]);
+    if (this.live) {
+      if (t > this.blinkAt + 160) this.blinkAt = t + 2200 + Math.random() * 3200;
+      const b = t - this.blinkAt;
+      if (b > 0) w.blink = Math.max(w.blink || 0, Math.sin(Math.min(1, b / 160) * Math.PI));
+      if (t > this.saccadeAt) { this.saccadeAt = t + 900 + Math.random() * 1800; this.saccade = Math.random() < 0.6 ? [0, 0] : [(Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.12]; }
+    }
+    P.setExpression(w);
+    // (the camera in the person's own frame: where to look)
+    const eye = new THREE.Vector3(0, P.eyeY, 0.1).applyMatrix4(P.root.matrixWorld), d = this.camera.position.clone().sub(eye);
+    const yaw = Math.atan2(d.x, d.z) - this.angle, pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+    const cl = (x, m) => Math.max(-m, Math.min(m, x));
+    P.setGaze(cl(Math.atan2(Math.sin(yaw), Math.cos(yaw)), 0.45) + (this.live ? this.saccade[0] : 0), cl(pitch, 0.3) + (this.live ? this.saccade[1] : 0));
+  }
   setAngle(a) { this.want = a; }
   focus(shot) { this.shot = shot; }
   resize(w, h) { this.renderer.setSize(w, h, false); this.canvas.style.width = w + 'px'; this.canvas.style.height = h + 'px'; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
@@ -121,6 +158,7 @@ export class MhPreview {
       const q = this.portraits.shift();
       if (P.key !== MhPerson.shapeKey(q.look)) P.build(q.look);
       P.colour(q.look);
+      P.setExpression({}); P.setGaze(0, 0);
       this.envOn(P.root);
       P.root.rotation.y = 0.32;
       cam.aspect = q.w / q.h; cam.updateProjectionMatrix();
@@ -150,6 +188,7 @@ export class MhPreview {
     this.cam[0].lerp(new THREE.Vector3(...pos).add(o), k); this.cam[1].lerp(new THREE.Vector3(...at).add(o), k);
     this.camera.position.copy(this.cam[0]);
     this.camera.lookAt(this.cam[1]);
+    if (this.person) { this.person.root.updateMatrixWorld(); this.animate(t); }
     this.renderer.render(this.scene, this.camera);
     this.stats.frameMs = this.stats.frameMs * 0.9 + (performance.now() - t0) * 0.1;
   }

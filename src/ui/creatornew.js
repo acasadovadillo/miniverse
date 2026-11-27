@@ -7,10 +7,11 @@ import { optionRow } from './frontend.js';
 import { t } from '../i18n.js';
 import { PRESETS, presetOf, presetsFor, fromPreset, defaultMh, samePlace, randomMh } from '../three/mh/presets.js';
 import { LOOK_OPTIONS } from '../looks.js';
+import { SKIN_TONES, nearestTone, SCARS, TATTOOS, BLUSH_COLOURS, KOHL_COLOURS, TATTOO_COLOURS } from '../three/mh/skin.js';
 
-export const NEW_PAGES = ['cuerpo', 'cabeza', 'ajuste', 'cara', 'pelo'];
+export const NEW_PAGES = ['cuerpo', 'cabeza', 'ajuste', 'piel', 'cara', 'pelo'];
 // The shot of each page: the whole body, the head, or the face up close
-export const NEW_SHOTS = { cuerpo: 'body', cabeza: 'face', ajuste: 'close', cara: 'close', pelo: 'face' };
+export const NEW_SHOTS = { cuerpo: 'body', cabeza: 'face', ajuste: 'close', piel: 'close', cara: 'close', pelo: 'face' };
 const ORIGINS = ['af', 'as', 'ca'];
 const BODY = [['height', -100, 100], ['weight', -100, 100], ['muscle', -100, 100], ['age', 0, 100], ['chest', -100, 100], ['prop', -100, 100]];
 // The face sliders' groups, in the order the creator shows them (the sliders themselves come with the data: mh_pack.py)
@@ -28,14 +29,17 @@ const FACE_IDS = {
 };
 export const FACE_SLIDERS = GROUPS.flatMap(g => FACE_IDS[g]);
 export const LIGHT_IDS = ['day', 'indoor', 'evening'];
+export const MOOD_IDS = ['neutral', 'smile', 'laugh', 'talk', 'surprise', 'angry', 'sad'];
 
 // The look's MakeHuman part, made whole (an old look gets the first head of its sex)
 export function ensureMh(look) {
   if (!look.mh || typeof look.mh !== 'object') look.mh = defaultMh(look);
   look.mh.macro ||= {};
   look.mh.face ||= {};
+  look.mh.skin ||= {};
+  if (!SKIN_TONES.includes(look.skin)) look.skin = nearestTone(look.skin || '#c99c76');   // (a tone of before: the nearest of the new palette)
   const p = presetOf(look.mh.preset), sex = look.sex === 'chico' ? 'chico' : 'chica';
-  if (p && p.sex !== sex) look.mh = fromPreset(samePlace(p.id, sex), look.mh.macro);   // (the sex changed: the same head of the other)
+  if (p && p.sex !== sex) look.mh = { ...fromPreset(samePlace(p.id, sex), look.mh.macro), skin: look.mh.skin, ...(look.mh.eye2 && { eye2: look.mh.eye2 }) };   // (the sex changed: the same head of the other)
   return look.mh;
 }
 // What is saved: only the numbers that are not 0 (the look travels whole on the network: under 1 KB)
@@ -43,6 +47,10 @@ export function packMh(mh) {
   const clean = o => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => Number.isFinite(v) && v !== 0).map(([k, v]) => [k, Math.round(v)]));
   const out = { macro: clean(mh.macro), face: clean(mh.face) };
   if (mh.preset) out.preset = mh.preset;
+  // (the skin's layers: their numbers that are not 0, and the colours and kinds of those that are on)
+  const sk = Object.fromEntries(Object.entries(mh.skin || {}).filter(([, v]) => (typeof v === 'string' ? v && v !== 'none' : Number.isFinite(v) && v !== 0)).map(([k, v]) => [k, typeof v === 'string' ? v : Math.round(v)]));
+  if (Object.keys(sk).some(k => k !== 'seed')) out.skin = sk;
+  if (mh.eye2) out.eye2 = mh.eye2;
   return out;
 }
 
@@ -55,12 +63,12 @@ export class DualPreview {
     this.canvases[1].id = 'cr-canvas-mh';
     this.canvases[1].hidden = true;
     canvas.after(this.canvases[1]);
-    this.mh = null; this.mode = 'old'; this.state = { look: null, angle: 0, shot: 'body', size: null, light: 'day', kit: null };
+    this.mh = null; this.mode = 'old'; this.state = { look: null, angle: 0, shot: 'body', size: null, light: 'day', mood: 'neutral', kit: null };
     this.loading = import('../three/mh/preview.js').then(m => {
       this.mh = new m.MhPreview(this.canvases[1]);
       const s = this.state;
       if (s.size) this.mh.resize(...s.size);
-      this.mh.setLight(s.light); this.mh.setAngle(s.angle); this.mh.focus(s.shot);
+      this.mh.setLight(s.light); this.mh.setMood(s.mood); this.mh.setAngle(s.angle); this.mh.focus(s.shot);
       if (s.look && this.mode === 'new') this.mh.setLook(s.look);
       return this.mh;
     });
@@ -83,6 +91,7 @@ export class DualPreview {
     this.mh?.focus(shot);
   }
   setLight(id) { this.state.light = id; this.mh?.setLight(id); }
+  setMood(id) { this.state.mood = id; this.mh?.setMood(id); }
   resize(w, h) { this.state.size = [w, h]; this.old.resize(w, h); this.mh?.resize(w, h); }
   render(t) { this.active?.render(t); }
 }
@@ -90,8 +99,9 @@ export class DualPreview {
 // The rows of the new creator, added through the creator's own add(page, id, option row). Returns what the creator does
 // after making its list: the group titles and the grid of heads go between the rows (not rows themselves: the keys skip
 // them), each shown with the row it belongs to
-export function newRows({ add, look, rebuild, preview }) {
-  const mh = () => ensureMh(look), extras = [];
+export function newRows({ add: add0, look, rebuild, preview }) {
+  const mh = () => ensureMh(look), extras = [], created = new Map();
+  const add = (pg, id, opt, o) => { created.set(id, opt.el); add0(pg, id, opt, o); };
   const range = (pg, id, label, min, max, get, set, o = {}) => add(pg, id, optionRow({ label, min, max, step: 5, def: o.def ?? 0, get, set: v => { set(v); rebuild(); } }), o);
   // Body: the origin (three, mixed as they are: a third each is an even mix) and the six of the body
   const rows = {
@@ -107,6 +117,7 @@ export function newRows({ add, look, rebuild, preview }) {
   // Head: the light to judge the skin, the heads of the sex (‹ name ›) and their portraits
   function headRows() {
     add('cabeza', 'light', optionRow({ label: t('gui.creator.row.light'), values: LIGHT_IDS.map(id => [id, t(`gui.creator.light.${id}`)]), get: () => preview.state.light, set: id => preview.setLight(id) }));
+    add('cabeza', 'mood', optionRow({ label: t('gui.creator.row.mood'), values: MOOD_IDS.map(id => [id, t(`gui.creator.mood.${id}`)]), get: () => preview.state.mood, set: id => preview.setMood(id) }), { desc: 'gui.creator.desc.mood' });
     const all = () => presetsFor(look.sex === 'chico' ? 'chico' : 'chica');
     const head = optionRow({ label: t('gui.creator.row.head'), values: PRESETS.map(p => [p.id, t(`mh.preset.${p.id}`)]), get: () => mh().preset, set: id => pickHead(id) });
     // (← → go round the heads of this sex only)
@@ -168,8 +179,30 @@ export function newRows({ add, look, rebuild, preview }) {
       });
     }
   }
+  // Skin: the tone (the new palette) and the layers, each with its strength and, some, their colour or kind
+  function skinRows() {
+    const sk = () => mh().skin;
+    const swatches = (id, label, list, get, set) => { add('piel', id, optionRow({ label, colours: list, values: list.map((c, i) => [c, `${i + 1} / ${list.length}`]), get, set: v => { set(v); rebuild(); }, other: '—' })); rowOf(id).classList.add('sw'); };
+    const kind = (id, list, key) => add('piel', id, optionRow({ label: t(`gui.creator.row.${id}`), values: list.map(k => [k, t(`gui.creator.${key}.${k}`)]), get: () => sk()[id] || 'none', set: v => { sk()[id] = v; if (!sk().seed) sk().seed = 1 + Math.floor(Math.random() * 998); rebuild(); } }));
+    const amount = (id, def) => range('piel', id, t(`gui.creator.row.${id}`), 0, 100, () => sk()[id] ?? def ?? 0, v => { sk()[id] = v; if (!sk().seed) sk().seed = 1 + Math.floor(Math.random() * 998); }, { def: def ?? 0, desc: `gui.creator.desc.${id}` });
+    swatches('tone', t('gui.creator.row.tone'), SKIN_TONES, () => look.skin, v => { look.skin = v; });
+    amount('freckles'); amount('moles'); amount('vitiligo');
+    amount('blush'); swatches('blushC', t('gui.creator.row.blushC'), BLUSH_COLOURS, () => sk().blushC || BLUSH_COLOURS[0], v => { sk().blushC = v; });
+    amount('kohl'); swatches('kohlC', t('gui.creator.row.kohlC'), KOHL_COLOURS, () => sk().kohlC || KOHL_COLOURS[0], v => { sk().kohlC = v; });
+    kind('scar', SCARS, 'scar'); amount('scarK', 70);
+    kind('tattoo', TATTOOS, 'tattoo'); amount('tattooK', 80);
+    swatches('tattooC', t('gui.creator.row.tattooC'), TATTOO_COLOURS, () => sk().tattooC || TATTOO_COLOURS[0], v => { sk().tattooC = v; });
+  }
+  // The other eye's colour: the same, or one of its own
+  function eye2Row() {
+    const all = ['', ...LOOK_OPTIONS.eyes];
+    add('cara', 'eye2', optionRow({ label: t('gui.creator.row.eye2'), colours: all.map(c => c || 'transparent'), values: all.map((c, i) => [c, i ? `${i} / ${all.length - 1}` : t('gui.creator.same')]),
+      get: () => mh().eye2 || '', set: v => { if (v) mh().eye2 = v; else delete mh().eye2; rebuild(); } }), { desc: 'gui.creator.desc.eye2' });
+    rowOf('eye2').classList.add('sw');
+  }
+  const rowOf = id => document.querySelector(`#cr-rows [data-row="${id}"]`) || created.get(id);
   return {
-    origins: rows.origins, body: rows.body, head: headRows, fine: fineRows,
+    origins: rows.origins, body: rows.body, head: headRows, fine: fineRows, skin: skinRows, eye2: eye2Row,
     // After the list is made: the titles and the grid in their places
     place(rowEl) {
       for (const x of extras) {
@@ -192,6 +225,11 @@ export function newRows({ add, look, rebuild, preview }) {
 export function randomNew(look) {
   const pick = a => a[Math.floor(Math.random() * a.length)], r = randomMh(look);
   look.mh = r.mh; look.skin = r.skin; look.eyes = r.eyes; look.hair = r.hair;
+  // (now and then freckles, a mole or two, a little blush)
+  const sk = look.mh.skin = { seed: 1 + Math.floor(Math.random() * 998) };
+  if (Math.random() < 0.3 && SKIN_TONES.indexOf(look.skin) < 6) sk.freckles = 20 + Math.round(Math.random() * 12) * 5;
+  if (Math.random() < 0.4) sk.moles = 20 + Math.round(Math.random() * 6) * 5;
+  if (look.sex === 'chica' && Math.random() < 0.4) sk.blush = 15 + Math.round(Math.random() * 5) * 5;
   look.hairStyle = pick(LOOK_OPTIONS.hairStyle.filter(([id]) => !['cresta', 'pinchos', 'samurai'].includes(id)))[0];
   look.brows = pick(LOOK_OPTIONS.brows)[0];
   look.outfit = pick(LOOK_OPTIONS.outfit)[0];

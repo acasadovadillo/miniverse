@@ -2685,10 +2685,19 @@ async function soloTests(game) {
     for (const sex of ['chica', 'chico']) {
       const look = { ...LOOK, sex, hairStyle: sex === 'chica' ? 'coleta' : 'corto' };
       ensureMh(look);
-      const t0 = performance.now(), P = new MhPerson(D, look), ms = performance.now() - t0, box = new THREE.Box3().setFromObject(P.root);
+      const t0 = performance.now(), P = new MhPerson(D, look), ms = performance.now() - t0, box = new THREE.Box3();
+      P.root.updateMatrixWorld(true); P.root.traverse(o => { if (o.isMesh) { const q = o.geometry.attributes.position; for (let i = 0; i < q.count; i++) box.expandByPoint(new THREE.Vector3().fromBufferAttribute(q, i).applyMatrix4(o.matrixWorld)); } });   // (the vertices: a morphed geometry's box also holds its morphs)
       console.log(`▶ mh: a ${sex} built in ${ms.toFixed(1)} ms (blend, fit, pose: ${P.ms.toFixed(1)} ms), ${P.tris} triangles, ${P.height.toFixed(2)} m`);
       check(P.height > 1.45 && P.height < 2 && Math.abs(box.min.y) < 0.03 && box.max.y < 2.1, `${sex}: ${P.height} m, from ${box.min.y} to ${box.max.y}`);
       check(P.tris < 60000 && ms < 1500, `${sex}: ${P.tris} triangles, ${ms} ms`);
+      // (the expressions are morphs of the face, the same count on the body and the lashes; the eyes turn)
+      const morphs = m => m.morphTargetInfluences?.length || 0, bodyM = P.root.getObjectByName('body');
+      check(morphs(bodyM) === P.expr.length && P.expr.length >= 12 && P.root.children.filter(o => o.name.startsWith('lashes') || o.name.startsWith('teeth')).every(o => morphs(o) === P.expr.length) && P.eyes.length === 2, `morphs ${morphs(bodyM)} of ${P.expr.length}`);
+      // (twice MakeHuman's range, and still through a door, into a bed and onto the saddle: the biggest is under 1.97 m and 0.8 m across)
+      const big = new MhPerson(D, { ...look, mh: { ...look.mh, macro: { ...look.mh.macro, height: 100, weight: 100, muscle: 100, chest: 100 } } });
+      console.log(`▶ mh: the biggest ${sex}: ${big.height.toFixed(2)} m tall, ${big.width.toFixed(2)} m across`);
+      check(big.height < 1.97 && big.width < 0.8, `${sex}, the biggest: ${big.height} m, ${big.width} m`);
+      big.dispose();
       const sameShape = MhPerson.shapeKey({ ...look, skin: '#4a2a1c', eyes: '#c83a4a', hair: '#e8c060' }) === P.key;
       check(sameShape, 'colours do not make the shape again');
       P.dispose();
@@ -2699,10 +2708,11 @@ async function soloTests(game) {
     check(moved > 100 && !low, `a face slider moves ${moved} vertices, ${low} under the neck`);
   });
   await test('mh creator (english): look.mh is optional and small; an old look gets a head of its sex; the game\'s person ignores it', async () => {
-    const [, , { presetOf }, { ensureMh, packMh, randomNew }] = await mhMods();
+    const [, , { presetOf }, { ensureMh, packMh, randomNew }] = await mhMods(), { SKIN_TONES, nearestTone } = await import('./three/mh/skin.js');
+    check(nearestTone('#ffe0c4') === SKIN_TONES[0] && SKIN_TONES.indexOf(nearestTone('#4a2a1c')) >= 13 && SKIN_TONES.indexOf(nearestTone('#c98a5a')) >= 4, 'the old tones, to the nearest of the palette');
     const look = { ...LOOK };
     delete look.mh;
-    check(presetOf(ensureMh(look).preset)?.sex === 'chica', 'an old look: a head of hers');
+    check(presetOf(ensureMh(look).preset)?.sex === 'chica' && SKIN_TONES.includes(look.skin), 'an old look: a head of hers and a tone of the palette');
     look.sex = 'chico';
     check(presetOf(ensureMh(look).preset)?.sex === 'chico', 'the sex changed: a head of his');
     for (let i = 0; i < 30; i++) {
@@ -2711,6 +2721,7 @@ async function soloTests(game) {
       check(presetOf(mh.preset) && JSON.stringify(mh).length < 1024 && size < 1600, `a random look: ${size} characters`);
       check(Object.values(mh.face).concat(Object.values(mh.macro)).every(v => Number.isInteger(v) && Math.abs(v) <= 100), 'whole numbers within the sliders');
       check(toReal({ ...look, mh }).semilla === toReal({ ...look, mh: undefined }).semilla, 'the game\'s face does not change with it');
+      check(SKIN_TONES.includes(look.skin), `a tone of the palette: ${look.skin}`);
     }
   });
   await test('menu (english): the new creator (?creador=nuevo): body, head, fine tune, face and hair pages; a new character saves look.mh; the mirror keeps the creator of before', () => keepMenus(async $ => {
@@ -2719,9 +2730,10 @@ async function soloTests(game) {
     game.mode = 'menu';
     let saved = null; Object.defineProperty(Profile, 'data', { get: () => (saved ? { save: saved, deltas: [] } : null), configurable: true }); Profile.store = async st => { saved = { ...st, savedAt: Date.now() }; return { local: true, remote: null }; };
     $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-multi').click();
-    check([...document.querySelectorAll('#cr-tabs .fe-tab')].map(b => b.dataset.tab).join() === 'cuerpo,cabeza,ajuste,cara,pelo', 'the five pages');
-    const pages = { cuerpo: ['name', 'sex', 'origin_af', 'origin_as', 'origin_ca', 'body_height', 'body_weight', 'body_muscle', 'body_age', 'body_chest', 'body_prop', 'skin', 'outfit', 'cloth', 'accent'],
-      cabeza: ['light', 'head'], ajuste: ['reset_face', ...FACE_SLIDERS.map(id => 'face_' + id)], cara: ['eyes', 'brows'], pelo: ['hairStyle', 'hair', 'beard'] };
+    check([...document.querySelectorAll('#cr-tabs .fe-tab')].map(b => b.dataset.tab).join() === 'cuerpo,cabeza,ajuste,piel,cara,pelo', 'the six pages');
+    const pages = { cuerpo: ['name', 'sex', 'origin_af', 'origin_as', 'origin_ca', 'body_height', 'body_weight', 'body_muscle', 'body_age', 'body_chest', 'body_prop', 'outfit', 'cloth', 'accent'],
+      cabeza: ['light', 'mood', 'head'], ajuste: ['reset_face', ...FACE_SLIDERS.map(id => 'face_' + id)],
+      piel: ['tone', 'freckles', 'moles', 'vitiligo', 'blush', 'blushC', 'kohl', 'kohlC', 'scar', 'scarK', 'tattoo', 'tattooK', 'tattooC'], cara: ['eyes', 'eye2', 'brows'], pelo: ['hairStyle', 'hair', 'beard'] };
     for (const [pg, ids] of Object.entries(pages)) {
       document.querySelector(`#cr-tabs [data-tab=${pg}]`).click();
       check(crTab() === pg && crRows() === ids.join(), `${pg}: ${crRows()}`);

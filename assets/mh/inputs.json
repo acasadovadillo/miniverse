@@ -3,6 +3,150 @@
   "check": "header",
   "sha256": "8e761e6624b8"
  },
+ "makehuman/data/targets/breast/female-old-averagemuscle-averageweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "036c61a1a56a"
+ },
+ "makehuman/data/targets/breast/female-old-averagemuscle-averageweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "13f4eab82fc1"
+ },
+ "makehuman/data/targets/breast/female-old-averagemuscle-maxweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "815d13e4d303"
+ },
+ "makehuman/data/targets/breast/female-old-averagemuscle-maxweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "123e0988e60f"
+ },
+ "makehuman/data/targets/breast/female-old-averagemuscle-minweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "31fd9f7675cb"
+ },
+ "makehuman/data/targets/breast/female-old-averagemuscle-minweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "1ec30cec3bd2"
+ },
+ "makehuman/data/targets/breast/female-old-maxmuscle-averageweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "69d2b57c1330"
+ },
+ "makehuman/data/targets/breast/female-old-maxmuscle-averageweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "7eb55cb317ed"
+ },
+ "makehuman/data/targets/breast/female-old-maxmuscle-maxweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "a9de2de4e82b"
+ },
+ "makehuman/data/targets/breast/female-old-maxmuscle-maxweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "5c96e45b139f"
+ },
+ "makehuman/data/targets/breast/female-old-maxmuscle-minweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "fe30750b6df1"
+ },
+ "makehuman/data/targets/breast/female-old-maxmuscle-minweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "b762a8b63933"
+ },
+ "makehuman/data/targets/breast/female-old-minmuscle-averageweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "835b679c41c9"
+ },
+ "makehuman/data/targets/breast/female-old-minmuscle-averageweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "dd6bd6358387"
+ },
+ "makehuman/data/targets/breast/female-old-minmuscle-maxweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "17df95a233fa"
+ },
+ "makehuman/data/targets/breast/female-old-minmuscle-maxweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "4e2d421ce38b"
+ },
+ "makehuman/data/targets/breast/female-old-minmuscle-minweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "faa75b3abb5c"
+ },
+ "makehuman/data/targets/breast/female-old-minmuscle-minweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "3ed55f690b9b"
+ },
+ "makehuman/data/targets/breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "b5aaa1595cf4"
+ },
+ "makehuman/data/targets/breast/female-young-averagemuscle-averageweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "65e4ca16353f"
+ },
+ "makehuman/data/targets/breast/female-young-averagemuscle-maxweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "05544ef4bed8"
+ },
+ "makehuman/data/targets/breast/female-young-averagemuscle-maxweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "f7b60522393f"
+ },
+ "makehuman/data/targets/breast/female-young-averagemuscle-minweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "bc0653099dc3"
+ },
+ "makehuman/data/targets/breast/female-young-averagemuscle-minweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "f7c34c72a446"
+ },
+ "makehuman/data/targets/breast/female-young-maxmuscle-averageweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "ee30c72778b9"
+ },
+ "makehuman/data/targets/breast/female-young-maxmuscle-averageweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "f9e827e1f0af"
+ },
+ "makehuman/data/targets/breast/female-young-maxmuscle-maxweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "cea1964ff083"
+ },
+ "makehuman/data/targets/breast/female-young-maxmuscle-maxweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "ccae5bd0f7f1"
+ },
+ "makehuman/data/targets/breast/female-young-maxmuscle-minweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "1ea8f093dda8"
+ },
+ "makehuman/data/targets/breast/female-young-maxmuscle-minweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "1b6085d02be8"
+ },
+ "makehuman/data/targets/breast/female-young-minmuscle-averageweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "a7d6f2b5d513"
+ },
+ "makehuman/data/targets/breast/female-young-minmuscle-averageweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "05b12acef7b7"
+ },
+ "makehuman/data/targets/breast/female-young-minmuscle-maxweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "f539179d0784"
+ },
+ "makehuman/data/targets/breast/female-young-minmuscle-maxweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "ffae4061ee40"
+ },
+ "makehuman/data/targets/breast/female-young-minmuscle-minweight-maxcup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "1ea1ef84b46f"
+ },
+ "makehuman/data/targets/breast/female-young-minmuscle-minweight-mincup-averagefirmness.target": {
+  "check": "header",
+  "sha256": "8c42c8301090"
+ },
  "makehuman/data/targets/cheek/l-cheek-bones-decr.target": {
   "check": "header",
   "sha256": "0da776725aab"
@@ -162,6 +306,270 @@
  "makehuman/data/targets/ears/r-ear-wing-incr.target": {
   "check": "header",
   "sha256": "392f18098b53"
+ },
+ "makehuman/data/targets/expression/units/african/eye-left-closure.target": {
+  "check": "header",
+  "sha256": "5a9fc811ddff"
+ },
+ "makehuman/data/targets/expression/units/african/eye-left-opened-up.target": {
+  "check": "header",
+  "sha256": "c379cbc91063"
+ },
+ "makehuman/data/targets/expression/units/african/eye-left-slit.target": {
+  "check": "header",
+  "sha256": "f2724e8d8652"
+ },
+ "makehuman/data/targets/expression/units/african/eye-right-closure.target": {
+  "check": "header",
+  "sha256": "3bb393418e84"
+ },
+ "makehuman/data/targets/expression/units/african/eye-right-opened-up.target": {
+  "check": "header",
+  "sha256": "1e342b3b0731"
+ },
+ "makehuman/data/targets/expression/units/african/eye-right-slit.target": {
+  "check": "header",
+  "sha256": "713283452d24"
+ },
+ "makehuman/data/targets/expression/units/african/eyebrows-left-down.target": {
+  "check": "header",
+  "sha256": "89999e77f486"
+ },
+ "makehuman/data/targets/expression/units/african/eyebrows-left-inner-up.target": {
+  "check": "header",
+  "sha256": "2fa94d522d54"
+ },
+ "makehuman/data/targets/expression/units/african/eyebrows-left-up.target": {
+  "check": "header",
+  "sha256": "4f770b7281ed"
+ },
+ "makehuman/data/targets/expression/units/african/eyebrows-right-down.target": {
+  "check": "header",
+  "sha256": "86f0d1440944"
+ },
+ "makehuman/data/targets/expression/units/african/eyebrows-right-inner-up.target": {
+  "check": "header",
+  "sha256": "c97c24303a30"
+ },
+ "makehuman/data/targets/expression/units/african/eyebrows-right-up.target": {
+  "check": "header",
+  "sha256": "496a446cb77a"
+ },
+ "makehuman/data/targets/expression/units/african/mouth-compression.target": {
+  "check": "header",
+  "sha256": "12b8dc506faa"
+ },
+ "makehuman/data/targets/expression/units/african/mouth-corner-puller.target": {
+  "check": "header",
+  "sha256": "9cec6411ee6e"
+ },
+ "makehuman/data/targets/expression/units/african/mouth-depression.target": {
+  "check": "header",
+  "sha256": "4d788ffdf4b7"
+ },
+ "makehuman/data/targets/expression/units/african/mouth-elevation.target": {
+  "check": "header",
+  "sha256": "66c592bd5e5d"
+ },
+ "makehuman/data/targets/expression/units/african/mouth-open.target": {
+  "check": "header",
+  "sha256": "c3e586735bdc"
+ },
+ "makehuman/data/targets/expression/units/african/mouth-pursing.target": {
+  "check": "header",
+  "sha256": "72c3cb4eef3b"
+ },
+ "makehuman/data/targets/expression/units/african/mouth-retraction.target": {
+  "check": "header",
+  "sha256": "94f396d7de8c"
+ },
+ "makehuman/data/targets/expression/units/african/mouth-upward-retraction.target": {
+  "check": "header",
+  "sha256": "61896d40f7ab"
+ },
+ "makehuman/data/targets/expression/units/african/nose-left-elevation.target": {
+  "check": "header",
+  "sha256": "ae5876145bca"
+ },
+ "makehuman/data/targets/expression/units/african/nose-right-elevation.target": {
+  "check": "header",
+  "sha256": "d25a962d3202"
+ },
+ "makehuman/data/targets/expression/units/asian/eye-left-closure.target": {
+  "check": "header",
+  "sha256": "96d43015f95a"
+ },
+ "makehuman/data/targets/expression/units/asian/eye-left-opened-up.target": {
+  "check": "header",
+  "sha256": "c379cbc91063"
+ },
+ "makehuman/data/targets/expression/units/asian/eye-left-slit.target": {
+  "check": "header",
+  "sha256": "95fdd2d24f2a"
+ },
+ "makehuman/data/targets/expression/units/asian/eye-right-closure.target": {
+  "check": "header",
+  "sha256": "772a8a1c62da"
+ },
+ "makehuman/data/targets/expression/units/asian/eye-right-opened-up.target": {
+  "check": "header",
+  "sha256": "1e342b3b0731"
+ },
+ "makehuman/data/targets/expression/units/asian/eye-right-slit.target": {
+  "check": "header",
+  "sha256": "2fbcf811893a"
+ },
+ "makehuman/data/targets/expression/units/asian/eyebrows-left-down.target": {
+  "check": "header",
+  "sha256": "89999e77f486"
+ },
+ "makehuman/data/targets/expression/units/asian/eyebrows-left-inner-up.target": {
+  "check": "header",
+  "sha256": "2fa94d522d54"
+ },
+ "makehuman/data/targets/expression/units/asian/eyebrows-left-up.target": {
+  "check": "header",
+  "sha256": "4f770b7281ed"
+ },
+ "makehuman/data/targets/expression/units/asian/eyebrows-right-down.target": {
+  "check": "header",
+  "sha256": "86f0d1440944"
+ },
+ "makehuman/data/targets/expression/units/asian/eyebrows-right-inner-up.target": {
+  "check": "header",
+  "sha256": "c97c24303a30"
+ },
+ "makehuman/data/targets/expression/units/asian/eyebrows-right-up.target": {
+  "check": "header",
+  "sha256": "496a446cb77a"
+ },
+ "makehuman/data/targets/expression/units/asian/mouth-compression.target": {
+  "check": "header",
+  "sha256": "b7abd0826708"
+ },
+ "makehuman/data/targets/expression/units/asian/mouth-corner-puller.target": {
+  "check": "header",
+  "sha256": "75ec1f2356c3"
+ },
+ "makehuman/data/targets/expression/units/asian/mouth-depression.target": {
+  "check": "header",
+  "sha256": "906a614c24a6"
+ },
+ "makehuman/data/targets/expression/units/asian/mouth-elevation.target": {
+  "check": "header",
+  "sha256": "4af81349fa58"
+ },
+ "makehuman/data/targets/expression/units/asian/mouth-open.target": {
+  "check": "header",
+  "sha256": "2222072e3402"
+ },
+ "makehuman/data/targets/expression/units/asian/mouth-pursing.target": {
+  "check": "header",
+  "sha256": "d984a24e4c69"
+ },
+ "makehuman/data/targets/expression/units/asian/mouth-retraction.target": {
+  "check": "header",
+  "sha256": "245fe1fa08e9"
+ },
+ "makehuman/data/targets/expression/units/asian/mouth-upward-retraction.target": {
+  "check": "header",
+  "sha256": "aaaed4ee0c13"
+ },
+ "makehuman/data/targets/expression/units/asian/nose-left-elevation.target": {
+  "check": "header",
+  "sha256": "5a63b622bfb2"
+ },
+ "makehuman/data/targets/expression/units/asian/nose-right-elevation.target": {
+  "check": "header",
+  "sha256": "4ebad1433573"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eye-left-closure.target": {
+  "check": "header",
+  "sha256": "e38cb77fd888"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eye-left-opened-up.target": {
+  "check": "header",
+  "sha256": "c379cbc91063"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eye-left-slit.target": {
+  "check": "header",
+  "sha256": "f2724e8d8652"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eye-right-closure.target": {
+  "check": "header",
+  "sha256": "58faf2c19927"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eye-right-opened-up.target": {
+  "check": "header",
+  "sha256": "1e342b3b0731"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eye-right-slit.target": {
+  "check": "header",
+  "sha256": "713283452d24"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eyebrows-left-down.target": {
+  "check": "header",
+  "sha256": "89999e77f486"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eyebrows-left-inner-up.target": {
+  "check": "header",
+  "sha256": "2fa94d522d54"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eyebrows-left-up.target": {
+  "check": "header",
+  "sha256": "4f770b7281ed"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eyebrows-right-down.target": {
+  "check": "header",
+  "sha256": "86f0d1440944"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eyebrows-right-inner-up.target": {
+  "check": "header",
+  "sha256": "c97c24303a30"
+ },
+ "makehuman/data/targets/expression/units/caucasian/eyebrows-right-up.target": {
+  "check": "header",
+  "sha256": "496a446cb77a"
+ },
+ "makehuman/data/targets/expression/units/caucasian/mouth-compression.target": {
+  "check": "header",
+  "sha256": "b7abd0826708"
+ },
+ "makehuman/data/targets/expression/units/caucasian/mouth-corner-puller.target": {
+  "check": "header",
+  "sha256": "75ec1f2356c3"
+ },
+ "makehuman/data/targets/expression/units/caucasian/mouth-depression.target": {
+  "check": "header",
+  "sha256": "906a614c24a6"
+ },
+ "makehuman/data/targets/expression/units/caucasian/mouth-elevation.target": {
+  "check": "header",
+  "sha256": "0b306cea4b0b"
+ },
+ "makehuman/data/targets/expression/units/caucasian/mouth-open.target": {
+  "check": "header",
+  "sha256": "07377ba3a3eb"
+ },
+ "makehuman/data/targets/expression/units/caucasian/mouth-pursing.target": {
+  "check": "header",
+  "sha256": "02b08ad99c23"
+ },
+ "makehuman/data/targets/expression/units/caucasian/mouth-retraction.target": {
+  "check": "header",
+  "sha256": "245fe1fa08e9"
+ },
+ "makehuman/data/targets/expression/units/caucasian/mouth-upward-retraction.target": {
+  "check": "header",
+  "sha256": "aaaed4ee0c13"
+ },
+ "makehuman/data/targets/expression/units/caucasian/nose-left-elevation.target": {
+  "check": "header",
+  "sha256": "5a63b622bfb2"
+ },
+ "makehuman/data/targets/expression/units/caucasian/nose-right-elevation.target": {
+  "check": "header",
+  "sha256": "4ebad1433573"
  },
  "makehuman/data/targets/eyebrows/eyebrows-angle-down.target": {
   "check": "header",
@@ -1030,5 +1438,29 @@
  "mpfb/system_assets/skins/young_caucasian_male/young_lightskinned_male_diffuse.png": {
   "check": "pack index",
   "sha256": "862a26e335e9"
+ },
+ "mpfb/system_assets/teeth/teeth_base/teeth.png": {
+  "check": "pack index",
+  "sha256": "d0afb57869c6"
+ },
+ "mpfb/system_assets/teeth/teeth_base/teeth_base.mhclo": {
+  "check": "header",
+  "sha256": "9edc3deff3bb"
+ },
+ "mpfb/system_assets/teeth/teeth_base/teeth_base.obj": {
+  "check": "pack index",
+  "sha256": "f55198069e55"
+ },
+ "mpfb/system_assets/tongue/tongue01/tongue01.mhclo": {
+  "check": "header",
+  "sha256": "61d825899cd7"
+ },
+ "mpfb/system_assets/tongue/tongue01/tongue01.obj": {
+  "check": "pack index",
+  "sha256": "12f4a6a9f85a"
+ },
+ "mpfb/system_assets/tongue/tongue01/tongue01_diffuse.png": {
+  "check": "pack index",
+  "sha256": "3150be398e48"
  }
 }

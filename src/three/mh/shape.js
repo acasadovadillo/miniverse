@@ -10,6 +10,9 @@ const ORIGIN_NAME = { af: 'african', as: 'asian', ca: 'caucasian' };
 // (MakeHuman's height goes from a dwarf to a giant: the slider takes the part that keeps doors, beds and the saddle right,
 // about 1.55 to 1.80 m for a woman and 1.65 to 1.92 m for a man)
 const HEIGHT_K = 0.45;
+// (P2: twice MakeHuman's own range for weight, muscle and the face, extrapolating its corners, which are linear; the
+// heaviest and strongest still fit a door, a bed and the saddle: a test measures them)
+export const RANGE = 2;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 
@@ -20,7 +23,7 @@ export const yearsOf = mh => 25 + clamp(num(mh?.macro?.age, 0), 0, 100) * 0.65;
 export function weightsFor(D, mh, sex) {
   const m = mh?.macro || {}, out = [], S = sex === 'chico' ? 'male' : 'female';
   const old = clamp((yearsOf(mh) - 25) / 65, 0, 1), ages = [['young', 1 - old], ['old', old]];
-  const lv = v => { const x = clamp(num(v) / 100, -1, 1); return [['min', Math.max(0, -x)], ['average', 1 - Math.abs(x)], ['max', Math.max(0, x)]]; };
+  const lv = v => { const x = clamp(num(v) / 100, -1, 1) * RANGE; return [['min', Math.max(0, -x)], ['average', 1 - Math.abs(x)], ['max', Math.max(0, x)]]; };
   let o = ORIGINS.map(k => Math.max(0, num(m[k], k === 'ca' ? 100 : 0)));
   const sum = o.reduce((a, b) => a + b, 0) || 1;
   o = o.map(x => x / sum);
@@ -28,7 +31,10 @@ export function weightsFor(D, mh, sex) {
     if (wa <= 0) continue;
     for (const [mus, wm] of lv(m.muscle)) for (const [wt, ww] of lv(m.weight)) {
       const w = wa * wm * ww;
-      if (w > 1e-4) out.push([`universal-${S}-${age}-${mus}muscle-${wt}weight`, w]);
+      if (Math.abs(w) > 1e-4) out.push([`universal-${S}-${age}-${mus}muscle-${wt}weight`, w]);
+      // (a woman's chest: MakeHuman's cup, min or max, at this same corner)
+      const c = clamp(num(m.chest) / 100, -1, 1);
+      if (S === 'female' && c && Math.abs(w) > 1e-4) out.push([`breast-female-${age}-${mus}muscle-${wt}weight-${c > 0 ? 'max' : 'min'}cup-averagefirmness`, w * Math.abs(c)]);
     }
     ORIGINS.forEach((k, i) => { if (o[i] > 1e-4) out.push([`${ORIGIN_NAME[k]}-${S}-${age}`, wa * o[i]]); });
     const h = clamp(num(m.height) / 100, -1, 1), p = clamp(num(m.prop) / 100, -1, 1);
@@ -37,7 +43,7 @@ export function weightsFor(D, mh, sex) {
   }
   const f = mh?.face || {};
   for (const s of D.face) {
-    const v = clamp(num(f[s.id]) / 100, -1, 1);
+    const v = clamp(num(f[s.id]) / 100, -1, 1) * RANGE;
     if (v > 0 && s.pos) out.push([s.pos, v]);
     else if (v < 0 && s.neg) out.push([s.neg, -v]);
   }
@@ -60,12 +66,12 @@ export function blend(D, mh, sex) {
   return v;
 }
 
-// The chest slider: no breast targets in P1 (a download for later), so a soft bulge of our own over the two breast areas,
-// forward and a little down; less for a man (the pectorals)
+// The chest slider of a man: MakeHuman has no breast targets for men, so the pectorals are a soft bulge of our own
+// (a woman's are MakeHuman's cup targets, in weightsFor)
 function chest(D, v, mh, sex) {
   const c = clamp(num(mh?.macro?.chest) / 100, -1, 1);
-  if (!c) return;
-  const amt = c * (sex === 'chico' ? 0.12 : 0.3), w8 = D.body.chest;
+  if (!c || sex !== 'chico') return;
+  const amt = c * 0.12, w8 = D.body.chest;
   for (let i = 0; i < w8.length; i++) {
     if (!w8[i]) continue;
     const w = (w8[i] / 255) * amt, x = v[i * 3];
@@ -120,4 +126,29 @@ export function poseInPlace(v, n, wUp, wLow, pose) {
     const a = f.up(p), b = f.low(p), r = Math.max(0, 1 - u - l);
     for (let ax = 0; ax < 3; ax++) v[i * 3 + ax] = p[ax] * r + a[ax] * u + b[ax] * l;
   }
+}
+
+// The expressions of a look (blink, smile, the mouth's shapes…): each MakeHuman expression unit blended by the look's
+// origin, as offsets over the kept vertices (decimetres). They are drawn as morphs, so blinking or talking costs no build
+export function expressions(D, mh) {
+  const m = mh?.macro || {};
+  let o = ORIGINS.map(k => Math.max(0, num(m[k], k === 'ca' ? 100 : 0)));
+  const sum = o.reduce((a, b) => a + b, 0) || 1;
+  o = o.map(x => x / sum);
+  return (D.head.expr || []).map(id => {
+    const acc = new Map();
+    ORIGINS.forEach((k, j) => {
+      const t = o[j] > 1e-4 && target(D, `expr.${id}.${ORIGIN_NAME[k]}`);
+      if (!t) return;
+      for (let n = 0; n < t.idx.length; n++) {
+        let a = acc.get(t.idx[n]);
+        if (!a) acc.set(t.idx[n], (a = [0, 0, 0]));
+        a[0] += t.d[n * 3] * o[j]; a[1] += t.d[n * 3 + 1] * o[j]; a[2] += t.d[n * 3 + 2] * o[j];
+      }
+    });
+    const idx = Uint32Array.from(acc.keys()), d = new Float32Array(idx.length * 3);
+    let n = 0;
+    for (const a of acc.values()) { d[n * 3] = a[0]; d[n * 3 + 1] = a[1]; d[n * 3 + 2] = a[2]; n++; }
+    return { id, idx, d };
+  });
 }

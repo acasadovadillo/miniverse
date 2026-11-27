@@ -553,15 +553,16 @@ export function initMenus(game) {
     named('cuerpo', 'sex');
     extra = newMode() ? newRows({ add, look, rebuild, preview }) : null;
     if (extra) { extra.origins(); extra.body(); }
-    colours('cuerpo', 'skin');
+    if (!extra) colours('cuerpo', 'skin');   // (the new creator's tones are on its Skin page)
     named('cuerpo', 'outfit');
     colours('cuerpo', 'cloth');
     add('cuerpo', 'accent', optionRow({ label: t('gui.creator.colour'), colours: ACCENTS, values: ACCENTS.map((_, i) => [i, t(`gui.settings.row.accent.${ACCENT_IDS[i]}`)]),
       get: () => accentOf(nameIn.value || Profile.name, colour), set: n => { colour = n; paintColour(); } }), { hide: () => !!mirror, desc: 'gui.settings.desc.accent' });
     rowOf('accent').el.classList.add('sw');
-    if (extra) { extra.head(); extra.fine(); }
+    if (extra) { extra.head(); extra.fine(); extra.skin(); }
     if (!extra) named('cara', 'eyeStyle');
     colours('cara', 'eyes');
+    extra?.eye2();
     named('cara', 'brows');
     if (!extra) named('cara', 'nose');
     // (orejas, mofletes, boca y accesorio del pelo eran de los muñecos de antes: la persona de ahora no los dibuja. Siguen en
@@ -745,7 +746,7 @@ export function initMenus(game) {
     if (barber && wear.cabeza?.id !== 'hijab') delete wear.cabeza;   // (the hat off, to see the hair; a hijab stays on)
     mirror = { wear, hides, barber, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle) : null };
     Object.assign(look, DEFAULT_LOOK, game.player.look);
-    if (NEW) { preview.use('old'); for (const id of ['cabeza', 'ajuste']) tabOf(id).hidden = true; }
+    if (NEW) { preview.use('old'); for (const id of ['cabeza', 'ajuste', 'piel']) tabOf(id).hidden = true; }
     if (typeof look.beard !== 'string') look.beard = look.beard ? 'completa' : 'no';   // (an old look's true)
     nameIn.value = game.player.name; nameIn.disabled = true;
     $('cr-random').hidden = barber;
@@ -769,7 +770,7 @@ export function initMenus(game) {
     setStartLabel('gui.creator.start');
     billEl.hidden = true;
     tabs.el.hidden = false; tabOf('pelo').hidden = false; tabLabel('gui.creator.page.pelo');
-    if (NEW) { preview.use('new'); for (const id of ['cabeza', 'ajuste']) tabOf(id).hidden = false; }
+    if (NEW) { preview.use('new'); for (const id of ['cabeza', 'ajuste', 'piel']) tabOf(id).hidden = false; }
   }
   // The basin (E on a lavabo, game.placedAction): wash your face and hands (body.washFace, src/body.js) or look in the
   // mirror, asked like the bed's menu. Without Body, or with ?cuerpo=0 (no dirt to wash), straight to the mirror as

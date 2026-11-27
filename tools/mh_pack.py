@@ -96,9 +96,19 @@ FACE = [
     ('head', 'neck_width', ['neck/neck-scale-horiz-decr'], ['neck/neck-scale-horiz-incr']),
 ]
 
+# ---- Expressions (MakeHuman's expression units, one set per origin): id, units merged into it ----
+EXPR = [
+    ('blink', ['eye-left-closure', 'eye-right-closure']), ('squint', ['eye-left-slit', 'eye-right-slit']),
+    ('wide', ['eye-left-opened-up', 'eye-right-opened-up']), ('brow_up', ['eyebrows-left-up', 'eyebrows-right-up']),
+    ('brow_inner', ['eyebrows-left-inner-up', 'eyebrows-right-inner-up']), ('brow_down', ['eyebrows-left-down', 'eyebrows-right-down']),
+    ('jaw_open', ['mouth-open']), ('smile', ['mouth-corner-puller']), ('smile_up', ['mouth-upward-retraction']),
+    ('frown', ['mouth-depression']), ('pucker', ['mouth-pursing']), ('stretch', ['mouth-retraction']),
+    ('lip_up', ['mouth-elevation']), ('press', ['mouth-compression']), ('sneer', ['nose-left-elevation', 'nose-right-elevation']),
+]
+
 # ---- Bound meshes (MPFB system assets, CC0): kind, folder, file stem, texture(s) ----
 PROXIES = [
-    ('eyes', 'eyes/high-poly', 'high-poly'),
+    ('eyes', 'eyes/high-poly', 'high-poly'), ('teeth', 'teeth/teeth_base', 'teeth_base'), ('tongue', 'tongue/tongue01', 'tongue01'),
     ('brows', 'eyebrows/eyebrow001', 'eyebrow001'), ('brows', 'eyebrows/eyebrow002', 'eyebrow002'),
     ('brows', 'eyebrows/eyebrow004', 'eyebrow004'), ('brows', 'eyebrows/eyebrow006', 'eyebrow006'),
     ('brows', 'eyebrows/eyebrow009', 'eyebrow009'), ('brows', 'eyebrows/eyebrow010', 'eyebrow010'),
@@ -125,7 +135,8 @@ TEXTURES = [
     ('skins/old_caucasian_female/old_lightskinned_female_diffuse.png', 'skin-female-old.jpg', 2048, 'jpeg'),
     ('skins/young_caucasian_male/young_lightskinned_male_diffuse.png', 'skin-male-young.jpg', 2048, 'jpeg'),
     ('skins/old_caucasian_male/old_lightskinned_male_diffuse.png', 'skin-male-old.jpg', 2048, 'jpeg'),
-    ('eyes/materials/brown_eye.png', 'iris.png', 512, 'png'),   # (with its alpha: the cornea's window over the iris)
+    ('eyes/materials/brown_eye.png', 'iris.png', 512, 'png'),
+    ('teeth/teeth_base/teeth.png', 'teeth.jpg', 256, 'jpeg'), ('tongue/tongue01/tongue01_diffuse.png', 'tongue.jpg', 256, 'jpeg'),   # (with its alpha: the cornea's window over the iris)
     ('eyebrows/eyebrow001/eyebrow001.png', 'brow-eyebrow001.png', 256, 'png'),
     ('eyebrows/eyebrow002/eyebrow002.png', 'brow-eyebrow002.png', 256, 'png'),
     ('eyebrows/eyebrow004/eyebrow004.png', 'brow-eyebrow004.png', 256, 'png'),
@@ -185,7 +196,7 @@ class Ledger:
     def text(self, rel):
         """A file of makehuman/data (base.obj, targets): CC0 header required."""
         low = rel.lower()
-        if 'genital' in low or 'expression' in low or not (rel == '3dobjs/base.obj' or rel.startswith('targets/')):
+        if 'genital' in low or ('expression' in low and '/expression/units/' not in low) or not (rel == '3dobjs/base.obj' or rel.startswith('targets/')):
             die('not in the allow-list: ' + rel)
         raw = self._read(os.path.join(self.src, rel), 'makehuman/data/' + rel, 'header')
         text = raw.decode('utf-8')
@@ -438,6 +449,22 @@ def build(args):
             for pr in ('ideal', 'uncommon'):
                 rel = '%s-%s-averagemuscle-averageweight-%sproportions' % (sex, age, pr)
                 put_target('prop-' + rel, parse_target(L.text('targets/macrodetails/proportions/%s.target' % rel)))
+
+    # The chest (women): MakeHuman's breast size at each age, muscle and weight corner, the cup min and max
+    for age in AGES:
+        for mus in LEVELS:
+            for wt in LEVELS:
+                for cup in ('min', 'max'):
+                    rel = 'female-%s-%smuscle-%sweight-%scup-averagefirmness' % (age, mus, wt, cup)
+                    put_target('breast-' + rel, parse_target(L.text('targets/breast/%s.target' % rel)))
+    # The expressions, per origin (blended by the look's origin, like the body)
+    head['expr'] = [e for e, _ in EXPR]
+    for eid, units in EXPR:
+        for o in ORIGINS:
+            offs = []
+            for u in units:
+                offs.extend(parse_target(L.text('targets/expression/units/%s/%s.target' % (o, u))))
+            put_target('expr.%s.%s' % (eid, o), offs)
 
     for group, sid, neg, pos in FACE:
         entry = {'id': sid, 'group': group}
