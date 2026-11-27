@@ -6,7 +6,10 @@
 // the palette (furniture, the hearth) is never in a plan.
 //
 // Saved with the game: housePlans (the ids bought) and myPlans ([{ name, w, h, placed, floor, roof }], relative 'x,y' maps, the
-// shape of world/blueprints.js, so stamping is the same code for both). An old save has neither. ?cuadrilla=0: no Plans tab, no
+// shape of world/blueprints.js, so stamping is the same code for both). An old save has neither.
+// A couple shares what they bought (social.js areCouple): each game also writes its ids in the family's record, which every game
+// and the world server share (family.v.housePlans: { playerId: [ids] }), and the partner's ids count as yours. Plans of your own
+// (Copy) stay yours. ?cuadrilla=0: no Plans tab, no
 // Copy tool and Nilo sells no house plans; what was bought stays in the save.
 import { PIECES, parsePlaced, layerOf } from './pieces.js';
 import { planned, planKey, PLAN_REACH } from './plans.js';
@@ -15,6 +18,8 @@ import { apagada } from './opciones.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { t } from './i18n.js';
+import { Profile } from './accounts.js';
+import { areCouple } from './social.js';
 
 export const WORKS_ON = !apagada('cuadrilla');
 export const MINE_MAX = 6, COPY_MAX = 24;
@@ -113,19 +118,39 @@ export class HousePlans {
     if (this.owned.size) out.housePlans = [...this.owned];
     if (this.mine.length) out.myPlans = this.mine.map(p => ({ name: p.name, w: p.w, h: p.h, placed: p.placed, floor: p.floor, roof: p.roof }));
   }
-  has(id) { return this.owned.has(id); }
-  learn(id) { if (!HOUSE_PLANS[id]) return false; this.owned.add(id); this.game.build?.onChange?.(); this.game.onSave?.(); return true; }
+  // The ids you may lay out: yours and your partner's (by the family's record)
+  all() {
+    this.share();
+    const F = this.game.family?.v, out = new Set(this.owned), me = Profile.id, S = this.game.social;
+    const rec = F?.housePlans;
+    if (me && rec && typeof rec === 'object') for (const [id, ids] of Object.entries(rec)) {
+      if (id === me || !Array.isArray(ids) || !(areCouple(F, me, id) || S?.isPartnerId?.(id))) continue;
+      for (const h of ids) if (HOUSE_PLANS[h]) out.add(h);
+    }
+    return out;
+  }
+  // Your bought ids into the family's record, when it lacks any (a new purchase, a save from before, a record that came from the
+  // world's host without them)
+  share() {
+    const F = this.game.family?.v, me = Profile.id;
+    if (!F || !me || !this.owned.size) return;
+    const had = Array.isArray(F.housePlans?.[me]) ? F.housePlans[me] : [];
+    if ([...this.owned].every(h => had.includes(h))) return;
+    F.housePlans = { ...(F.housePlans && typeof F.housePlans === 'object' ? F.housePlans : {}), [me]: [...new Set([...had.filter(h => HOUSE_PLANS[h]), ...this.owned])] };
+  }
+  has(id) { return this.all().has(id); }
+  learn(id) { if (!HOUSE_PLANS[id]) return false; this.owned.add(id); this.share(); this.game.build?.onChange?.(); this.game.onSave?.(); return true; }
   // What the Plans tab lists: [{ ref: 'plano:house:<id>' | 'plano:mine:<i>', name, bp, mine }]
   list() {
-    const out = [];
-    for (const id of Object.keys(HOUSE_PLANS)) if (this.owned.has(id)) out.push({ ref: `plano:house:${id}`, name: t(`plan.${id}`), bp: housePlan(id), mine: false });
+    const out = [], all = this.all();
+    for (const id of Object.keys(HOUSE_PLANS)) if (all.has(id)) out.push({ ref: `plano:house:${id}`, name: t(`plan.${id}`), bp: housePlan(id), mine: false });
     this.mine.forEach((p, i) => out.push({ ref: `plano:mine:${i}`, name: p.name, bp: p, mine: true, i }));
     return out;
   }
   byRef(ref) {
     const m = /^plano:(house|mine):(\w+)$/.exec(ref || '');
     if (!m) return null;
-    return m[1] === 'house' ? (this.owned.has(m[2]) ? housePlan(m[2]) : null) : this.mine[+m[2]] || null;
+    return m[1] === 'house' ? (this.all().has(m[2]) ? housePlan(m[2]) : null) : this.mine[+m[2]] || null;
   }
   get tool() { const b = this.game.build; return b.on && this.on ? b.tool : null; }
   get chosen() { const b = this.game.build; return this.tool === 'stamp' ? this.byRef(b.stampRef) : null; }

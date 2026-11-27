@@ -10437,6 +10437,19 @@ async function soloTests(game) {
       } finally { H.owned = had; H.mine = mine; game.money = money; B.toggle(false); for (let j = -4; j <= 4; j++) for (let i = -4; i <= 4; i++) W.setTile(x + i, y + j, 'air'); }
     });
   });
+  await test('houseplans couple (english): what your partner bought is yours to lay out too, by the family record; a stranger\'s is not; your own goes into the record', async () => {
+    const H = HP(), F = game.family.v, had = new Set(H.owned), rec = F.housePlans, kids = F.kids, me = Profile.id;
+    try {
+      H.owned = new Set(['shed']); F.kids = [...(kids || []), { id: 'k-test-hp', name: 'x', parents: [me, 'id-partner'] }];
+      F.housePlans = { 'id-partner': ['barn', 'castle'], 'id-stranger': ['house'] };
+      check(H.has('barn') && H.has('shed') && !H.has('house') && !H.has('castle'), `shared: ${[...H.all()]}`);
+      check(H.list().some(q => q.ref === 'plano:house:barn') && H.byRef('plano:house:barn')?.id === 'barn' && !H.byRef('plano:house:house'), 'in the Plans tab');
+      check(Array.isArray(F.housePlans[me]) && F.housePlans[me].includes('shed'), `mine in the record: ${JSON.stringify(F.housePlans)}`);
+      H.learn('cabin'); check(F.housePlans[me].includes('cabin') && F.housePlans['id-partner'].includes('barn'), 'a new one');
+      const out = {}; H.save(out); check(out.housePlans.length === 2 && !out.housePlans.includes('barn'), `the save keeps only yours: ${out.housePlans}`);
+      F.kids = kids; check(!H.has('barn'), 'no longer a couple');
+    } finally { H.owned = had; F.kids = kids; if (rec === undefined) delete F.housePlans; else F.housePlans = rec; }
+  });
   await test('crew (english): nothing per frame outside the sites; an old save loads with no sites and no plans of houses', async () => {
     const C = WK(), V = game.view3d.world.works; dropSites();
     let t0 = performance.now(); for (let i = 0; i < 4000; i++) { C.update(0.016); V.frame(game, w()); } const ms = (performance.now() - t0) / 4000;
