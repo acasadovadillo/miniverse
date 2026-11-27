@@ -31,7 +31,7 @@ const FACT_LEVEL = {
   gives: 3, size: 3, size_none: 3,
 };
 // How to find an unseen one, by group
-const HOW = { animal: 'nature.how.look', plant: 'nature.how.look', fish: 'nature.how.catch', bug: 'nature.how.net' };
+const HOW = { animal: 'nature.how.look', plant: 'nature.how.look', fish: 'nature.how.catch', bug: 'nature.how.net', sea: 'nature.how.dive' };
 const KEYISH = /^[a-z][a-z0-9_]*(\.[\w-]+)+$/;
 
 // The tracks drawings, in the plate's ink: a pair of prints, the left one behind (deer: two slim cloven halves, tips

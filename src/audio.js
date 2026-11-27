@@ -221,6 +221,24 @@ export const Audio = {
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.04); g.gain.setValueAtTime(0.05, t + 0.62); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
     o.connect(g).connect(sfx); o.start(t); o.stop(t + 1.15);
   },
+  // A scared whinny (Plan F phase 2): shriller than the neigh, it jumps up and shakes (a fast vibrato that widens), then
+  // falls away in a rough, breathy squeal. k: how loud
+  whinnyScared(k = 1) {
+    if (!ac || !on || !(k > 0.01)) return;
+    const t = ac.currentTime, o = ac.createOscillator(), o2 = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain(), vib = ac.createOscillator(), vd = ac.createGain();
+    o.type = 'sawtooth'; o2.type = 'square';
+    o.frequency.setValueAtTime(820, t); o.frequency.exponentialRampToValueAtTime(1480, t + 0.12); o.frequency.setValueAtTime(1480, t + 0.34); o.frequency.exponentialRampToValueAtTime(640, t + 0.95);
+    o2.frequency.setValueAtTime(1235, t); o2.frequency.exponentialRampToValueAtTime(2190, t + 0.12); o2.frequency.exponentialRampToValueAtTime(950, t + 0.95);
+    vib.frequency.setValueAtTime(11, t); vib.frequency.linearRampToValueAtTime(17, t + 0.9);
+    vd.gain.setValueAtTime(18, t); vd.gain.linearRampToValueAtTime(70, t + 0.9);
+    vib.connect(vd); vd.connect(o.frequency); vd.connect(o2.frequency);
+    f.type = 'bandpass'; f.Q.value = 2.2; f.frequency.setValueAtTime(1500, t); f.frequency.exponentialRampToValueAtTime(900, t + 0.95);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05 * k, t + 0.05); g.gain.setValueAtTime(0.045 * k, t + 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + 1);
+    const g2 = ac.createGain(); g2.gain.value = 0.35;
+    o.connect(f); o2.connect(g2).connect(f); f.connect(g).connect(sfx);
+    for (const x of [o, o2, vib]) { x.start(t); x.stop(t + 1.02); }
+    this.snort(k * 0.5);
+  },
   // A snort: air blown hard through the nostrils, a breathy hiss that falls, fluttering (the lips) at about 26 Hz.
   // k: how loud (a horse further away, quieter)
   snort(k = 1) {

@@ -33,6 +33,7 @@ import { Ranch } from './ranch.js';
 import { Horse } from './horse.js';
 import { HorseCare } from './horsecare.js';
 import { HorseLead } from './horselead.js';
+import { HorseActs } from './horseacts.js';
 import { Saddlebags } from './saddlebags.js';
 import { Freshness } from './freshness.js';
 import { Steps } from './steps.js';
@@ -218,6 +219,7 @@ export class Game {
     this.freshness = this.addSystem(new Freshness(this));   // the catch going off, and cleaning and salting it (src/freshness.js)
     this.horsecare = this.addSystem(new HorseCare(this));   // what the horse eats and drinks, its shoes, being sore (Plan R4-2, src/horsecare.js)
     this.horselead = this.addSystem(new HorseLead(this));   // led by the reins, and tied (Plan R4-4, src/horselead.js)
+    this.horseacts = this.addSystem(new HorseActs(this));   // the Bow and the shy of a horse nobody rides, for everybody (Plan F phase 2, src/horseacts.js)
     this.cart = this.addSystem(new Cart(this));   // the horse cart: hitched, driven, parked; its passenger (Plan R4-5, src/cart.js)
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));

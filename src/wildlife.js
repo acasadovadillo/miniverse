@@ -136,6 +136,16 @@ export const sensesOn = () => Wildlife.senses ?? !apagada('sentidos');
 // The herds: on unless ?manadas=0 (or without the senses). Wildlife.herding: the tests turn them on and off
 export const herdsOn = () => sensesOn() && (Wildlife.herding ?? !apagada('manadas'));
 const WHERE = { x: 0, y: 0, act: '', night: 0 }, TAU = Math.PI * 2, ROARING = 1 << 9, CHARGING = 1 << 18;
+export const DRINKING = 1 << 21;
+// Drinking spots (Plan G-2, W5): from 6 to 8 and from 18 to 20 (the hour there), a calm deer or boar on its own (not of a
+// herd: a herd goes to drink together at dusk, as its day says, herds.js) picks once in its life the nearest fresh water
+// within DRINK_R, walks to its bank and drinks DRINK_S seconds, head down to the water. Every drink, the herd's too, is
+// w.drinking (bit 21 of f: every game draws it). The prints gather on the bank, where a tracker looks. ?wounds=0 (the
+// host's, Plan G's wildlife switch): no drinking spots, as before
+export const DRINK_R = 24, DRINK_S = [8, 15], DRINK_HOURS = [[6, 8], [18, 20]], DRINK_AT = 3.5;   // (DRINK_AT: m from the water where it may drink)
+export const drinkHour = h => DRINK_HOURS.some(([a, b]) => h >= a && h < b);
+// The 'wild' message's f (index 11): the senses' bits (senses.js packF), the roar, the charge and the drink
+export const wildF = w => packF(w) | (w.roar >= 0 ? ROARING : 0) | (w.charge && w.charge.ph < 2 ? CHARGING : 0) | (w.drinking && w.eating > 0 ? DRINKING : 0);
 const DIR8 = Array.from({ length: 8 }, (_, i) => [Math.cos(i * TAU / 8), Math.sin(i * TAU / 8)]);
 const AIR = { x: 1, y: 0, th: false }, SEEN = {}, ENV = { light: 1, sky: 1, diff: 1, wx: 1, wy: 0, ws: 0.4 }, ANIMAL = { fx: 0, fy: 1, down: false, staring: false, bedded: false };   // (reused: no allocation in the senses)
 // On unless ?wounds=0. Wildlife.wounds: the tests turn it on and off without the URL
@@ -185,7 +195,7 @@ export class Wildlife {
     this.cues(dt);
     this.bleedAll(dt);
     if (g.live.joined && (this.sendT += dt) >= SEND_EVERY) {
-      const m = this.list.map(w => [w.id, w.type, r2(w.x), r2(w.y), w.hurt > 0 ? 1 : 0, w.grazing ? 1 : 0, w.gutshot ? 1 : w.bleed || 0, w.lying ? 1 : 0, w.sx ?? r2(w.x), w.sy ?? r2(w.y), w.limp || 0, packF(w) | (w.roar >= 0 ? ROARING : 0) | (w.charge && w.charge.ph < 2 ? CHARGING : 0)]), s = JSON.stringify(m);
+      const m = this.list.map(w => [w.id, w.type, r2(w.x), r2(w.y), w.hurt > 0 ? 1 : 0, w.grazing ? 1 : 0, w.gutshot ? 1 : w.bleed || 0, w.lying ? 1 : 0, w.sx ?? r2(w.x), w.sy ?? r2(w.y), w.limp || 0, wildF(w)]), s = JSON.stringify(m);
       this.resend += this.sendT; this.sendT = 0;
       if (s !== this.lastSent || this.resend >= RESEND) { this.lastSent = s; this.resend = 0; g.live.net?.send({ t: 'wild', w: m }); }   // (de vez en cuando, aunque no cambie: por quien acaba de entrar)
     }
@@ -467,7 +477,37 @@ export class Wildlife {
   // At the water's edge, its head down to it
   drink(w) {
     w.drankAt = this.game.time + 40 + Math.random() * 60;
-    Object.assign(w, { grazeAt: null, eating: within(HERD.DRINK), headUp: false, headT: within(BOUT.down), grazing: true, tx: w.x, ty: w.y, vx: 0, vy: 0 });
+    w.drank = true; w.toDrink = false;
+    Object.assign(w, { grazeAt: null, eating: within(w.herd ? HERD.DRINK : DRINK_S), headUp: false, headT: within(BOUT.down), grazing: true, drinking: true, tx: w.x, ty: w.y, vx: 0, vy: 0 });
+  }
+  // Thirsty now (W5)? A calm one on its own, at its hours, that has not drunk yet in its life, with fresh water near: it heads
+  // for the bank (toDrink: there, or where the water stops it first, it drinks; wander)
+  thirst(w) {
+    const g = this.game;
+    if (w.drank || w.toDrink || w.herd || !woundsOn() || (w.type !== 'ciervo' && w.type !== 'jabali') || w.young || w.bleed || w.lying || w.bedded || w.flight || w.alert || w.charge || w.callTo) return false;
+    if (!drinkHour(g.days.hourAt(w.x))) return false;
+    w.drank = true;   // (one look a life: found or not)
+    const bank = this.bankNear(w.x, w.y);
+    if (!bank) return false;
+    // (to the dry edge of it, and there it drinks, facing the water; if the water stops it first, it drinks there: wander)
+    w.toDrink = [bank[2], bank[3]]; w.tx = w.x + dxOf(bank[0], w.x); w.ty = bank[1]; w.wait = 0; w.vx = w.vy = 0;
+    return true;
+  }
+  // The nearest bank of fresh water within DRINK_R: [x, y (dry), wx, wy (the water)], or null. herds.js shore when there are
+  // herds (from the climate, as their own drinking places); else, or when it finds none (it keeps clear of the village and
+  // reads only rivers and lakes), a look along eight ways for the fresh water there is (needs.js isFresh: dug canals too)
+  bankNear(x, y) {
+    const H = this.herds, b = H?.shore ? H.shore([x, y], DRINK_R) : null;
+    if (b) return b;
+    const N = this.game.needs;
+    if (!N?.isFresh) return null;
+    for (let r = 2; r <= DRINK_R; r++) for (let i = 0; i < 8; i++) {
+      const c = Math.cos(i * TAU / 8), sn = Math.sin(i * TAU / 8), wx = wrapX(x + c * r), wy = y + sn * r;
+      if (!N.isFresh(wx, wy)) continue;
+      const dx = wrapX(x + c * (r - 1.5)), dy = y + sn * (r - 1.5);
+      if (!this.world.water(dx, dy)) return [dx, dy, wx, wy];
+    }
+    return null;
   }
   // Uno nuevo en un sitio que le vaya, a cierta distancia de quien juega (y de los demás) y fuera del pueblo
   spawn(q, walkers) {
@@ -486,7 +526,7 @@ export class Wildlife {
   }
   move(w, dt, walkers) {
     const k = KINDS[w.type], g = this.game;
-    if (!(w.eating > 0)) w.grazing = false;   // (lo que llegó por red, si ahora los mueve este juego)
+    if (!(w.eating > 0)) { w.grazing = false; w.drinking = false; }   // (lo que llegó por red, si ahora los mueve este juego)
     if (w.charge) { this.moveCharge(w, dt, walkers); return; }
     if (w.bleed === 2) { if (w.aw || w.flight || w.alert) this.calm(w); this.moveWounded(w, dt, walkers, k); return; }
     if (sensesOn()) { this.moveAware(w, dt, walkers, k); return; }
@@ -507,6 +547,8 @@ export class Wildlife {
   wander(w, dt, k, sp, flee = false, q = null, d = Infinity) {
     const g = this.game, dx = w.tx - w.x, dy = w.ty - w.y, dist = Math.hypot(dx, dy);
     if (dist < 0.2) {
+      if (w.toDrink) { const at = w.toDrink; w.toDrink = false; if (!k.water && !(w.drankAt > g.time) && distOf(at[0], at[1], w.x, w.y) < DRINK_AT) { w.faceTo(dxOf(at[0], w.x), at[1] - w.y); this.drink(w); return; } }   // (at the bank: it drinks; somewhere else, after a fright, no)
+      if (!k.water && this.thirst(w)) return;
       if (w.herd) { this.nextPlace(w, k); return; }
       const a = Math.random() * Math.PI * 2; w.tx = w.x + Math.cos(a) * 3; w.ty = w.y + Math.sin(a) * 3; w.wait = 2 + Math.random() * 6; w.vx = w.vy = 0; this.tryGraze(w); return;
     }
@@ -520,12 +562,13 @@ export class Wildlife {
         w.escNo = g.time + ESCAPE_FOR;   // (cornered: looked for again in a moment, not every frame)
       }
       w.tx = w.x; w.ty = w.y; w.wait = 1; w.escT = 0;
-      if (w.herd?.act === 'drink' && !k.water && !(w.drankAt > g.time) && this.world.natWater(wrapX(p.x + dx / dist * 0.6), p.y + dy / dist * 0.6)) { w.faceTo(dx, dy); this.drink(w); }
+      if ((w.herd?.act === 'drink' || (w.toDrink && !flee)) && !k.water && !(w.drankAt > g.time) && this.world.natWater(wrapX(p.x + dx / dist * 0.6), p.y + dy / dist * 0.6)) { w.faceTo(dx, dy); this.drink(w); }
+      w.toDrink = false;   // (stopped by something else: no drink)
       return;
     }
-    // (held by a trunk or a fence on its way: somewhere else)
-    if (w.herd) {
-      if (Math.hypot(p.x - w.x, p.y - w.y) < s * 0.4) { if ((w.stuckT = (w.stuckT || 0) + dt) > 0.8) { w.stuckT = 0; w.tx = w.x; w.ty = w.y; w.wait = 0.3 + Math.random(); return; } } else w.stuckT = 0;
+    // (held by a trunk or a fence on its way: somewhere else; on its way to drink, it gives the drink up)
+    if (w.herd || w.toDrink) {
+      if (Math.hypot(p.x - w.x, p.y - w.y) < s * 0.4) { if ((w.stuckT = (w.stuckT || 0) + dt) > 0.8) { w.stuckT = 0; w.tx = w.x; w.ty = w.y; w.toDrink = false; w.wait = 0.3 + Math.random(); return; } } else w.stuckT = 0;
     }
     w.faceTo(dx, dy);
     w.vx = (p.x - w.x) / dt; w.vy = (p.y - w.y) / dt;
@@ -1184,7 +1227,7 @@ export class Wildlife {
       w.lying = !!lying;
       w.limp = Number.isFinite(limp) ? Math.max(0, Math.min(1, limp)) : 0;
       unpackF(f, w); w.flight = 0; w.herd = null;
-      w.roar = Number.isInteger(f) && f & ROARING ? 0 : -1; w.charging = Number.isInteger(f) && !!(f & CHARGING);
+      w.roar = Number.isInteger(f) && f & ROARING ? 0 : -1; w.charging = Number.isInteger(f) && !!(f & CHARGING); w.drinking = Number.isInteger(f) && !!(f & DRINKING);
       w.breed = w.traits ? breedOf(type, w.female, w.young, md, w.size, w.age) : undefined;   // (it is the host's to run it; if this game takes over, it starts calm)
       // (you hit it a moment ago and the host says it bleeds: its trail is locked for you, hunt.js)
       if (w.bleed > 0 && w.lockAsk !== undefined) { if (g.time - w.lockAsk < LOCK_WAIT) g.tracks?.lock(trailKey(w), 'blood'); w.lockAsk = undefined; }

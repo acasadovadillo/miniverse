@@ -605,6 +605,9 @@ function dogOut(u, e, dt) {
   if (head) { head.rotation.y *= 1 - p; head.rotation.x += (0.06 * p + 0.3 * h * (1 - p) - head.rotation.x) * s; }
   if (p && legs.length === 4) { legs[1].hip.rotation.x += (-0.95 - legs[1].hip.rotation.x) * p; legs[1].knee.rotation.x += (1.7 - legs[1].knee.rotation.x) * p; body.rotation.x += 0.05 * p; }
 }
+// The drink at a bank (Plan G-2): how much further the neck goes down (neckPose's extra turn), the body's tilt forward and
+// down, the forelegs spread and a little forward, the hind ones bent, and the head's extra tilt to the water
+const DRINK = { neck: 0.2, pitch: 0.07, down: 0.04, splay: 0.13, fore: -0.12, hind: 0.12, head: 0.12 };
 export function animateAnimal(m, dt, t, e, st = null) {
   const u = m.root.userData;
   if (u.horse) { animateHorse(m.root, m.speed, t, e, dt, e?.lead ? e.leadGait : undefined, st); return; }   // (led by the reins, its gait: horselead.js)
@@ -635,15 +638,25 @@ export function animateAnimal(m, dt, t, e, st = null) {
   if (e?.sleep) { body.position.y = 0; body.rotation.x = 0; if (head) head.rotation.x = 0.3; return; }
   // Pastando (ranch.js y wildlife.js, e.grazing): bajan el cuello y la cabeza hasta la hierba y mordisquean; si no, miran a
   // un lado y a otro
+  // (drinking at a bank, wildlife.js e.drinking: the neck further down and out to the water, the forelegs a little apart)
+  const dr = u.dr = (u.dr || 0) + ((e?.drinking && e.grazing ? 1 : 0) - (u.dr || 0)) * Math.min(1, dt * 2);
+  if (dr < 1e-3) u.dr = 0;
   if (head) {
-    const g = graze(u, e, k, dt), bite = g * (Math.sin(t * 7 + u.seed) * 0.05 + Math.max(0, Math.sin(t * 0.8 + u.seed)) * 0.04);
-    if (u.rig) neckPose(u, g);
+    const g = graze(u, e, k, dt), bite = g * (Math.sin(t * 7 + u.seed) * 0.05 + Math.max(0, Math.sin(t * 0.8 + u.seed)) * 0.04) * (1 - 0.6 * dr);
+    if (u.rig) neckPose(u, g, DRINK.neck * dr);
     head.rotation.x += ((u.rig ? u.rig.hr * g : g * 0.6) + bite - head.rotation.x) * Math.min(1, dt * 3);
     if (!u.al) head.rotation.y = Math.sin(t * 0.6 + u.seed * 2) * 0.25 * (1 - k) * (1 - g * 0.7);
   }
   if (type === 'gallina' || type === 'pato') body.rotation.x = k ? Math.sin(m.phase * 2) * 0.08 : Math.max(0, Math.sin(t * 1.3 + m.phase) - 0.7) * 1.2;   // picotea
   else if (type === 'cerdo' && e?.digging) body.rotation.x = 0.25 + Math.sin(t * 9) * 0.06;   // hoza
   else body.rotation.x = Math.sin(t * 0.8 + m.phase) * 0.01;
+  if ((dr || u.drOn) && legs.length === 4) {
+    u.drOn = dr > 0;
+    body.rotation.x += DRINK.pitch * dr; body.position.y -= DRINK.down * dr;
+    for (let i = 0; i < 2; i++) { const l = legs[i]; l.hip.rotation.z = Math.sign(l.hip.position.x) * DRINK.splay * dr; l.hip.rotation.x += DRINK.fore * dr; }
+    for (let i = 2; i < 4; i++) { legs[i].hip.rotation.x += DRINK.hind * dr; legs[i].knee.rotation.x += DRINK.hind * 1.4 * dr; }
+    if (head) head.rotation.x += DRINK.head * dr;
+  }
   body.scale.x = body.scale.z = 1 + Math.sin(t * 2 + u.seed) * 0.01 * (1 - k);   // respira
   if (e?.alert || e?.staring || u.al > 0) onGuard(m, u, e, k, t, dt);
   if ((type === 'ciervo' || type === 'jabali') && e) callOut(u, e, dt);
@@ -1040,7 +1053,12 @@ const CANTER_K = 0.35;   // (how much of it the canter has)
 // the hind legs bent under it, the forelegs pawing, the head up and the tail hanging), the shake after a brushing (0.8 s:
 // the body rolls fast from side to side, the head with it) and the toss of the head (0.6 s: a trick it does not know yet)
 // (drink and graze: ridden, or let to drink from its menu: horsecare.js; the head goes down while it lasts and stands still)
-export const HORSE_ACTS = { rear: 1.2, shake: 0.8, toss: 0.6, slide: 0.85, stumble: 0.8, drink: 4, graze: 6 };
+// (bow and shy, Plan F phase 2: a horse nobody rides, horseacts.js. The bow, 2.5 s: one foreleg stretched forward, the
+// other folded with its knee on the ground, the chest down about the hind hips, the neck arched down and the head tucked;
+// the shy, 0.6 s: a start to one side (st.side) with the head thrown up and a jerk of the body)
+export const HORSE_ACTS = { rear: 1.2, shake: 0.8, toss: 0.6, slide: 0.85, stumble: 0.8, drink: 4, graze: 6, bow: 2.5, shy: 0.6 };
+const BOW = { pitch: 0.48, py: 0.72, pz: -0.38, reach: 0, fold: 1.62, foreFwd: 0.25, hind: 0.06, neck: 0.4, head: 0.5 };
+const SHY = { dx: 0.16, yaw: 0.3, jit: 0.06, lift: 0.1, neck: -0.42, head: -0.38 };
 const EATING = { drink: 0.9, graze: 1 }, EAT_EASE = 2.4;   // (how far down the head goes)
 const REAR = { pitch: 0.66, py: 0.72, pz: -0.38, crouch: 0.035, hindHip: 0.35, hindKnee: 0.55, foreHip: 1.1, foreKnee: 1.7, paw: 0.3, pawHz: 1.5, neck: -0.45, head: -0.35 };
 const REAR_FP = { pitch: 0.6, neck: 0.5, head: 0.25 };   // (from the rider's own eyes: less of the pitch, the neck stretched forward and down)
@@ -1111,6 +1129,8 @@ export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
   const shake = act === 'shake' ? sm(0, 0.12, ak) * (1 - sm(0.72, 1, ak)) : 0;
   const toss = act === 'toss' ? Math.sin(Math.PI * ak) : 0;
   const slide = act === 'slide' ? sm(0, 0.16, ak) * (1 - sm(0.72, 1, ak)) : 0, stumble = act === 'stumble' ? sm(0, 0.14, ak) * (1 - sm(0.5, 1, ak)) : 0;
+  const bow = act === 'bow' ? sm(0, 0.24, ak) * (1 - sm(0.8, 1, ak)) : 0, shy = act === 'shy' ? sm(0, 0.12, ak) * (1 - sm(0.55, 1, ak)) : 0;
+  if (act === 'shy') u.shySide = st.side < 0 ? -1 : 1;
   const w = st?.winded > 0 ? Math.min(1, st.winded) : 0, breath = Math.sin(t * TAU * WINDED.hz);
   if (u.tail) u.tail.rotation.set((0.25 + (u.tailUp || 0)) * k + gk * (GALLOP.tail + 0.07 * Math.sin(2 * u.phase + 1)), 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6) + gk * 0.06 * Math.sin(u.phase));
   // (pastando, baja el cuello hasta la hierba; si no, de vez en cuando, parado, agacha un poco la cabeza. Winded, low; at
@@ -1119,24 +1139,24 @@ export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
   u.eat = (u.eat || 0) + (eats - (u.eat || 0)) * Math.min(1, dt * EAT_EASE);
   if (u.eat < 1e-3) u.eat = 0;
   const g = Math.max(graze(u, e, k, dt), u.eat), low = Math.max(g, WINDED.low * w);
-  if (u.rig) neckPose(u, low, gk * GALLOP.neck * Math.sin(u.phase + 0.9) - (act === 'drink' ? 0.03 * u.eat * Math.max(0, Math.sin(t * 3.4)) : 0) + (st?.fp ? REAR_FP.neck : REAR.neck) * rear - 0.3 * toss + SLIDE.neck * slide + STUMBLE.neck * stumble + 0.08 * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake));
+  if (u.rig) neckPose(u, low, gk * GALLOP.neck * Math.sin(u.phase + 0.9) - (act === 'drink' ? 0.03 * u.eat * Math.max(0, Math.sin(t * 3.4)) : 0) + (st?.fp ? REAR_FP.neck : REAR.neck) * rear - 0.3 * toss + SLIDE.neck * slide + STUMBLE.neck * stumble + 0.08 * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake) + BOW.neck * bow + SHY.neck * shy);
   if (u.head) {
     u.head.rotation.x = Math.sin(u.phase) * 0.05 * k + (u.horse && !g && speed < 0.2 && Math.sin(t * 0.3 + u.seed) > 0.4 ? 0.5 : 0) * 0.6 + g * (u.rig.hr + Math.sin(t * (act === 'drink' ? 11 : 7) + u.seed) * (act === 'drink' ? 0.025 : 0.05))
-      + gk * GALLOP.head * Math.sin(u.phase + 0.4) + w * (WINDED.head + 0.05 * breath) + (st?.fp ? REAR_FP.head : REAR.head) * rear - 0.4 * toss + SLIDE.head * slide + STUMBLE.head * stumble;
+      + gk * GALLOP.head * Math.sin(u.phase + 0.4) + w * (WINDED.head + 0.05 * breath) + (st?.fp ? REAR_FP.head : REAR.head) * rear - 0.4 * toss + SLIDE.head * slide + STUMBLE.head * stumble + BOW.head * bow + SHY.head * shy;
     u.head.rotation.z = shake * SHAKE.head * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake + 0.9) + 0.2 * toss * Math.sin(ak * TAU * 2);
   }
   // (winded: the flanks heave; the trunk's own scale, so the legs barely notice)
   u.body.scale.set(1 + WINDED.flank * w * breath, 1, 1 + 0.01 * w * breath);
-  posedAct(u, rear, shake, ak, t, st?.fp ? REAR_FP.pitch : 1, slide, stumble);
+  posedAct(u, rear, shake, ak, t, st?.fp ? REAR_FP.pitch : 1, slide, stumble, bow, shy);
 }
 // The rear and the shake over the gait (rear, shake: their weights; ak: how far through it is). The channels nothing else
 // writes (the trunk's sideways and forward offsets, its roll, the legs' roll) are put back when it ends
-function posedAct(u, rear, shake, ak, t, pk = 1, slide = 0, stumble = 0) {   // (pk: how much of the rear's pitch)
+function posedAct(u, rear, shake, ak, t, pk = 1, slide = 0, stumble = 0, bow = 0, shy = 0) {   // (pk: how much of the rear's pitch)
   const B = u.body;
   u.slide = slide; u.stumble = stumble;
-  if (!rear && !shake && !slide && !stumble) {
+  if (!rear && !shake && !slide && !stumble && !bow && !shy) {
     if (u.posed) {
-      u.posed = false; B.position.x = B.position.z = 0; B.rotation.z = 0;
+      u.posed = false; B.position.x = B.position.z = 0; B.rotation.z = 0; B.rotation.y = 0;
       for (const l of u.legs) l.hip.rotation.z = 0;
       if (!u.lp) { B.rotation.x = 0; B.position.y = 0; for (let i = 0; i < 4; i++) u.legs[i].hip.position.y = u.hipRest[i]; }
     }
@@ -1190,10 +1210,40 @@ function posedAct(u, rear, shake, ak, t, pk = 1, slide = 0, stumble = 0) {   // 
     u.seatDz = B.position.z + sy * s + SEAT[1] * c - SEAT[1];
     u.seatPitch = rx;
   }
+  if (bow) {
+    // (the trunk turns down about the hind hips; the hind legs, counter-turned, stay upright; one foreleg reaches straight
+    // forward to the ground and the other folds, its knee where the ground is)
+    const P = BOW, rx = B.rotation.x * (1 - bow) + P.pitch * bow, c = Math.cos(rx), s = Math.sin(rx);
+    B.rotation.x = rx;
+    B.position.y = P.py - (P.py * c - P.pz * s) + bob * (1 - bow);
+    B.position.z = P.pz - (P.py * s + P.pz * c);
+    for (let i = 0; i < 4; i++) {
+      const l = u.legs[i], hind = i >= 2, rest = u.hipRest[i];
+      l.hip.position.y += (rest - l.hip.position.y) * bow;
+      const hy = B.position.y + l.hip.position.y * c - l.hip.position.z * s, up = -l.knee.position.y;
+      let hx, kx;
+      if (hind) { hx = -rx + P.hind; kx = 0; }   // (a little back: the weight goes forward)
+      else if (i === P.reach) { hx = -Math.acos(Math.max(0, Math.min(1, hy / rest))) - rx; kx = 0.04; }
+      else { hx = -Math.acos(Math.max(0, Math.min(1, hy / up))) * P.foreFwd - rx; kx = P.fold; }
+      l.hip.rotation.x += (hx - l.hip.rotation.x) * bow;
+      l.knee.rotation.x += (kx - l.knee.rotation.x) * bow;
+    }
+    if (u.tail) u.tail.rotation.x += (-rx * 0.6 - u.tail.rotation.x) * bow;
+  }
+  if (shy) {
+    // (a start sideways: the trunk jumps that way and turns a little from it with a jerk, the front up; the legs lean so the
+    // hooves stay where they were for that moment)
+    const d = u.shySide || 1, x = SHY.dx * shy * d;
+    B.position.x = x; B.rotation.y = -d * SHY.yaw * shy + SHY.jit * shy * Math.sin(ak * TAU * 3);
+    B.rotation.x -= SHY.lift * shy;
+    const lean = Math.asin(Math.max(-1, Math.min(1, x / 0.72)));
+    for (const l of u.legs) l.hip.rotation.z = -lean;
+  }
   if (shake) {
     // (a roll about the hips' height, the legs counter-rolled so the hooves stay put)
     const r = SHAKE.roll * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake), py = REAR.py;
     B.rotation.z = r; B.position.x = py * Math.sin(r); B.position.y += py * (1 - Math.cos(r));
     for (const l of u.legs) l.hip.rotation.z = -r;
   } else if (B.rotation.z && !stumble) { B.rotation.z = 0; B.position.x = 0; for (const l of u.legs) l.hip.rotation.z = 0; }
+  if (!shy && B.rotation.y) B.rotation.y = 0;
 }

@@ -27,7 +27,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // Plan F (the horse, docs/planes/gta/PLAN-F-caballo.md §8), each with ?x=0: vinculo (no horse stamina: an unlimited
 // gallop as before; no spooks, tricks, N key, dirt, horse bar or new bond gains: brushing or a carrot is +1 heart as
 // before) and alforjas (no saddlebag lock or guard: last write wins as before; new bags get 9 stacks, B and C never pay
-// from them, no kg in the title). Neither changes gen or the save shape (the fields just stay unused)
+// from them, no kg in the title). Neither changes gen or the save shape (the fields just stay unused). Phase 2 (horseacts.js):
+// vinculo=0 also takes away the Bow, the shy of a horse nobody rides, the hooves' dust and the horse's breath
 // And ui (not a part: ui/skin.js reads it): ?ui=madera, the wooden interface of before, for one version; ?ui=cristal, the
 // glass, whatever Settings › Look says
 // And menuart (not a part either: ui/keyart.js): ?menuart=winter, night, rider, summer-night… the picture behind the menus
@@ -43,7 +44,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // and its horse can be unhitched. Local only: the others' carts are still drawn)
 // Plan G (tracking and the nature book, docs/planes/gta/PLAN-G-caza.md §10), each with ?x=0: tracks (no prints, blood or
 // bent grass, made or drawn; no crouch aid, track tag or E study: local only), wounds (the host runs hits as before:
-// heal after 30 s, gone beyond 42 m, no bleed sent, no vital multiplier; a guest's switch does nothing) and naturebook
+// heal after 30 s, gone beyond 42 m, no bleed sent, no vital multiplier, and no G-2 drinking spots; a guest's switch does
+// nothing) and naturebook
 // (no study ray or ring, no Nature tab, no book hooks: Collections as before, a save's `nature` kept untouched). None of
 // them changes gen, so peers stay in step
 // Plan R5-1 (building that holds, docs/planes/realismo/PLAN-R5-construccion.md), each with ?x=0: soporte (a roof goes on any

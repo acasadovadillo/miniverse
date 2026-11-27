@@ -55,7 +55,7 @@ export const bagsEmpty = b => !Array.isArray(b) || !b.some(Boolean);
 const lockOk = (v, pid) => Array.isArray(v) && v.length === 2 && v[0] === pid && Number.isFinite(v[1]);
 
 // The fields of a horse the host checks when a guest changes them (§3.2)
-export const GUARDED = new Set(['rider', 'bagsBy', 'bags', 'bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay', 'callBy', 'callAt', 'stay', 'act', 'halt', 'fed', 'water', 'shoe', 'shod', 'sore', 'ownDay', 'race', 'gene', 'mix', 'lead', 'tie', 'cart']);
+export const GUARDED = new Set(['rider', 'bagsBy', 'bags', 'bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay', 'callBy', 'callAt', 'stay', 'act', 'halt', 'fed', 'water', 'shoe', 'shod', 'sore', 'ownDay', 'race', 'gene', 'mix', 'lead', 'tie', 'cart', 'trick']);
 const CARE01 = new Set(['fed', 'water', 'shoe']);
 const BOND = new Set(['bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay']);
 // Pure: may guest pid set field f of animal el (as this batch of ops leaves it so far) to v (undefined: delete it)?
@@ -97,7 +97,7 @@ export function horseGuard(el, f, v, pid, ctx) {
     default:
       if (CARE01.has(f) && v !== undefined && !(v >= 0 && v <= 1)) return false;
       if (BOND.has(f) && ctx.bondOff) return true;   // (?vinculo=0: the bond as before, a pat by anyone counts)
-      return ctx.ours(el, pid);   // (the bond, and callBy, callAt, stay, act, halt: owner or couple)
+      return ctx.ours(el, pid);   // (the bond, and callBy, callAt, stay, act, halt, trick: owner or couple)
   }
 }
 

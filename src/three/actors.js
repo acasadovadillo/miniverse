@@ -105,6 +105,7 @@ const REIN_ARM = { x: -0.3, in: 0.16, fore: -1.15 };
 const HEAR_M = 20;
 // A start another game names otherwise: a spook is a rear here
 const ACT_ALIAS = { spook: 'rear', scared: 'rear' };
+const DUST_SPEED = 4.5, DUST_GAP = 0.11, DUST_R = 40;   // (m/s from which hooves kick up dust: the gallop; s between two strikes that do; m)
 // When an act with no start time was first seen (a game that sends none): kept by the act, never on it
 const ACT_T = new WeakMap();
 const SHAKE_SNORT = 0.45;   // (s into a shake: it blows out through its nose)
@@ -615,6 +616,7 @@ export class Actors {
         if (e.cart || m.root.userData.collar) setCollar(m.root, !!e.cart);   // (standing in a parked cart's shafts: cart.js)
         animateAnimal(m, dt, t, e, this.horseState(m, e, e.act, false, dt, vol));
         if (m.root.userData.hits && m.speed > 1.5 && this.game?.horse?.ours?.(e)) this.hooves(m, e, m.speed > 4.5 ? 2 : 1, scene, vol);
+        if (m.root.userData.hits && m.speed > DUST_SPEED) this.dust(m, m.root, e, scene, x, z);
       } else animateAnimal(m, dt, t, e);
       m.root.visible = !(e.hurt > 0 && Math.floor(e.hurt * 20) % 2);   // (herido: parpadea)
     } else if (m.kind === 'monster') {
@@ -790,7 +792,7 @@ export class Actors {
       m.banked = !!bk;
     }
     P.root.position.y = y;
-    if (H.hits) this.hooves(m, e, e.gait, scene, vol);
+    if (H.hits) { this.hooves(m, e, e.gait, scene, vol); if (m.speed > DUST_SPEED) this.dust(m, m.horse, e, scene, x, z); }
   }
   // Driving a cart (cart.js): the horse turns and goes on its own (its gait, its mud, its looks), with its collar; the
   // driver sits on the bench (placeCart)
@@ -897,10 +899,10 @@ export class Actors {
       let t0 = act.t;
       if (typeof t0 !== 'number') { t0 = ACT_T.get(act); if (t0 === undefined) ACT_T.set(act, (t0 = now)); }
       const at = now - t0;
-      if (D && at >= 0 && at < D) { S.act = A; S.at = at; }
+      if (D && at >= 0 && at < D) { S.act = A; S.at = at; S.side = act.side || 1; }
     }
     if (S.act && vol > 0.3) {
-      if (S.act !== was && !mine) { if (S.act === 'rear') Audio.neigh(vol); else if (S.act === 'toss' || S.act === 'stumble') Audio.snort(vol * 0.7); else if (S.act === 'slide') Audio.skid(vol); }
+      if (S.act !== was && !mine) { if (S.act === 'rear') Audio.neigh(vol); else if (S.act === 'shy') Audio.whinnyScared(vol); else if (S.act === 'bow') Audio.snort(vol * 0.5); else if (S.act === 'toss' || S.act === 'stumble') Audio.snort(vol * 0.7); else if (S.act === 'slide') Audio.skid(vol); }
       if (S.act === 'shake' && (was !== 'shake' || wasAt < SHAKE_SNORT) && S.at >= SHAKE_SNORT) Audio.snort(vol);   // (shaking off the dust)
     }
     const on = S.on;
@@ -918,6 +920,24 @@ export class Actors {
     if (!me) return 0;
     const d = Math.hypot(x - me.x, z - me.y);
     return d < HEAR_M ? 1 - d / HEAR_M : 0;
+  }
+  // At the gallop, each strike kicks up a puff (Plan F phase 2, fx.js kick): dust on dry soil and grass, sand on the beach
+  // and in the desert, powder on snow; none in the rain, in mud, water or on what is built (tracks.js surfaceAt). Within
+  // DUST_R of the player only, and at most one puff each DUST_GAP s per horse. ?vinculo=0: none
+  dust(m, h, e, scene, x, z) {
+    const g = this.game, me = this.me, T = g?.tracks;
+    if (!T || !me || g.horse?.off || scene !== g.world || e.inside || e.depth > 0.1 || this.time - (m.dustT || 0) < DUST_GAP) return;
+    if (Math.hypot(x - me.x, z - me.y) > DUST_R) return;
+    m.dustT = this.time;
+    const surf = T.surfaceAt(e.x, e.y), wet = !!g.days?.info?.rain;
+    const kind = surf === 'snow' ? 'snow' : surf === 'sand' && !wet ? 'sand' : (surf === 'soil' || (surf === 'grass' && Math.random() < 0.55)) && !wet ? 'dust' : null;
+    if (!kind) return;
+    // (the pair that lands: two puffs, one each side, front or back)
+    const yaw = h.rotation.y, fx = Math.sin(yaw), fz = Math.cos(yaw), back = Math.random() < 0.5 ? -0.42 : 0.38, size = h.userData.size || 1;
+    for (const side of [-0.13, 0.13]) {
+      const b = back + (Math.random() - 0.5) * 0.15, px = x + (fx * b + fz * side) * size, pz = z + (fz * b - fx * side) * size;
+      this.view.fx?.kick(px, this.view.groundY(scene, px, pz), pz, fx, fz, kind);
+    }
   }
   // The hooves that landed this frame (animateHorse counts them: u.hits), as one strike (the trot's pair lands at once; the
   // gallop's strike sounds its pair: Audio.hooves); on hard ground a ringing clop, on grass a thud, in water a splash

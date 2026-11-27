@@ -187,7 +187,7 @@ import * as TV from './world/travel.js';
 import { TravelPlan, hoursAt, along as tvAlong } from './world/travel.js';
 import { MAX as TV_MAX, EVAL as TV_EVAL } from './travellers.js';
 import { Tracks, K, CAP, TTL, S, DEAD, F_LEFT, F_FLEE, F_SECOND, STRIDE, RAIN_K } from './tracks.js';
-import { Wildlife, WOUND, trailKey, KINDS } from './wildlife.js';
+import { Wildlife, WOUND, trailKey, KINDS, wildF, DRINKING } from './wildlife.js';
 import * as SENSES_MOD from './senses.js';
 import * as HERDS from './herds.js';
 import { ANIMALS } from './art/farm.js';
@@ -203,6 +203,9 @@ import * as ANIMALS3D from './three/animals.js';
 import * as HUNT_DANGER from './wildlife.js';
 import { cleanLoads } from './barrow.js';
 import { SPECIES, SPECIES_IDS, GROUPS, REWARDS } from './nature.js';
+import { herdTail, heardAct, packAct, unpackAct, sideOf } from './horseacts.js';
+import { collide as collideP } from './physics.js';
+import { KICK_COLOR } from './three/fx.js';
 import { DOOR, PLAZA, distToPath, doorOf, familyHouse } from './world/village.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
@@ -13672,6 +13675,135 @@ async function soloTests(game) {
       });
     } finally { spy.undo(); }
   });
+  // ---------- Plan F phase 2: the Bow, the unridden horse's shy, dust, breath and the scared whinny (src/horseacts.js) ----------
+  const HA = () => game.horseacts;
+  await test('reverencia (bow): only from level 4 and on foot; whoever runs the world plays it and sends it in the herd (index 6), standing still for 2.5 s; a guest asks it through trick; a stranger\'s ask is refused', async () => {
+    const spy = told();
+    try {
+      const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 0.5);
+      await withHorses([aHorse({ love: 8 })], async a => {
+        const opts = () => { let got = null; const ask = hud.ask; hud.ask = async (n, txt, o) => { got = o; return o.length - 1; }; return RN().horseMenu(a).then(() => { hud.ask = ask; return got; }); };
+        check(!HA().canBow(a) && !(await opts()).includes(t('horse.bow')), 'a level-3 horse bows');
+        a.love = 10; check(HA().canBow(a) && (await opts()).includes(t('horse.bow')), 'no Bow at level 4');
+        a.rider = myId(); check(!HA().canBow(a), 'a ridden horse bows'); delete a.rider;
+        const x0 = a.x, y0 = a.y, n0 = a.actN | 0;
+        check(HA().bow(a) && a.act?.kind === 'bow' && a.actN === n0 + 1 && spy.out.includes(t('horse.bows', { name: a.name })), `the bow: ${JSON.stringify(a.act)}`);
+        const tail = herdTail(a, game.time), [n, kind] = unpackAct(tail[1]);
+        check(tail.length === 2 && tail[0] === 0 && kind === 'bow' && n === a.actN, `the herd's tail: ${tail}`);
+        for (let i = 0; i < 20; i++) { game.time += 0.1; RN().updateHorse(a, 0.1, true); }
+        check(Math.hypot(a.x - x0, a.y - y0) < 0.01, `it walked while bowing: ${Math.hypot(a.x - x0, a.y - y0).toFixed(3)} m`);
+        check(!HA().canBow(a), 'a second bow while it bows');
+        game.time += 1; check(herdTail(a, game.time).length === 0, 'the act is still sent when it is over');
+        // A guest's ask: the host plays it when trick grows (one more than the last), and not again for the same one
+        const n1 = a.actN; RN().netField(a, 'trick', ['bow', 1]); check(a.actN === n1 + 1 && a.trick?.[1] === 1, `the host did not play the guest's ask: ${a.actN}`);
+        game.time += 3; RN().netField(a, 'trick', ['bow', 1]); check(a.actN === n1 + 1, 'the same ask played twice');
+        // The guard: only owner or couple may write trick
+        const S = game.live.items.animals, back = S.apply(game, [['set', a.id, 'trick', ['bow', 5]]], false, null, { peer: { id: 'prueba_c' } });
+        check(back.length === 1 && a.trick?.[1] === 1, `a stranger asked a bow: ${JSON.stringify(back)} ${a.trick}`);
+        // As a guest: bow() only writes the ask
+        const L = game.live, role = L.role; L.role = 'guest';
+        try { game.time += 3; const n2 = a.actN; check(HA().bow(a) && a.trick[1] === 2 && a.actN === n2, `a guest's bow: ${a.trick} ${a.actN}`); } finally { L.role = role; }
+      });
+    } finally { spy.undo(); }
+  });
+  await test('espantada (unridden spook): a monster within 5 m makes a loose level-1 horse shy and trot off to 6-10 m from it; level 4 and a tied one only start; the same monster once; peaceful never', async () => {
+    const rnd = Math.random, M = game.mobs, list = M.list;
+    try {
+      const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 0.5);
+      await withHorses([aHorse({ love: 0, x: tx + 0.5, y: ty + 0.5, at: [tx + 0.5, ty + 0.5] })], async a => {
+        game.gamemode = 'survival'; game.difficulty = 'normal'; Math.random = () => 0;
+        const mob = { x: a.x - 3, y: a.y, type: 'zombi' };
+        M.list = [mob]; HA().t = 1; HA().update(0.3);
+        check(a.act?.kind === 'shy' && Array.isArray(a.bolt), `no shy: ${JSON.stringify(a.act)} ${a.bolt}`);
+        const tgt = Math.hypot(a.bolt[0] - mob.x, a.bolt[1] - mob.y); check(tgt >= 5.9 && tgt <= 10.1, `it goes ${tgt.toFixed(1)} m from the monster`);
+        for (let i = 0; i < 80 && a.bolt; i++) { game.time += 0.1; RN().updateHorse(a, 0.1, true); }
+        const far = Math.hypot(a.x - mob.x, a.y - mob.y); check(!a.bolt && far >= 5.5, `it stopped ${far.toFixed(1)} m from it`);
+        // The same monster still there: no second spook (its rising edge); 20 s later, a new one
+        const n = a.actN; HA().t = 1; HA().update(0.3); check(a.actN === n, 'the same monster twice');
+        M.list = []; HA().t = 1; HA().update(0.3);
+        // Level 4: only the start; tied: only the start
+        a.love = 10; game.time += 25; mob.x = a.x - 2; mob.y = a.y; M.list = [mob]; HA().t = 1; HA().update(0.3);
+        check(a.actN === n + 1 && a.act.kind === 'shy' && !a.bolt, `level 4: ${a.actN} ${a.bolt}`);
+        a.love = 0; M.list = []; HA().t = 1; HA().update(0.3); a.tie = [a.x + 1, a.y]; game.time += 25; M.list = [mob]; HA().t = 1; HA().update(0.3);
+        check(a.actN === n + 2 && !a.bolt, `tied: ${a.actN} ${a.bolt}`); delete a.tie;
+        // Peaceful and creative: never
+        game.difficulty = 'peaceful'; M.list = []; HA().t = 1; HA().update(0.3); game.time += 25; M.list = [mob]; HA().t = 1; HA().update(0.3); check(a.actN === n + 2, 'peaceful spooks');
+        game.difficulty = 'normal'; game.gamemode = 'creative'; M.list = []; HA().t = 1; HA().update(0.3); game.time += 25; M.list = [mob]; HA().t = 1; HA().update(0.3); check(a.actN === n + 2, 'creative spooks');
+        // A ridden one is horse.js's (the rider's), never this
+        game.gamemode = 'survival'; a.rider = 'prueba_b'; M.list = []; HA().t = 1; HA().update(0.3); game.time += 25; M.list = [mob]; HA().t = 1; HA().update(0.3); check(a.actN === n + 2, 'a ridden horse shies here'); delete a.rider;
+      });
+    } finally { Math.random = rnd; M.list = list; }
+  });
+  await test('dos: el caballo de reverencia y la espantada (two clients, simulated): the host\'s herd message gives the guest the same act, once each, and the same side of the shy; an old herd entry of five is untouched', async () => {
+    const host = { id: 'h1', dogK: 0, actN: 0 }, guest = { id: 'h1' }, now = 100;
+    const hostPlay = kind => { host.actN++; host.actNet = packAct(host.actN, kind); host.actEnd = now + 3; host.act = { kind, side: sideOf(host.actN) }; return [1, 2, 0, 0, host.id, ...herdTail(host, now)]; };
+    const seen = [], heard = p => { const was = guest.act; if (p[6]) heardAct(guest, p[6]); if (guest.act !== was) seen.push(guest.act); };
+    let p1 = hostPlay('bow'); heard(p1); heard(p1); heard(p1);
+    check(seen.length === 1 && seen[0].kind === 'bow', `the guest's bows: ${JSON.stringify(seen)}`);
+    let p2 = hostPlay('shy'); heard(p2); heard(p2);
+    check(seen.length === 2 && seen[1].kind === 'shy' && seen[1].side === host.act.side, `the guest's shy: ${JSON.stringify(seen)} vs ${JSON.stringify(host.act)}`);
+    p2 = hostPlay('shy'); heard(p2); check(seen.length === 3 && seen[2].side === host.act.side && seen[2].side !== seen[1].side, 'the sides');
+    const old = { id: 'h2' }; heardAct(old, undefined); check(old.act === undefined, 'nothing from no act');
+    check(herdTail({ dogK: 5 }, now).join() === '5' && herdTail({}, now).length === 0 && herdTail({ actNet: 9, actEnd: now - 1 }, now).length === 0, 'the dog\'s tail of before');
+    // Through live.js as a guest gets it (herdTo): the herd message of a host with the horse
+    await withHorses([aHorse({ id: 'h-dos', love: 10 })], async a => {
+      const L = game.live, role = L.role, r2 = v => Math.round(v * 100) / 100;
+      L.peers.set('t-host', { id: 't-host', host: true, playing: true });
+      try {
+        L.role = 'guest';
+        const msg = { t: 'herd', p: [[r2(a.x), r2(a.y), 0, 0, a.id, 0, packAct(7, 'bow')]] };
+        L.receive('t-host', msg); const first = a.act; L.receive('t-host', msg);
+        check(first?.kind === 'bow' && a.act === first && !a.dogK, `live.js herd: ${JSON.stringify(a.act)} ${a.dogK}`);
+      } finally { L.role = role; L.peers.delete('t-host'); }
+    });
+  });
+  await test('polvo y aliento (dust and breath): a galloping hoof kicks dust on dry soil, sand on the beach, powder on snow, nothing in the rain or the water, 16 puffs at most; a horse breathes puffs in the cold, more often winded', async () => {
+    const F = game.view3d.fx, A = game.view3d.actors, T = game.tracks, D = game.days, surf = T.surfaceAt, info = D.info;
+    check(F?.kick && A?.dust, 'no dust');
+    const m = { dustT: -9 }, h = { rotation: { y: 0 }, userData: { size: 1 } }, e = { x: p().x + 2, y: p().y, depth: 0 }, x = e.x, z = e.y;
+    try {
+      F.kicks.length = 0;
+      const one = s => { T.surfaceAt = () => s; m.dustT = -9; const n = F.kicks.length; A.dust(m, h, e, w(), x, z); return F.kicks.length > n ? F.kicks.at(-1).c : null; };
+      Object.defineProperty(D, 'info', { value: { ...info, rain: 0 }, configurable: true, writable: true });
+      check(one('soil') === KICK_COLOR.dust && one('sand') === KICK_COLOR.sand && one('snow') === KICK_COLOR.snow, 'the colours');
+      check(one('mud') === null && one('none') === null, 'dust from mud or a floor');
+      e.depth = 0.5; check(one('soil') === null, 'dust in the water'); e.depth = 0;
+      delete D.info; Object.defineProperty(D, 'info', { value: { ...info, rain: 1 }, configurable: true, writable: true }); check(one('soil') === null && one('snow') === KICK_COLOR.snow, 'dust in the rain');
+      T.surfaceAt = () => 'soil'; delete D.info; Object.defineProperty(D, 'info', { value: { ...info, rain: 0 }, configurable: true, writable: true });
+      m.dustT = -9; A.dust(m, h, e, w(), x, z); const n0 = F.kicks.length; A.dust(m, h, e, w(), x, z); check(n0 > 0 && F.kicks.length === n0, 'two puffs within 0.11 s');
+      for (let i = 0; i < 40; i++) F.kick(x, 0, z, 0, 1, 'dust'); check(F.kicks.length === 16, `${F.kicks.length} puffs`);
+      F.updateKicks(true, F.t); check(F.kickMesh.count === 16 && F.kickMesh.visible, 'not drawn');
+      F.updateKicks(true, F.t + 5); check(F.kickMesh.count === 0 && !F.kickMesh.visible && !F.kicks.length, 'they never fade');
+      // Breath: a horse model 2 m away in the cold, its head; winded, three times as often
+      const hm = horseModel('castano'); hm.position.set(x, 0, z); hm.updateMatrixWorld(true);
+      const mm = { root: hm, hs: { winded: 0 }, speed: 0, kind: 'animal' }, ee = { x, y: z, depth: 0 }, P0 = F.puffs.length;
+      F.puffs.length = 0;
+      let t0 = 1000; for (let i = 0; i < 300; i++) F.horseBreath(game, ee, mm, p(), (t0 += 0.1));
+      const calm = F.puffs.length; F.puffs.length = 0; mm.hs.winded = 1;
+      for (let i = 0; i < 300; i++) { F.horseBreath(game, ee, mm, p(), (t0 += 0.1)); if (F.puffs.length > 6) F.puffs.length = 0, mm.n = (mm.n || 0) + 7; }
+      const hard = F.puffs.length + (mm.n || 0);
+      check(calm >= 6 && calm <= 12 && hard >= 2.2 * calm, `breaths in 30 s: ${calm} calm, ${hard} winded`);
+      F.puffs.length = 0; disposeAnimal(hm);
+    } finally { T.surfaceAt = surf; delete D.info; F.kicks.length = 0; }
+  });
+  await test('reverencia arte (bow and shy poses): bowing, the hind hooves and the stretched forehoof stay on the ground and the folded knee rests on it; the shy throws the head up and moves the trunk aside; another\'s shy whinnies', async () => {
+    const h = horseModel('castano'), u = h.userData, V = new THREE.Vector3(), hoof = i => { u.legs[i].knee.updateWorldMatrix(true, false); return u.legs[i].knee.localToWorld(V.set(0, -0.36, 0)).y; }, knee = i => u.legs[i].knee.getWorldPosition(V).y;
+    try {
+      animateHorse(h, 0, 1, null, 1 / 60, undefined, { act: 'bow', at: 1.25 }); h.updateMatrixWorld(true);
+      const ys = [hoof(0), knee(1), hoof(2), hoof(3)];
+      check(ys.every(y => Math.abs(y) < 0.07), `the bow off the ground: ${ys.map(y => y.toFixed(3))}`);
+      check(u.body.rotation.x > 0.4, `the chest is not down: ${u.body.rotation.x.toFixed(2)}`);
+      const head0 = (animateHorse(h, 0, 2, null, 1 / 60), h.updateMatrixWorld(true), u.head.getWorldPosition(new THREE.Vector3()));
+      animateHorse(h, 0, 3, null, 1 / 60, undefined, { act: 'shy', at: 0.2, side: 1 }); h.updateMatrixWorld(true);
+      const head1 = u.head.getWorldPosition(new THREE.Vector3());
+      check(head1.y > head0.y + 0.04 && Math.abs(u.body.position.x) > 0.08, `the shy: head ${head0.y.toFixed(2)} → ${head1.y.toFixed(2)}, aside ${u.body.position.x.toFixed(2)}`);
+      animateHorse(h, 0, 4, null, 1 / 60); check(u.body.position.x === 0 && u.body.rotation.y === 0, 'the shy stays');
+      // The sound: another's horse shies within earshot
+      const was = GameAudio.whinnyScared; let n = 0; GameAudio.whinnyScared = () => { n++; };
+      try { const A = game.view3d.actors, mm = { hs: null }; A.horseState(mm, { depth: 0 }, { kind: 'shy', t: game.time }, false, 1 / 60, 1); A.horseState(mm, { depth: 0 }, { kind: 'shy', t: game.time }, false, 1 / 60, 1); check(n === 1, `${n} whinnies`); } finally { GameAudio.whinnyScared = was; }
+      check(typeof GameAudio.whinnyScared === 'function', 'no whinnyScared');
+    } finally { disposeAnimal(h); }
+  });
   await test('alforjas pareja (saddlebags couple): areCouple from kids\' parents; a partner opens them, a stranger only pats and earns no bond; the guard refuses bags from a non-holder (set and put), rider from a second rider, mount while another holds the lock, and a stranger\'s bx add', async () => {
     check(areCouple({ kids: [{ parents: ['x', 'y'] }] }, 'y', 'x') && !areCouple({ kids: [{ parents: ['x'] }] }, 'x', 'y') && areCouple({ kids: [], expecting: { mother: 'x', father: 'y' } }, 'x', 'y'), 'areCouple');
     check(!areCouple({ expecting: { mother: 'x' } }, 'x', 'y') && !areCouple({ kids: [{ parents: ['x', 'x'] }] }, 'x', 'x') && !areCouple(null, 'x', 'y') && !areCouple({ kids: [{ parents: ['x', ''] }] }, 'x', ''), 'areCouple says yes');
@@ -16407,7 +16539,7 @@ async function soloTests(game) {
     });
   });
   await test('nature (english): every species has names, facts and a model', async () => {
-    check(SPECIES_IDS.length === 67 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
+    check(SPECIES_IDS.length === 71 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
     const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
     const miss = SPECIES_IDS.flatMap(id => ['name', 'note'].flatMap(k => [en, es].filter(L => !L[`nature.${k}.${id}`]).map(L => `${L === en ? 'en' : 'es'} nature.${k}.${id}`)));
     check(!miss.length, `missing: ${miss.slice(0, 8)}`);
@@ -16421,6 +16553,133 @@ async function soloTests(game) {
       if (sp.group === 'bug') check(m === null, `an insect with a model: ${id}`);
       else check(m?.isObject3D, `no model for ${id}`);
     }
+  });
+  // ---------- Plan G-2: drinking spots, the sea-life pages and the tracking perks ----------
+  // A bank of fresh water near the village: [x, y] of a dry tile beside a fresh one, with 12 m of dry land behind it
+  const freshBank = () => {
+    const Nd = game.needs, W = w();
+    for (let r = 30; r < 600; r += 3) for (let a = 0; a < 48; a++) {
+      const x = Math.floor(CENTER.x + Math.cos(a / 48 * 6.283) * r) + 0.5, y = Math.floor(CENTER.y + Math.sin(a / 48 * 6.283) * r) + 0.5;
+      if (!Nd.isFresh(x, y)) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        let k = 1; while (k < 4 && W.water(x + dx * k, y + dy * k)) k++;
+        if (k >= 4) continue;
+        const bx = x + dx * k, by = y + dy * k;
+        let ok = !inBounds(bx, by);
+        for (let j = 0.25; ok && j <= 12; j += 0.25) { const qx = bx + dx * j, qy = by + dy * j; if (W.water(qx, qy) || W.blocked?.(qx, qy) || inBounds(qx, qy) || WL().built(qx, qy, 0.5)) ok = false; else { const q = { x: qx, y: qy }; collideP(q, W.collidersNear(qx, qy), 0.6); if (Math.hypot(q.x - qx, q.y - qy) > 0.01) ok = false; } }
+        if (ok) return { x: bx, y: by, dx, dy, wx: x, wy: y };
+      }
+    }
+    return null;
+  };
+  await test('bebederos (drinking spots): from 6 to 8 and from 18 to 20 a calm deer on its own walks to fresh water within 24 m and drinks 8-15 s (w.drinking, bit 21 of the wild message), once in its life; not at noon, not alarmed', async () => {
+    const b = freshBank(); check(b, 'no bank of fresh water near the village');
+    await goTo(game, b.x + b.dx * 14, b.y + b.dy * 14);
+    const D = game.days, hourAt = D.hourAt, K = KINDS.ciervo;
+    try {
+      await stillWild(async (W, summon) => {
+        D.hourAt = () => 7;
+        const d = summon('ciervo', b.x + b.dx * 10, b.y + b.dy * 10), bank = W.bankNear(d.x, d.y), path = [];
+        let t = 0; for (; t < 40 && !(d.eating > 0); t += 0.1) { const was = d.toDrink; W.wander(d, 0.1, K, K.speed); if (!was !== !d.toDrink) path.push([+d.x.toFixed(2), +d.y.toFixed(2), d.toDrink ? 1 : 0, +(d.wait || 0).toFixed(1)]); }
+        check(d.drinking && d.eating >= 8 && d.eating <= 15 && d.drank, `it did not drink in ${t.toFixed(1)} s: at ${Math.hypot(d.x - b.wx, d.y - b.wy).toFixed(1)} m of the water, eating ${d.eating}; bank ${JSON.stringify(b)} found ${JSON.stringify(bank)} path ${JSON.stringify(path)}`);
+        check(Math.hypot(d.x - b.wx, d.y - b.wy) < 4 && d.grazing, `it drinks ${Math.hypot(d.x - b.wx, d.y - b.wy).toFixed(1)} m from the water`);
+        check(wildF(d) & DRINKING, 'not sent');
+        // A guest reads it
+        const G = new Wildlife(game); G.netList([[d.id, 'ciervo', d.x, d.y, 0, 1, 0, 0, d.sx, d.sy, 0, wildF(d)], ['w99', 'ciervo', 1, 1, 0, 1, 0, 0, 1, 1, 0, 0]]);
+        check(G.list[0].drinking && !G.list[1].drinking && G.list[0].grazing, 'the guest does not see it drink');
+        // Done: not again in its life, and it stops showing
+        d.eating = 0; W.move = Wildlife.prototype.move; W.move.call(W, d, 0.1, [], K); W.move = () => {};
+        check(!d.drinking && !(wildF(d) & DRINKING), 'still drinking');
+        d.tx = d.x; d.ty = d.y; W.wander(d, 0.1, K, K.speed); check(!d.toDrink, 'a second drink');
+        // At noon: no
+        D.hourAt = () => 12;
+        const e = summon('ciervo', b.x + b.dx * 10, b.y + b.dy * 10); W.wander(e, 0.1, K, K.speed);
+        check(!e.toDrink && !e.drank, 'it goes to drink at noon');
+        // Alarmed: no
+        D.hourAt = () => 18.5; e.alert = 2; e.tx = e.x; e.ty = e.y; W.wander(e, 0.1, K, K.speed); check(!e.toDrink && !e.drank, 'an alarmed deer goes to drink');
+        // One of a herd: its herd's day says when it drinks (herds.js), not this
+        e.alert = 0; e.tx = e.x; e.ty = e.y; e.herd = { act: 'feed', list: [e], lead: e, g: {} }; check(!W.thirst(e) && !e.drank, 'one of a herd goes to drink on its own'); e.herd = null;
+        // With no fresh water within 24 m: nothing (and it does not look again)
+        e.alert = 0; e.x = b.x + b.dx * 40; e.y = b.y + b.dy * 40; e.tx = e.x; e.ty = e.y; const near = W.bankNear(e.x, e.y);
+        W.wander(e, 0.1, K, K.speed); check(near ? e.toDrink : !e.toDrink && e.drank, `40 m away: ${JSON.stringify(near)}`);
+      });
+    } finally { D.hourAt = hourAt; }
+  });
+  await test('bebederos arte (drinking pose): drinking, a deer\'s head goes lower than grazing, its forelegs spread, and all of it comes back when it stops', async () => {
+    const root = ANIMALS3D.animalModel('ciervo'), m = { root, speed: 0, phase: 0 }, u = root.userData, V = new THREE.Vector3();
+    try {
+      const run = (e, n = 120) => { for (let i = 0; i < n; i++) ANIMALS3D.animateAnimal(m, 1 / 30, i / 30, e); root.updateMatrixWorld(true); return u.head.getWorldPosition(V).y; };
+      const grazing = run({ grazing: true }), drinking = run({ grazing: true, drinking: true });
+      check(drinking < grazing - 0.02 && Math.abs(u.legs[0].hip.rotation.z) > 0.08, `head ${grazing.toFixed(3)} → ${drinking.toFixed(3)}, legs ${u.legs[0].hip.rotation.z.toFixed(2)}`);
+      run({ grazing: false }, 200); check(u.legs[0].hip.rotation.z === 0 && !u.dr, `the drink stays: ${u.legs[0].hip.rotation.z}`);
+    } finally { ANIMALS3D.disposeAnimal?.(root); }
+  });
+  await test('fondo del libro (sea-life pages): seaweed, scallop, mussel and oyster in the Sea life group, with facts and a plate model; 1.5 s looking at one with the head under water gives Seen (a toast), not with the head out; picking it gives Known', async () => {
+    const SEA = ['seaweed', 'seashell', 'mussel', 'oyster'];
+    check(GROUPS.includes('sea') && SEA.every(id => SPECIES[id]?.group === 'sea' && SPECIES[id].how === 'nature.how.dive'), 'no sea group');
+    for (const id of SEA) { const m = SPECIES[id].model(); check(m?.isObject3D && m.userData.made.length > 2, `the ${id} plate`); m.userData.made.forEach(g => g.dispose()); }
+    check(SPECIES.oyster.facts(game).some(f => f[0] === 'nature.fact.pearl_often') && SPECIES.seaweed.facts(game).some(f => f[0] === 'nature.fact.bed_depth'), 'the sea facts');
+    const s = trackLine(4); check(s, 'no ground'); await goTo(game, s.x, s.y);
+    const G = w().gen, sb = G.seabed, ray = game.rayNow, P = p(), V = game.view3d, xp = JSON.stringify(game.skills.xp), kept = game.inv.slots.map(q => q && { ...q });
+    const cx = Math.floor(P.x / CHUNK), cy = Math.floor(P.y / CHUNK), bed = V.bedY(P.x, P.y);
+    let under = false;
+    Object.defineProperty(P, 'headUnder', { get: () => under, configurable: true });
+    try {
+      await bookKept(async (N, toasts) => {
+        for (const id of SEA) N.s.delete(id); N.cnt = null; N.lastToast = -Infinity;
+        G.seabed = (x, y) => (x === wrapIndex(cx, CHUNK) && y === cy ? { finds: [{ kind: 'oyster', key: `oyster:${Math.floor(P.x)},${Math.floor(P.y)}`, x: P.x, y: P.y, bed }] } : { finds: [] });
+        game.rayNow = () => ({ o: [P.x, bed + 1.2, P.y], d: [0, -1, 0] });
+        for (let i = 0; i < 20; i++) N.studyTick(0.1);
+        check(N.level('oyster') === 0, 'studied with the head out of the water');
+        under = true;
+        for (let i = 0; i < 9; i++) N.studyTick(0.1);
+        check(N.level('oyster') === 0 && N.study?.id === 'oyster' && N.study.k > 0.4, `the ring: ${JSON.stringify(N.study)}`);
+        for (let i = 0; i < 8; i++) N.studyTick(0.1);
+        check(N.level('oyster') === 1 && toasts.includes(t('nature.new', { name: noun('nature.name', 'oyster') })), `Seen: ${N.level('oyster')} ${toasts}`);
+        // (a picked one, not grown back: not studied)
+        N.s.delete('oyster'); N.cnt = null; const dl = w().delta(cx, cy, true), k = `oyster:${Math.floor(P.x)},${Math.floor(P.y)}`; (dl.dived ||= {})[k] = game.days.realDay;
+        for (let i = 0; i < 20; i++) N.studyTick(0.1); check(N.level('oyster') === 0, 'a picked oyster studied'); delete dl.dived[k];
+        game.dive.got({ kind: 'oyster', key: k }, game.days.realDay);
+        check(N.level('oyster') === 3, `opening one: ${N.level('oyster')}`);
+        game.dive.got({ kind: 'sunken_chest', key: 'sunken_chest:1,1' }, 0); check(!N.s.has('sunken_chest'), 'a chest in the book');
+      });
+    } finally { delete P.headUnder; G.seabed = sb; game.rayNow = ray; game.skills.xp = JSON.parse(xp); game.inv.slots.splice(0, game.inv.slots.length, ...kept); game.inv.changed(); }
+  });
+  await test('rastreo ventajas (tracking perks): from level 3 the tag reads the age in minutes, from 5 whether it walked or ran, from 7 how many went by; below, as before', async () => {
+    const FH = game.fieldHud, T = TR(), N = NB(), S = game.skills, lvl = S.level, had = N.tr.has('ciervo');
+    check(FH, 'no FieldHud');
+    const s = trackLine(4); check(s, 'no open ground'); await goTo(game, s.x, s.y + 1);
+    try {
+      N.tr.add('ciervo'); T.reset();
+      const i = T.print('test:pk1', 'deer', s.x, s.y, 0, { surf: 'soil', type: 'ciervo', flee: true, age: 300 }); check(i >= 0, 'no mark');
+      const read = L => { S.level = k => (k === 'tracking' ? L : lvl.call(S, k)); T.hover = { idx: i, reach: true }; FH.tagNext = 0; FH.tagSig = ''; FH.frame(); return document.getElementById('hud-track').textContent; };
+      let txt = read(0); check(txt.includes(t('tracks.age.recent')) && !txt.includes(t('tracks.perk.run')), `level 0: «${txt}»`);
+      txt = read(3); check(txt.includes(t('tracks.age_min', { n: 5 })) && !txt.includes(t('tracks.perk.run')), `level 3: «${txt}»`);
+      txt = read(5); check(txt.includes(t('tracks.perk.run')), `level 5: «${txt}»`);
+      check(!txt.includes(t('tracks.perk.group', { n: 2 })), 'a group at level 5');
+      T.print('test:pk2', 'deer', s.x + 0.8, s.y + 0.4, 0, { surf: 'soil', type: 'ciervo', age: 200 });
+      txt = read(7); check(txt.includes(t('tracks.perk.group', { n: 2 })), `level 7: «${txt}»`);
+      check(t('skill.tracking.perk') && t('tracks.age_h', { n: 2 }) && !/[{}]/.test(t('tracks.age_h', { n: 1 })), 'the texts');
+    } finally { S.level = lvl; if (!had) N.tr.delete('ciervo'); T.hover = null; T.reset(); FH.reset(); }
+  });
+  await test('f2g2 coste (cost): the unridden horses\' watch, the hooves\' dust and the breath, the sea study ray and the tracking perks cost well under 0.15 ms a frame together', async () => {
+    const F = game.view3d.fx, A = game.view3d.actors, N = NB(), T = TR(), HAc = HA(), P = p(), n = 1000;
+    const time = (k, f) => { const t0 = performance.now(); for (let i = 0; i < k; i++) f(i); return (performance.now() - t0) / k; };
+    await withHorses([aHorse({ love: 2 }), aHorse({ love: 5 }), aHorse({ love: 9 })], async () => {
+      const watch = time(n, () => { HAc.t = 1; HAc.update(0); }) / 15;   // (it runs four times a second: per frame at 60)
+      const m = { dustT: -9 }, h = { rotation: { y: 0 }, userData: { size: 1 } }, e = { x: P.x + 2, y: P.y, depth: 0 };
+      const dust = time(n, () => { m.dustT = -9; A.dust(m, h, e, w(), e.x, e.y); }) * 8 / 60;   // (8 strikes a second at the gallop)
+      for (let i = 0; i < 16; i++) F.kick(P.x, 0, P.y, 0, 1, 'dust');
+      const draw = time(n, i => F.updateKicks(true, F.t + (i % 2) * 1e-3));
+      const hm = horseModel('castano'), mm = { root: hm, hs: { winded: 1 }, speed: 0 }, ee = { x: P.x + 2, y: P.y, depth: 0 };
+      let tb = 5000; const breath = time(n, () => F.horseBreath(game, ee, mm, P, (tb += 0.016))); F.puffs.length = 0; disposeAnimal(hm);
+      F.kicks.length = 0; F.updateKicks(true, F.t);
+      const ray = { o: [P.x, 0, P.y], d: [0, -1, 0] }, take = () => {}, sea = time(200, () => { N.hit.t = Infinity; N.hit.id = null; N.pickSea(P, ray.o, ray.d, take); }) / 6;   // (10 Hz)
+      const i0 = T.print('test:cost', 'deer', P.x, P.y, 0, { surf: 'soil', type: 'ciervo' }), herd = time(n, () => T.herdAt(P.x, P.y, 6, 'ciervo')) / 6; T.reset();
+      const all = watch + dust + draw + breath + sea + herd;
+      tell('f2g2 coste: medida', true, `per frame: watch ${(watch * 1000).toFixed(2)} µs, dust ${(dust * 1000).toFixed(2)}, dust drawn ${(draw * 1000).toFixed(1)}, breath ${(breath * 1000).toFixed(2)}, sea ray ${(sea * 1000).toFixed(1)}, perks ${(herd * 1000).toFixed(2)}; all ${(all * 1000).toFixed(1)} µs (print ${i0})`);
+      check(all < 0.15, `${(all * 1000).toFixed(1)} µs a frame`);
+    });
   });
   await test('nature (english): collections cells open the page', async () => {
     const html = game.collection.journal();

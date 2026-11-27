@@ -3,8 +3,9 @@
 // own tables. A system (game.nature), made after collection (its backfill reads Collections). Private to each player,
 // like Collections: nothing travels.
 //
-// Phase G-1: 59 species (animals, fish, insects, plants). The 4 sea-life pages (seaweed, seashell, mussel, oyster) come
-// in G-2, with the 'sea' group. With ?naturebook=0 nothing here runs and the save's `nature` is carried through untouched.
+// Phase G-1: the animals, fish, insects and plants. Phase G-2 adds the 'sea' group: the 4 seabed finds of Plan D (seaweed,
+// seashell, mussel, oyster), studied by looking at them with your head under the water (up to SEA_R m) and Known once one
+// is picked or opened (dive.js). With ?naturebook=0 nothing here runs and the save's `nature` is carried through untouched.
 //
 // How a page fills (§4.2): looking at a species for 1.5 s (a ring at the cursor while it fills, only for wild things
 // outside the village) gives Seen; 6 s of looking in all (twice as fast while it grazes, flees, swims or lies; plants:
@@ -50,8 +51,12 @@ import { animalModel } from './three/animals.js';
 import { foodModel } from './three/food3d.js';
 import { buildNatureChunk } from './three/nature3d.js';
 import { getModel, modelMat } from './three/models.js';
+import { seaModel } from './three/seaplates.js';
+import { REGROW, takenNow } from './dive.js';
+import { CHUNK } from './world/gen.js';
+import { nearX, wrapIndex } from './world/planet.js';
 
-export const GROUPS = ['animal', 'fish', 'bug', 'plant'];
+export const GROUPS = ['animal', 'fish', 'bug', 'plant', 'sea'];
 
 // [id, group, track kind (tracks.js PRINT_OF) or null]. The ids are the game's own: wild and farm types (wildlife.js,
 // art/farm.js ANIMALS), FISH and BUGS keys (items.js), gen object kinds (gen.js) and CROPS ids
@@ -65,6 +70,7 @@ const LIST = [
   ...['mariposa', 'mariquita', 'saltamontes', 'libelula', 'luciernaga', 'escarabajo', 'grillo', 'polilla'].map(id => [id, 'bug', null]),
   ...['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'palm', 'cactus', 'bush', 'deadBush', 'margarita', 'diente_leon',
     'nabo', 'fresa', 'zanahoria', 'tomate', 'maiz', 'trigo', 'calabaza', 'potato', 'broad_bean', 'cabbage', 'garlic'].map(id => [id, 'plant', null]),
+  ...['seaweed', 'seashell', 'mussel', 'oyster'].map(id => [id, 'sea', null]),
 ];
 export const SPECIES_IDS = LIST.map(([id]) => id);
 // Decision 3a: 15 species → 500 coins and 2 apple seeds; 35 → 1500 and 2 potions; all → 5000 and a display cabinet
@@ -176,6 +182,23 @@ function plantFacts(id) {
   return [...out, ...givesOf((HARVEST[id]?.drops || []).map(d => d[0]))];
 }
 
+// The sea life (Plan G-2): where gen.js seabed puts each find (the waters, and the depth of the bed: [from, to] m, to null:
+// deeper than from), what picking it gives (dive.js got) and the chance of a pearl
+const SEA_LIFE = {
+  seaweed: { waters: ['mar', 'lago'], depth: [1.5, 10], gives: ['seaweed'] },
+  seashell: { waters: ['mar'], depth: [1.2, 5], gives: ['seashell'] },
+  mussel: { waters: ['lago'], depth: [3, null], gives: ['mussel', 'pearl'], pearl: 'rare' },
+  oyster: { waters: ['mar'], depth: [4, null], gives: ['seashell', 'pearl'], pearl: 'often' },
+};
+function seaFacts(id) {
+  const S = SEA_LIFE[id], [a, b] = S.depth, out = [['nature.fact.waters', { list: S.waters.map(w => t('nature.water.' + w)) }, 1]];
+  out.push(b ? ['nature.fact.bed_depth', { a, b }, 2] : ['nature.fact.bed_deep', { a }, 2]);
+  if (REGROW[id]) out.push(['nature.fact.regrows_bed', { days: REGROW[id] }, 2]);
+  if (id === 'oyster' || id === 'mussel') out.push(['nature.fact.opened', null, 2]);
+  if (S.pearl) out.push([`nature.fact.pearl_${S.pearl}`, null, 3]);
+  return [...out, ...givesOf(S.gives)];
+}
+
 // ---------- the models (for the plates: three/plates.js draws them once and lets them go) ----------
 // Each call makes a new object. What only it owns and must be freed after drawing is listed in userData.made (geometries
 // made here; the plates also free the InstancedMeshes of the nature pieces). Shared geometries and materials stay
@@ -198,15 +221,16 @@ function modelOf(id, group) {
   if (group === 'animal') return animalModel(id);   // (its first coat or breed: the deer's default coat, a chestnut horse)
   if (group === 'fish') return foodModel(id);
   if (group === 'plant') return plantModel(id);
+  if (group === 'sea') return seaModel(id);
   return null;   // (insects have no 3D model: the plate pins their pixel icon)
 }
 // From where the camera looks (the models face +z: from −x the head is on the right of the plate)
-const VIEW = { animal: [-1, 0.32, 0.5], fish: [-1, 0.2, 0.06], tree: [-1, 0.22, 0.55], low: [-1, 0.6, 0.8], bug: [0, 0, 1] };
-const VIEW_OF = { cisne: [-1, 0.45, 0.6], cangrejo: [-0.5, 1.4, 0.8], pulpo: [-1, 0.7, 0.6], pez_globo: [-1, 0.3, 0.3] };
-const HOW = { animal: 'nature.how.look', fish: 'nature.how.catch', bug: 'nature.how.net', plant: 'nature.how.look' };
+const VIEW = { animal: [-1, 0.32, 0.5], fish: [-1, 0.2, 0.06], tree: [-1, 0.22, 0.55], low: [-1, 0.6, 0.8], bug: [0, 0, 1], sea: [-0.7, 0.75, 0.9] };
+const VIEW_OF = { seaweed: [-1, 0.25, 0.45], cisne: [-1, 0.45, 0.6], cangrejo: [-0.5, 1.4, 0.8], pulpo: [-1, 0.7, 0.6], pez_globo: [-1, 0.3, 0.3] };
+const HOW = { animal: 'nature.how.look', fish: 'nature.how.catch', bug: 'nature.how.net', plant: 'nature.how.look', sea: 'nature.how.dive' };
 
 export const SPECIES = Object.fromEntries(LIST.map(([id, group, tracks]) => {
-  const facts = group === 'animal' ? g => animalFacts(id, g) : group === 'fish' ? g => fishFacts(id, g) : group === 'bug' ? () => bugFacts(id) : () => plantFacts(id);
+  const facts = group === 'animal' ? g => animalFacts(id, g) : group === 'fish' ? g => fishFacts(id, g) : group === 'bug' ? () => bugFacts(id) : group === 'sea' ? () => seaFacts(id) : () => plantFacts(id);
   const view = VIEW_OF[id] || (group === 'plant' ? VIEW[TREE_IDS.has(id) ? 'tree' : 'low'] : VIEW[group]);
   return [id, { group, model: () => modelOf(id, group), view, facts, how: HOW[group], ...(tracks ? { tracks } : {}) }];
 }));
@@ -214,7 +238,9 @@ export const SPECIES = Object.fromEntries(LIST.map(([id, group, tracks]) => {
 // ---------- the book ----------
 const LOOK = 1.5, STUDY = 6, FISH_KNOWN = 5, BUG_KNOWN = 3, PET_KNOWN = 5;
 const TOAST_GAP = 20, FLOAT_GAP = 10, TICK = 0.1, SLOW = 5, LOST = 0.3, FLASH = 0.3;
-const R_ANIMAL = 30, R_PLANT = 12, R_CROP = 6;
+const R_ANIMAL = 30, R_PLANT = 12, R_CROP = 6, SEA_R = 6;
+// (what each seabed find is to the study ray: [half width, height] over its bed, as dive.js aims at them)
+const SEA_BOX = { seashell: [0.22, 0.25], seaweed: [0.3, 1], oyster: [0.28, 0.3], mussel: [0.22, 0.25] };
 // (village species reach Seen quietly: a new game has them all in sight from the first second)
 const SILENT = new Set([...FARM_IDS, ...Object.keys(CROPS), ...FLOWER_IDS]);
 const WINDOWS = ['s-inv', 's-craft', 's-chest'];
@@ -437,6 +463,7 @@ export class NatureBook {
     const h = this.hit;
     h.id = null; h.t = Infinity;
     const o0 = ray.o, d = ray.d, take = (id, tt, x, y, busy) => { h.id = id; h.t = tt; h.x = x; h.y = y; h.busy = busy; };
+    if (p.headUnder) return this.pickSea(p, o0, d, take);   // (under the water only the sea life: Plan G-2)
     const body = (e, id, busy) => {
       const dx = e.x - p.x, dy = e.y - p.y;
       if (dx * dx + dy * dy > R_ANIMAL * R_ANIMAL) return;
@@ -469,6 +496,30 @@ export class NatureBook {
     }
     if (h.id && sc.reaches && !sc.reaches(p.x, p.y, h.x, h.y)) return null;   // (behind a wall)
     return h.id;
+  }
+  // (the study ray under the water) The nearest seabed find the ray meets within SEA_R m: untaken ones, their boxes from the
+  // bed drawn (the view's bedY) as dive.js aims at them. → its id (the find's kind), or null
+  pickSea(p, o0, d, take) {
+    const g = this.game, w = g.world, V = g.view3d, day = g.days?.realDay ?? 0;
+    if (!w?.gen?.seabed) return null;
+    const cx0 = Math.floor((p.x - SEA_R) / CHUNK), cx1 = Math.floor((p.x + SEA_R) / CHUNK), cy0 = Math.floor((p.y - SEA_R) / CHUNK), cy1 = Math.floor((p.y + SEA_R) / CHUNK);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const finds = w.gen.seabed(wrapIndex(cx, CHUNK), cy)?.finds;
+      if (!finds?.length) continue;
+      const dl = w.delta(cx, cy);
+      for (const o of finds) {
+        const S = SEA_BOX[o.kind];
+        if (!S || !SPECIES[o.kind]) continue;
+        const x = nearX(o.x, p.x);
+        if ((x - p.x) ** 2 + (o.y - p.y) ** 2 > SEA_R * SEA_R) continue;
+        if (takenNow(dl, o, day)) continue;   // (picked, and not grown back yet)
+        let y0 = V?.bedY?.(x, o.y);
+        if (!Number.isFinite(y0)) y0 = o.bed;
+        const tt = rayHits(o0, d, { x, y: o.y, ux: 1, uy: 0, vx: 0, vy: 1, hx: S[0], hy: S[0], y0, y1: y0 + (o.kind === 'seaweed' && o.tall > 0 ? o.tall : S[1]) });
+        if (tt !== null && tt < this.hit.t) take(o.kind, tt, x, o.y, false);
+      }
+    }
+    return this.hit.id;
   }
 }
 

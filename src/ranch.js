@@ -90,7 +90,9 @@ const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', '
   // (Plan R4-5, cart.js: the id of the cart it is put to, kept: parked, it stands in its shafts)
   'cart',
   // (the job a cow is of, missions/drive.js: it has no home nor owner, and the drive moves it)
-  'drove'];
+  'drove',
+  // (Plan F phase 2, horseacts.js: a trick asked of a horse nobody rides, [kind, n]: a guest's ask for the Bow)
+  'trick'];
 // Lo de una versión más nueva del juego: un animal de una clase que esta no conoce no se mueve ni se dibuja, pero se
 // guarda y se reparte tal cual (unknown); y de los demás, lo guardado que esta no conoce (unknownFields) se conserva
 const KNOWN_FIELDS = new Set([...KEEP, 'x', 'y']);
@@ -290,6 +292,7 @@ export class Ranch {
     if (!KNOWN_FIELDS.has(f)) { if (v === undefined) delete a.more[f]; else a.more[f] = v; return; }
     if (f === 'at' && Array.isArray(v) && String(v) !== String(a.at)) { a.x = a.tx = v[0]; a.y = a.ty = v[1]; }
     if (f === 'call' && (v || 0) > (a.call || 0) && !this.game.live.guest) this.called(a);
+    if (f === 'trick' && !this.game.live.guest) this.game.horseacts?.asked(a, v);   // (before it is written: the ask is one more than the last)
     if (v === undefined) delete a[f]; else a[f] = v;
   }
   // La granja: lo que no es de ningún animal ('@': el heno del silo, cuándo vino el último callejero…) y cada envío del
@@ -547,6 +550,7 @@ export class Ranch {
     if (a.tie && LD?.tied(a, dt, day)) { a.calling = false; a.bolt = null; return; }
     // (in a parked cart's shafts: it stands there, as if tied; cart.js holds it, and undoes a link whose cart is gone)
     if (a.cart && this.game.cart?.holdHorse(a)) { a.calling = false; delete a.callBy; delete a.callAt; a.bolt = null; a.grazeHome = null; if (a.grazing || a.grazeAt) this.stopGrazing(a); return; }
+    if (a.actHold > this.game.time) { this.stopGrazing(a); a.vx = a.vy = 0; a.tx = a.x; a.ty = a.y; return; }   // (bowing, or the start of a shy: horseacts.js)
     if (a.bolt) {
       a.go(nearX(a.bolt[0], a.x), a.bolt[1]);
       if (a.walk(dt, this.world, SPEED.caballo * 2)) { a.bolt = null; a.vx = a.vy = 0; a.wait = 8; }
@@ -1521,6 +1525,7 @@ export class Ranch {
     if (!off && (a.tie || a.lead) && !LD?.off) { /* tied or led: it stays as it is */ }
     else if (!off && a.stay) opts.push([tr('horse.graze'), () => H.trick('graze', a)]);
     else if (!off && L >= 2) opts.push([tr('horse.stay'), () => H.trick('stay', a)]);
+    if (!off && g.horseacts?.canBow(a)) opts.push([tr('horse.bow'), () => g.horseacts.bow(a)]);   // (level 4: horseacts.js)
     // (putting them on and taking them off: saddlebags.js when it has them, the one place that knows the lock)
     if (inv.count('alforjas') && !a.bags) opts.push([tr('horse.bags.on'), () => { if (g.saddlebags?.putOn) g.saddlebags.putOn(a); else { inv.remove('alforjas', 1); a.bags = padBags([]); Audio.place(); } g.onSave?.(); }]);
     if (a.bags) opts.push([tr('horse.bags.open'), () => g.saddlebags?.open(a)]);

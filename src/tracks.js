@@ -460,6 +460,14 @@ export class Tracks {
     }
   }
   near(x, y, r, out = []) { this.each(x, y, r, i => out.push(i)); return out; }
+  // How many animals of a species left marks within r of (x, y) (their trails: a group passed), for the tracking perk of
+  // reading how many went by (ui/fieldhud.js). The set is kept and reused
+  herdAt(x, y, r, type) {
+    const S = (this.srcSet ||= new Set());
+    S.clear();
+    this.each(x, y, r, i => { const rec = this.byId.get(this.TR[i]); if (rec?.type === type) S.add(rec.id); });
+    return S.size;
+  }
   at(x, y, r) { return this.nearest(x, y, r, false); }
   // (the nearest mark within r; wild: only marks of a trail with a species, so a player's own boots are never tagged)
   nearest(x, y, r, wild) {

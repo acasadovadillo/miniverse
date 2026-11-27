@@ -44,6 +44,10 @@ body:not(.playing) #hud-study, body:not(.playing) #hud-track { display: none; }
 
 const now = () => performance.now() / 1000;
 const ageWord = s => (s < FRESH ? 'fresh' : s < RECENT ? 'recent' : 'old');
+// The tracking perks beyond the highlight's reach (Plan G-2): from these levels of the skill the tag reads the age in minutes,
+// whether it walked or ran, and how many of them went by (their trails within GROUP_R m)
+export const PERK = { minutes: 3, gait: 5, count: 7 };
+const GROUP_R = 6;
 
 export class FieldHud {
   constructor(game) {
@@ -144,13 +148,22 @@ export class FieldHud {
     const word = ageWord(Number.isFinite(age) ? Math.max(0, age) : 0);
     const heading = typeof info.heading === 'string' && has(`tracks.dir.${info.heading}`) ? info.heading : '';
     const blood = info.blood | 0, red = Settings.v.blood !== false, reach = !!hov.reach || mine;   // (the trail you follow: nothing to come closer for)
-    const sig = `${known ? type : '?'}|${word}|${heading}|${blood}|${red}|${reach}`;
+    let L = 0;
+    try { L = g.skills?.level?.('tracking') || 0; } catch { L = 0; }
+    const mins = L >= PERK.minutes && Number.isFinite(age) ? Math.max(1, Math.round(age / 60)) : 0;
+    const gait = L >= PERK.gait && !blood ? (info.flee ? 'run' : 'walk') : '';
+    let many = 0;
+    if (L >= PERK.count && known && tr.herdAt) { try { many = tr.herdAt(info.x, info.y, GROUP_R, type); } catch { many = 0; } }
+    const sig = `${known ? type : '?'}|${word}|${heading}|${blood}|${red}|${reach}|${mins}|${gait}|${many}`;
     if (sig === this.tagSig) return true;
     this.tagSig = sig;
-    const drops = !!blood && red, what = t(`tracks.${drops ? 'blood_of' : 'label'}.${known ? type : 'unknown'}`), ageText = t(`tracks.${drops ? 'blood_age' : 'age'}.${word}`);
+    const drops = !!blood && red, what = t(`tracks.${drops ? 'blood_of' : 'label'}.${known ? type : 'unknown'}`);
+    const ageText = mins ? (mins < 60 ? t('tracks.age_min', { n: mins }) : t('tracks.age_h', { n: Math.round(mins / 60) })) : t(`tracks.${drops ? 'blood_age' : 'age'}.${word}`);
     const line = heading ? tHtml('tracks.tag', { what, age: ageText, heading: t('tracks.heading', { dir: t(`tracks.dir.${heading}`) }) })
       : tHtml('tracks.tag_still', { what, age: ageText });
     let html = line;
+    const perks = [gait && t(`tracks.perk.${gait}`), many > 1 && t('tracks.perk.group', { n: many })].filter(Boolean);
+    if (perks.length) html += `<small class="pk">${perks.join(' · ')}</small>`;
     if (blood) html += `<small${red ? ' class="bl"' : ''}>${t(`tracks.${red ? 'blood' : 'scuff'}.${blood >= 2 ? 'heavy' : 'light'}`)}</small>`;
     if (!reach) html += `<small>${t(blood ? 'tracks.closer_follow' : 'tracks.closer')}</small>`;
     this.tag.innerHTML = html;

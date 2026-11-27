@@ -260,8 +260,8 @@ export class Herds {
     return this.pick(cx, cy, 800, meadow, tall) || this.pick(cx, cy, 860, meadow, (x, y) => this.goodLand(x, y) && Math.hypot(x - feed[0], y - feed[1]) >= HERD.FEED_R[0] && this.dryWay(feed, x, y));
   }
   // The nearest shore of fresh water to p: [x, y (dry), wx, wy (the water)], or null
-  shore(p) {
-    for (let r = 4; r <= HERD.WATER_R; r += 4) for (const [c, s] of DIRS) {
+  shore(p, max = HERD.WATER_R) {   // (max: how far it looks, m; wildlife.js drinking spots look nearer)
+    for (let r = 4; r <= max; r += 4) for (const [c, s] of DIRS) {
       const wx = p[0] + c * r, wy = p[1] + s * r;
       if (!this.fresh(wx, wy)) continue;
       for (let d = r - 0.5; d > 0; d -= 0.5) {

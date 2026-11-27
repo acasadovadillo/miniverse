@@ -211,6 +211,7 @@ export class Dive {
       g.stats?.add?.('cofres', 1);
     }
     for (const [id, n] of items) this.give(id, n);
+    if (o.kind !== 'sunken_chest') { try { g.nature?.harvested?.(o.kind); } catch (e) { reportFault(e, 'Dive.nature'); } }   // (its nature book page: Known, Plan G-2)
     try { g.skills?.gain?.('diving', XP[o.kind] || 0); } catch (e) { reportFault(e, 'Dive.xp'); }
     if (CLAIM_OF[o.kind]) g.onSave?.();   // (a claimed one, a pearl or a chest's coins: saved now)
   }

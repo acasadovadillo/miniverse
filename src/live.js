@@ -13,6 +13,7 @@
 // pasa y sigue en él como uno más. Quien lleva el mundo no deja tocarlo lejos de donde está quien lo pide, ni cambiar
 // las reglas a quien no es op: se lo devuelve como estaba.
 import { cleanRr } from './rodrest.js';
+import { herdTail, heardAct } from './horseacts.js';
 import { Net } from './net.js';
 import { Person, HEAD_UNDER } from './entities.js';
 import { Profile } from './accounts.js';
@@ -63,7 +64,7 @@ const horseAct = h => {
   if (i >= 0 && Number.isInteger(h.seq)) { htLast = h.seq; return [i, h.seq]; }
   return [-1, htLast];
 };
-const herdTo = (a, p) => { a.netTo = p; a.inside = !!p[2]; a.grazing = !!p[3]; if (p[5] || a.dogK) a.dogNet(p[5] | 0); };   // (por dónde va un animal, de quien lleva el mundo)
+const herdTo = (a, p) => { a.netTo = p; a.inside = !!p[2]; a.grazing = !!p[3]; if (p[5] || a.dogK) a.dogNet(p[5] | 0); if (p[6]) heardAct(a, p[6]); };   // (por dónde va un animal, de quien lleva el mundo; p[6]: a horse's Bow or shy, horseacts.js)
 const session = Math.random().toString(36).slice(2, 6);   // (para que los objetos tirados tengan nombres únicos)
 
 // Otro jugador, tal como lo ven los demás: va hacia donde dicen sus mensajes, suavizado
@@ -988,7 +989,7 @@ export class Live {
     }
     if (this.role === 'host') {
       if (T.time >= TIME_EVERY) { T.time = 0; this.net.send({ t: 'time', c: r2(g.world.clock), run: g.mode === 'play', sh: g.days.shift, db: g.days.dayBase }); }
-      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y), a.inside ? 1 : 0, a.grazing ? 1 : 0, a.id, ...(a.dogK ? [a.dogK] : [])]), k: g.family.positions() }); }
+      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y), a.inside ? 1 : 0, a.grazing ? 1 : 0, a.id, ...herdTail(a, g.time)]), k: g.family.positions() }); }
     }
     if (Profile.server) return;   // (el mundo del servidor no tiene personaje que los demás vean)
     // (/setidletimeout: si llevas los minutos que diga sin moverte, se lo dices al servidor, que te echa)

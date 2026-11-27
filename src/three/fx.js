@@ -61,7 +61,7 @@ function fading(m) {
 }
 const qCam = new THREE.Quaternion(), qRoll = new THREE.Quaternion(), ZAX = new THREE.Vector3(0, 0, 1);
 
-const tmp = new THREE.Object3D(), col = new THREE.Color(), v3 = new THREE.Vector3(), V2 = new THREE.Vector2();
+const tmp = new THREE.Object3D(), col = new THREE.Color(), v3 = new THREE.Vector3(), V3B = new THREE.Vector3(), V2 = new THREE.Vector2();
 const RIPPLES = 48, RIPPLE_LIFE = 1.8;   // (las ondas en el agua: cuántas a la vez y lo que dura cada una, en s)
 // Diving: at most BUBBLES bubbles at once, a puff from each diver's mouth every 1-2 s (BUBBLE_EVERY), rising at some
 // 0.5-0.8 m/s with a wobble until they break at the surface with a small ring; SNOW specks in a SNOW_BOX m box round the
@@ -72,9 +72,15 @@ const HEAD_UNDER = 0.42, SWIM_EYE = 0.7;   // (as entities.js and engine.js: onl
 // (at most PUFFS alive, each PUFF_LIFE s), and DRIP_RATE drops a second from each person within DRIP_R m with wet ≥
 // DRIP_WET (at most DRIPS falling). The air is worked out here, from the climate at the player, once every AIR_EVERY s
 // (people within 15 m share it); under a roof, in a cave or in the water, no breath shows
-const PUFFS = 12, PUFF_EVERY = 2.6, PUFF_LIFE = 1.9, PUFF_R = 15, PUFF_AIR = 3, AIR_EVERY = 1;
+const PUFFS = 18, PUFF_EVERY = 2.6, PUFF_LIFE = 1.9, PUFF_R = 15, PUFF_AIR = 3, AIR_EVERY = 1;
 const LEAK_H = 2.74, NO_LEAKS = [];   // (from the boards of the ceiling to the floor)
 const DRIPS = 28, DRIP_RATE = 2.5, DRIP_R = 12, DRIP_WET = 0.6;
+// The horse (Plan F phase 2): a puff kicked up by the hooves at the gallop on dry ground (dust; sand on the beach and in the
+// desert, powder on snow), at most KICKS alive, each KICK_LIFE s; and in the cold a horse's breath from its nostrils, every
+// HORSE_PUFF s standing and every HORSE_PUFF_HARD s while it gallops or is winded (the people's breath pool, PUFFS)
+const KICKS = 16, KICK_LIFE = 1.4, HORSE_PUFF = 3.4, HORSE_PUFF_HARD = 1.05;
+export const KICK_COLOR = { dust: '#9a8a6c', sand: '#c9b893', snow: '#f1f3f6' };
+const KICK_RGB = Object.fromEntries(Object.entries(KICK_COLOR).map(([k, c]) => [k, new THREE.Color(c)]));   // (parsed once: not a string a frame)
 
 // Which way a wall, a door or a fence in this tile runs (0: along x), from what it joins
 function wallYaw(scene, tx, ty) {
@@ -185,6 +191,39 @@ export class Fx {
     this.pools.count = 0; this.pools.frustumCulled = false; this.pools.renderOrder = 1; this.pools.visible = false; this.pools.receiveShadow = true; this.group.add(this.pools);
     this.leakAt = new Map();   // "x,y" of a leaking tile → { t: when its next drop falls, wet: how big its pool is, 0 to 1 }
     this.puffs = []; this.falling = []; this.breathAt = new WeakMap(); this.dripAcc = new WeakMap(); this.air = null; this.airAt = -1;
+    // (the hooves' dust: soft sprites like the smoke's, their colour per instance)
+    const kg = new THREE.PlaneGeometry(1, 1); kg.setAttribute('fade', new THREE.InstancedBufferAttribute(new Float32Array(KICKS), 1));
+    this.kickMesh = new THREE.InstancedMesh(kg, fading(new THREE.MeshBasicMaterial({ map: spriteTex('humo'), color: '#ffffff', transparent: true, depthWrite: false })), KICKS);
+    this.kickMesh.setColorAt(0, col.set('#ffffff'));
+    this.kickMesh.count = 0; this.kickMesh.frustumCulled = false; this.kickMesh.renderOrder = 5; this.kickMesh.visible = false; this.group.add(this.kickMesh);
+    this.kicks = [];
+  }
+  // A puff of what the hooves kick up (actors.js, as a galloping hoof lands): at (x, y, z), drifting back from the way
+  // the horse goes (fx, fz); kind: dust, sand or snow
+  kick(x, y, z, fx, fz, kind, t = this.t || 0) {
+    if (this.kicks.length >= KICKS) this.kicks.shift();
+    this.kicks.push({ x, y, z, vx: -fx * (0.5 + Math.random() * 0.4) + (Math.random() - 0.5) * 0.5, vz: -fz * (0.5 + Math.random() * 0.4) + (Math.random() - 0.5) * 0.5, roll: Math.random() * 6.28, t0: t, c: KICK_COLOR[kind] || KICK_COLOR.dust, rgb: KICK_RGB[kind] || KICK_RGB.dust, s: kind === 'snow' ? 0.85 : 1 });
+  }
+  updateKicks(playing, t) {
+    const K = this.kicks;
+    if (!playing) { if (K.length) K.length = 0; }
+    if (!K.length) { if (this.kickMesh.visible) { this.kickMesh.visible = false; this.kickMesh.count = 0; } return; }
+    const fade = this.kickMesh.geometry.attributes.fade;
+    qCam.copy(this.view.camera.quaternion);
+    let n = 0;
+    for (let i = 0; i < K.length; i++) {
+      const q = K[i], k = (t - q.t0) / KICK_LIFE;
+      if (k >= 1 || k < 0) { K.splice(i--, 1); continue; }
+      const e = 1 - (1 - k) * (1 - k);
+      tmp.position.set(q.x + q.vx * e * 0.9, q.y + 0.08 + 0.3 * e, q.z + q.vz * e * 0.9);
+      tmp.quaternion.copy(qCam).multiply(qRoll.setFromAxisAngle(ZAX, q.roll + k * 0.6));
+      tmp.scale.setScalar((0.28 + 0.95 * e) * q.s); tmp.updateMatrix();
+      fade.array[n] = Math.min(1, k / 0.08) * (1 - k) * 0.78;
+      this.kickMesh.setColorAt(n, q.rgb);
+      this.kickMesh.setMatrixAt(n++, tmp.matrix);
+    }
+    this.kickMesh.count = n; this.kickMesh.visible = n > 0;
+    if (n) { this.kickMesh.instanceMatrix.needsUpdate = true; this.kickMesh.instanceColor.needsUpdate = true; fade.needsUpdate = true; }
   }
   // Diving: the bubbles (instanced little spheres, pale and see-through) and the marine snow (points that wrap round the
   // camera in the shader, faded with the distance by hand: they are only drawn under the water, inside its murk)
@@ -233,6 +272,7 @@ export class Fx {
   }
 
   update(game, scene, dt, t) {
+    this.t = t;
     const playing = !!game.player && game.scene === scene && game.mode !== 'menu';
     const view = this.view, gy = (x, y) => view.groundY(scene, x, y);
     this.updateTarget(game, scene, playing, t, gy);
@@ -253,6 +293,7 @@ export class Fx {
     this.updateBubbles(game, playing);
     this.updateDivers(game, scene, playing, dt, t);
     this.updateBody(game, scene, playing, dt, t);
+    this.updateKicks(playing && !this.view.cave, t);
     this.hurt.style.opacity = playing && game.flashHurt > game.time ? '1' : '0';
   }
 
@@ -616,6 +657,7 @@ export class Fx {
     if (live) {
       const cold = PUFFS_ON && this.air !== null && this.air < PUFF_AIR, wo = view.world;
       for (const [e, m] of A.models) {
+        if (cold && (m.horse || m.root.userData?.horse) && m.root.visible) this.horseBreath(game, e, m, me, t);
         if (m.kind !== 'person' || !m.root.visible || !m.person) continue;
         const x = nearX(e.x, me.x), d = Math.hypot(x - me.x, e.y - me.y), S = m.surf;
         const inWater = e.swim || e.depth > 0.5 || e.pose?.kind === 'bath' || e.bathing;
@@ -648,7 +690,7 @@ export class Fx {
       const e = Math.sqrt(k);
       tmp.position.set(q.x + q.fx * 0.28 * e, q.y + 0.12 * k, q.z + q.fz * 0.28 * e);
       tmp.quaternion.copy(qCam).multiply(qRoll.setFromAxisAngle(ZAX, q.roll + k));
-      tmp.scale.setScalar(0.08 + 0.36 * e); tmp.updateMatrix();
+      tmp.scale.setScalar((0.08 + 0.36 * e) * (q.big || 1)); tmp.updateMatrix();
       fade.array[n] = Math.min(1, k / 0.1) * (1 - k) * Math.sqrt(1 - k);   // (thinner was lost against snow and a night sky)
       this.breath.setMatrixAt(n++, tmp.matrix);
     }
@@ -701,6 +743,24 @@ export class Fx {
     this.rippleAt(q.x, q.z, 0.07, 0.5, q.gy + 0.016);
     for (let i = 0; i < 2 && this.falling.length < DRIPS; i++) this.falling.push({ x: q.x + (Math.random() - 0.5) * 0.06, z: q.z + (Math.random() - 0.5) * 0.06, y: q.gy + 0.01, vy: 0.7 + Math.random() * 0.5, gy: q.gy });
     if (q.d < 7) Audio.drip(1 - q.d / 7);
+  }
+  // A horse's breath in the cold (Plan F phase 2): its own one (an animal model) or the one under a rider (m.horse); harder
+  // and more often while it gallops or is winded (actors.js m.hs, m.gallopK). Not the one you ride in first person; none with
+  // ?vinculo=0
+  horseBreath(game, e, m, me, t) {
+    const h = m.horse || m.root, u = h.userData, head = u?.head;
+    if (!head || !h.visible || (e === me && this.view.first) || game.horse?.off) return;
+    const x = nearX(e.x, me.x), d = Math.hypot(x - me.x, e.y - me.y);
+    if (d > PUFF_R || e.depth > 0.9 || (e === me && game.indoors)) return;
+    const key = m.horse ? m : e, at = this.breathAt.get(key), hard = (m.hs?.winded || 0) > 0.3 || (m.gallopK || 0) > 0.5 || (m.speed || 0) > 4.5;
+    if (at === undefined) { this.breathAt.set(key, t + Math.random() * HORSE_PUFF); return; }
+    if (t < at) return;
+    this.breathAt.set(key, t + (hard ? HORSE_PUFF_HARD : HORSE_PUFF) * (0.85 + Math.random() * 0.3));
+    if (this.puffs.length >= PUFFS) return;
+    head.getWorldDirection(V3B);
+    const l = Math.hypot(V3B.x, V3B.z) || 1, fx = V3B.x / l, fz = V3B.z / l;
+    head.localToWorld(v3.set(0, -0.22, 0.36));
+    this.puffs.push({ x: v3.x + fx * 0.05, y: v3.y - 0.02, z: v3.z + fz * 0.05, fx: fx * (hard ? 1.5 : 1.15), fz: fz * (hard ? 1.5 : 1.15), roll: Math.random() * 6.28, t0: t, big: hard ? 1.5 : 1.25 });
   }
   // One puff from this person's mouth (their head bone, forward of it, where they face)
   puff(m, t) {
