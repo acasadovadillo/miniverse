@@ -1423,6 +1423,22 @@
   "check": "pack index",
   "sha256": "0bef7fc0e403"
  },
+ "mpfb/system_assets/proxymeshes/female1605/female1605.obj": {
+  "check": "pack index",
+  "sha256": "0441ef434702"
+ },
+ "mpfb/system_assets/proxymeshes/female1605/female1605.proxy": {
+  "check": "header",
+  "sha256": "d79c1688779a"
+ },
+ "mpfb/system_assets/proxymeshes/male1591/male1591.obj": {
+  "check": "pack index",
+  "sha256": "0e067b133800"
+ },
+ "mpfb/system_assets/proxymeshes/male1591/male1591.proxy": {
+  "check": "header",
+  "sha256": "6fc9a44fc19d"
+ },
  "mpfb/system_assets/skins/old_caucasian_female/old_lightskinned_female_diffuse.png": {
   "check": "pack index",
   "sha256": "00c45246c145"

@@ -119,6 +119,8 @@ PROXIES = [
     ('hair', 'hair/afro01', 'afro01'),
     ('clothes', 'clothes/male_casualsuit03', 'male_casualsuit03'), ('clothes', 'clothes/female_elegantsuit01', 'female_elegantsuit01'),
     ('clothes', 'clothes/shoes03', 'shoes03'),
+    # (plan CR P5: the game's middle distance, LOD1: MakeHuman's own low bodies, about 3,100 triangles, on the same skin)
+    ('lod', 'proxymeshes/female1605', 'female1605'), ('lod', 'proxymeshes/male1591', 'male1591'),
 ]
 # The provisional clothes' two parts:
 # the trousers of the shirt-and-trousers suit and the skirt of the blouse-and-skirt one. Everything else is the upper part
@@ -162,7 +164,24 @@ TEXTURES = [
 # The joints the runtime needs (the mean of each cube's vertices): the arm chain for the pose, the head and eyes to frame
 JOINTS = ['joint-ground', 'joint-pelvis', 'joint-neck', 'joint-head', 'joint-head-2', 'joint-l-eye', 'joint-r-eye', 'joint-mouth',
           'joint-l-clavicle', 'joint-l-shoulder', 'joint-l-elbow', 'joint-l-hand', 'joint-r-clavicle', 'joint-r-shoulder',
-          'joint-r-elbow', 'joint-r-hand']
+          'joint-r-elbow', 'joint-r-hand',
+          # (plan CR P5: the rest of the game's 23 bones, src/three/mh/rig.js)
+          'joint-spine-1', 'joint-spine-2', 'joint-spine-3', 'joint-spine-4', 'joint-l-hand-3', 'joint-r-hand-3',
+          'joint-l-upper-leg', 'joint-l-knee', 'joint-l-ankle', 'joint-l-foot-1', 'joint-r-upper-leg', 'joint-r-knee',
+          'joint-r-ankle', 'joint-r-foot-1']
+# The game's bones (the names actors.js writes: real/persona.js) and the CC0 game-engine bones folded onto each (plan CR P5)
+GAME_BONES = ['body', 'spine', 'torso', 'neck', 'head', 'clavL', 'armL', 'foreL', 'handL', 'legL', 'shinL', 'footL', 'toeL',
+              'clavR', 'armR', 'foreR', 'handR', 'legR', 'shinR', 'footR', 'toeR']
+FINGERS = ('thumb', 'index', 'middle', 'ring', 'pinky')
+def game_bone(b):
+    if b in ('Root', 'pelvis', 'spine_01'):
+        return 'body'
+    side = b[-1].upper() if b.endswith(('_l', '_r')) else ''
+    stem = b[:-2] if side else b
+    if stem.startswith(FINGERS):
+        stem = 'hand'
+    return {'spine_02': 'spine', 'spine_03': 'torso', 'neck_01': 'neck', 'head': 'head', 'clavicle': 'clav', 'upperarm': 'arm',
+            'lowerarm': 'fore', 'hand': 'hand', 'thigh': 'leg', 'calf': 'shin', 'foot': 'foot', 'ball': 'toe'}[stem] + side
 ARM_UP = ('upperarm',)
 ARM_LOW = ('lowerarm', 'hand', 'thumb_01', 'thumb_02', 'thumb_03', 'index_01', 'index_02', 'index_03', 'middle_01', 'middle_02',
            'middle_03', 'ring_01', 'ring_02', 'ring_03', 'pinky_01', 'pinky_02', 'pinky_03')
@@ -336,7 +355,7 @@ def build(args):
     # The proxies first: their bindings say which helper vertices must stay
     proxies = []
     for kind, folder, stem in PROXIES:
-        mh = L.asset('%s/%s.mhclo' % (folder, stem)).decode('utf-8')
+        mh = L.asset('%s/%s.%s' % (folder, stem, 'proxy' if kind == 'lod' else 'mhclo')).decode('utf-8')
         info, binds, deleted = parse_mhclo(mh)
         obj = L.asset('%s/%s' % (folder, info.get('obj_file', stem + '.obj')), header=False).decode('utf-8')
         pv, pvt, pf, _ = parse_obj(obj)
@@ -396,6 +415,26 @@ def build(args):
                     if vi in new:
                         acc[new[vi]] += w
     blob.add('body.arm', bytes(min(255, int(round(x * 255))) for pair in zip(up, low) for x in pair))
+    # The skin weights of the game's skeleton (plan CR P5): per kept vertex its four heaviest game bones and their weights,
+    # summing 255 (a bound mesh takes its three base vertices'; src/three/mh/rig.js)
+    acc = [dict() for _ in range(NV)]
+    for b, lst in W.items():
+        gb = GAME_BONES.index(game_bone(b))
+        for vi, w in lst:
+            if vi in new and w > 0:
+                a = acc[new[vi]]
+                a[gb] = a.get(gb, 0.0) + w
+    skin = bytearray(NV * 8)
+    for i, a in enumerate(acc):
+        top = sorted(a.items(), key=lambda kv: -kv[1])[:4] or [(0, 1.0)]
+        tot = sum(w for _, w in top)
+        q = [int(round(w / tot * 255)) for _, w in top]
+        q[0] += 255 - sum(q)
+        for k, (gb, _) in enumerate(top):
+            skin[i * 8 + k] = gb
+            skin[i * 8 + 4 + k] = q[k]
+    blob.add('body.skin', bytes(skin))
+    head['bones'] = GAME_BONES
 
     # Targets: macro (sex x age x muscle x weight corners, origins, height and proportions at the average corner, adults
     # only) and the face sliders (left and right merged)
