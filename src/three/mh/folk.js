@@ -106,7 +106,7 @@ export function kidMhOf(look, baby = false) {
   }
   return out;
 }
-const BABY_FACE = { cheek_volume: 35, head_fat: 25, nose_length: -30, nose_width: -10, eye_size: 5, eye_open: -10, chin_height: -25, jaw_width: -30, forehead_height: 20, lip_upper: 5 };
+const BABY_FACE = { head_shape: -40, head_width: 12, cheek_volume: 30, cheek_bones: -25, eye_size: 15, nose_length: -30, nose_projection: -25, nose_bridge: -25, nose_tip: 20, mouth_width: -20, lip_upper: 10, chin_height: -25, chin_forward: -20, jaw_width: -25, forehead_height: 20, forehead_slope: 25, brow_ridge: -40 };
 
 // What is saved: only the numbers that are not 0 (the look travels whole on the network: under 1 KB)
 export function packMh(mh) {

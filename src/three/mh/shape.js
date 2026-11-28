@@ -26,7 +26,7 @@ export const yearsOf = mh => (mh?.kid ? 25 : 25 + clamp(num(mh?.macro?.age, 0), 
 const KID_W = 1.55;
 export const kidHeight = mh => (mh?.baby ? 5.8 : 11.6) * (1 + clamp(num(mh?.macro?.height) / 100, -1, 1) * 0.06);   // (decimetres)
 // (a baby, mh.baby too: the same taken much further, for a big head on a small body; only its face shows from the blanket)
-const BABY_W = 2.3;
+const BABY_W = 1.8;
 
 // What to blend, as [target, weight]: sex x age x muscle x weight corners, the origins, height, proportions and the face
 export function weightsFor(D, mh, sex) {
