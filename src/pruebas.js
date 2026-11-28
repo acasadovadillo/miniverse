@@ -2751,7 +2751,37 @@ async function soloTests(game) {
       check(SKIN_TONES.includes(look.skin), `a tone of the palette: ${look.skin}`);
     }
   });
-  await test('menu (english): the new creator (?creador=nuevo): body, head, fine tune, face and hair pages; a new character saves look.mh; the mirror keeps the creator of before', () => keepMenus(async $ => {
+  await test('mh hair (english): our hair and beards load; every hairstyle name has a style within budget; they follow the head; growth, beard steps, grey hairs and highlights', async () => {
+    const [{ loadMh }, { MhPerson }, , { ensureMh, packMh }] = await mhMods(), H = await import('./three/mh/hair.js');
+    const D = await loadMh();
+    check(D.hair && D.hair.head.ntri === D.body.idx.length / 3, `the hair pack, bound to this body: ${D.hair?.head.ntri}`);
+    const styles = D.hair.head.styles;
+    for (const [name] of LOOK_OPTIONS.hairStyle) { const st = H.HAIR_STYLE[name]; check(st && styles[st]?.kind === 'hair', `${name}: ${st}`); }
+    for (const [name, info] of Object.entries(styles)) check(info.tris >= (info.kind === 'hair' ? 1500 : 300) && info.tris <= 5000, `${name}: ${info.tris} triangles`);
+    check(['bigote', 'perilla', 'candado', 'completa', 'larga'].every(b => styles['beard_' + b]), 'the five beards');
+    const look = { ...LOOK, sex: 'chico', hairStyle: 'largo', beard: 'completa' }, box = o => new THREE.Box3().setFromBufferAttribute(o.geometry.attributes.position);
+    ensureMh(look);
+    const P = new MhPerson(D, look), hair = P.root.getObjectByName('ownhair:largo'), beard = P.root.getObjectByName('ownbeard:beard_completa');
+    check(hair && beard && P.root.getObjectByName('ownhairsoft:largo') && !P.root.children.some(o => /^hair(soft)?:/.test(o.name)), `our meshes, not MakeHuman's: ${P.root.children.map(o => o.name)}`);
+    check(beard.morphTargetInfluences?.length === P.expr.length, 'the beard follows the face\'s expressions');
+    console.log(`▶ mh hair: ${P.tris} triangles with long hair and a full beard, built in ${P.ms.toFixed(1)} ms`);
+    // (a wider head: the hair goes out with it; grown: longer)
+    const wide = new MhPerson(D, { ...look, mh: { ...look.mh, face: { ...look.mh.face, head_width: 100 } } }), grown = new MhPerson(D, { ...look, hairGrow: 3 });
+    const b0 = box(hair), bw = box(wide.root.getObjectByName('ownhair:largo')), bg = box(grown.root.getObjectByName('ownhair:largo'));
+    check(bw.max.x - bw.min.x > b0.max.x - b0.min.x + 0.005, `a wider head, wider hair: ${b0.max.x - b0.min.x} ${bw.max.x - bw.min.x}`);
+    check(bg.min.y < b0.min.y - 0.03, `grown hair hangs lower: ${b0.min.y} ${bg.min.y}`);
+    check(grown.key !== P.key && MhPerson.shapeKey({ ...look, hair: '#e8c060' }) === P.key, 'growth makes the shape again, the colour does not');
+    wide.dispose(); grown.dispose(); P.dispose();
+    // (the beard's steps: a woman none; no shape grows stubble and then a full beard; a shape fills in from the third step)
+    check(!H.beardOf({ sex: 'chica', beard: 'completa', beardGrow: 4 }).shape && !H.beardOf({ sex: 'chico', beard: 'no' }).shape, 'no beard');
+    check(H.beardOf({ sex: 'chico', beard: 'no', beardGrow: 1 }).stubble[2] > 0 && H.beardOf({ sex: 'chico', beard: 'no', beardGrow: 3 }).shape === 'completa', 'stubble, then a beard');
+    check(H.beardOf({ sex: 'chico', beard: 'bigote', beardGrow: 1 }).shape === 'bigote' && H.beardOf({ sex: 'chico', beard: 'bigote', beardGrow: 3 }).shape === 'completa' && H.beardOf({ sex: 'chico', beard: 'larga', beardGrow: 4 }).shape === 'larga', 'a shape and its steps');
+    // (grey by age unless chosen; kept small in the save)
+    check(H.greyOf({ mh: { macro: { age: 0 } } }) === 0 && H.greyOf({ mh: { macro: { age: 100 } } }) > 0.8 && H.greyOf({ mh: { macro: { age: 100 }, grey: 0 } }) === 0, 'grey hairs by age');
+    const m = packMh({ macro: {}, face: {}, grey: 30, hl: 40, hlC: '#c87a3a' });
+    check(m.grey === 30 && m.hl === 40 && m.hlC === '#c87a3a' && !('hl' in packMh({ macro: {}, face: {}, hl: 0, hlC: '#c87a3a' })), `saved: ${JSON.stringify(m)}`);
+  });
+  await test('menu (english): the new creator (?creador=nuevo): body, head, fine tune, face and hair pages; a new character saves look.mh; the mirror and the barber show the new person', () => keepMenus(async $ => {
     if (new URLSearchParams(location.search).get('creador') !== 'nuevo') { check(!$('cr-canvas-mh') && !document.getElementById('cr-new-style'), 'without the switch, nothing of it'); return; }
     const [, , { presetsFor }, { FACE_SLIDERS }] = await mhMods();
     game.mode = 'menu';
@@ -2760,7 +2790,7 @@ async function soloTests(game) {
     check([...document.querySelectorAll('#cr-tabs .fe-tab')].map(b => b.dataset.tab).join() === 'cuerpo,cabeza,ajuste,piel,cara,pelo', 'the six pages');
     const pages = { cuerpo: ['name', 'sex', 'origin_af', 'origin_as', 'origin_ca', 'body_height', 'body_weight', 'body_muscle', 'body_age', 'body_chest', 'body_prop', 'outfit', 'cloth', 'accent'],
       cabeza: ['light', 'mood', 'head'], ajuste: ['reset_face', ...FACE_SLIDERS.map(id => 'face_' + id)],
-      piel: ['tone', 'freckles', 'moles', 'vitiligo', 'blush', 'blushC', 'kohl', 'kohlC', 'scar', 'scarK', 'tattoo', 'tattooK', 'tattooC'], cara: ['eyes', 'eye2', 'brows'], pelo: ['hairStyle', 'hair', 'beard'] };
+      piel: ['tone', 'freckles', 'moles', 'vitiligo', 'blush', 'blushC', 'kohl', 'kohlC', 'scar', 'scarK', 'tattoo', 'tattooK', 'tattooC'], cara: ['eyes', 'eye2', 'brows'], pelo: ['hairStyle', 'hair', 'beard', 'grey', 'hl', 'hlC'] };
     for (const [pg, ids] of Object.entries(pages)) {
       document.querySelector(`#cr-tabs [data-tab=${pg}]`).click();
       check(crTab() === pg && crRows() === ids.join(), `${pg}: ${crRows()}`);
@@ -2785,7 +2815,7 @@ async function soloTests(game) {
     check(mh && mh.preset && mh.macro && mh.face && JSON.stringify(mh).length < 1024, `saved: ${JSON.stringify(mh)}`);
     const look = { ...p().look };
     try {
-      game.mode = 'play'; check(game.onMirror('mirror') && crRows() === 'eyeStyle,eyes,brows,nose' && $('cr-canvas-mh').hidden && !$('cr-canvas').hidden, `the mirror: ${crRows()}`);
+      game.mode = 'play'; check(game.onMirror('mirror') && crRows() === 'eyeStyle,eyes,brows,nose' && $('cr-canvas-old').hidden && !$('cr-canvas').hidden, `the mirror: ${crRows()}`);
       pauseKey('Escape'); await sleep(100);
     } finally { p().look = look; }
   }).finally(() => Object.defineProperty(Profile, 'admin', { get: () => WHO === 'a', configurable: true })));

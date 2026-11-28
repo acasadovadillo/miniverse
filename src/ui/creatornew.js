@@ -8,6 +8,7 @@ import { t } from '../i18n.js';
 import { PRESETS, presetOf, presetsFor, fromPreset, defaultMh, samePlace, randomMh } from '../three/mh/presets.js';
 import { LOOK_OPTIONS } from '../looks.js';
 import { SKIN_TONES, nearestTone, SCARS, TATTOOS, BLUSH_COLOURS, KOHL_COLOURS, TATTOO_COLOURS } from '../three/mh/skin.js';
+import { greyOf, HIGHLIGHT_COLOURS } from '../three/mh/hair.js';
 
 export const NEW_PAGES = ['cuerpo', 'cabeza', 'ajuste', 'piel', 'cara', 'pelo'];
 // The shot of each page: the whole body, the head, or the face up close
@@ -51,6 +52,9 @@ export function packMh(mh) {
   const sk = Object.fromEntries(Object.entries(mh.skin || {}).filter(([, v]) => (typeof v === 'string' ? v && v !== 'none' : Number.isFinite(v) && v !== 0)).map(([k, v]) => [k, typeof v === 'string' ? v : Math.round(v)]));
   if (Object.keys(sk).some(k => k !== 'seed')) out.skin = sk;
   if (mh.eye2) out.eye2 = mh.eye2;
+  // (the hair (P4): grey hairs when chosen (0 too: no grey at any age), highlights and their colour)
+  if (Number.isFinite(mh.grey)) out.grey = Math.round(mh.grey);
+  if (mh.hl > 0) { out.hl = Math.round(mh.hl); if (mh.hlC) out.hlC = mh.hlC; }
   return out;
 }
 
@@ -200,9 +204,17 @@ export function newRows({ add: add0, look, rebuild, preview }) {
       get: () => mh().eye2 || '', set: v => { if (v) mh().eye2 = v; else delete mh().eye2; rebuild(); } }), { desc: 'gui.creator.desc.eye2' });
     rowOf('eye2').classList.add('sw');
   }
+  // Hair (P4): grey hairs (by age until you choose), highlights and their colour
+  function hairRows() {
+    range('pelo', 'grey', t('gui.creator.row.grey'), 0, 100, () => mh().grey ?? Math.round(greyOf(look) * 100), v => { mh().grey = v; }, { desc: 'gui.creator.desc.grey' });
+    range('pelo', 'hl', t('gui.creator.row.hl'), 0, 100, () => mh().hl ?? 0, v => { mh().hl = v; }, { desc: 'gui.creator.desc.hl' });
+    add('pelo', 'hlC', optionRow({ label: t('gui.creator.row.hlC'), colours: HIGHLIGHT_COLOURS, values: HIGHLIGHT_COLOURS.map((c, i) => [c, `${i + 1} / ${HIGHLIGHT_COLOURS.length}`]),
+      get: () => mh().hlC || HIGHLIGHT_COLOURS[0], set: v => { mh().hlC = v; rebuild(); }, other: '—' }));
+    rowOf('hlC').classList.add('sw');
+  }
   const rowOf = id => document.querySelector(`#cr-rows [data-row="${id}"]`) || created.get(id);
   return {
-    origins: rows.origins, body: rows.body, head: headRows, fine: fineRows, skin: skinRows, eye2: eye2Row,
+    origins: rows.origins, body: rows.body, head: headRows, fine: fineRows, skin: skinRows, eye2: eye2Row, hair: hairRows,
     // After the list is made: the titles and the grid in their places
     place(rowEl) {
       for (const x of extras) {

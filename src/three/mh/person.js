@@ -12,6 +12,7 @@ import { garment } from './data.js';
 import { hairOf, browsOf, lashesOf, garmentsOf } from './looks.js';
 import { clothMaterial } from './cloth.js';
 import { skinLayers, layerUniforms } from './skin.js';
+import { hairFits, hairKey, hairMeshes, scalpOf, hairColour, stubbleOf } from './hair.js';
 
 const M = 0.1;   // MakeHuman's decimetres to metres
 
@@ -110,18 +111,21 @@ vec3 dt = mix(ty, to, age);
 float dl = dot(dt, vec3(0.2126, 0.7152, 0.0722));
 diffuseColor.rgb *= tone * mix(vec3(dl), dt, 0.35);
 diffuseColor.rgb = layers(diffuseColor.rgb, dl);
-// (the scalp under the hair, its edge broken into fine strands)
-float sn = fract(sin(dot(floor(vMapUv * vec2(2600.0, 800.0)), vec2(12.9898, 78.233))) * 43758.5453);
-float sk = smoothstep(0.3, 0.7, vScalp + (sn - 0.5) * 0.45 * (1.0 - vScalp));
-diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.45 + 0.4 * dl), sk * 0.9);
-// (the beard, painted for now (P4 makes it of cards): its zones, moustache, chin and jaw, with the look's style; hairs from
-// a fine noise of the skin's uv, thicker as it grows)
-float bz = clamp(dot(vBeard, beard.xyz), 0.0, 1.0);
+// (the scalp under the hair: the roots' shade of the hair's colour, fading softly at the hairline, made of fine dots there)
+float sn = fract(sin(dot(floor(vMapUv * vec2(3200.0, 1300.0)), vec2(12.9898, 78.233))) * 43758.5453);
+float sk = smoothstep(0.05, 0.85, vScalp) * mix(0.55 + 0.45 * sn, 1.0, smoothstep(0.5, 0.95, vScalp));
+diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.42 + 0.35 * dl), sk * 0.88);
+// (the stubble (P4: the beard itself is of cards, hair.js): per zone, moustache, chin and jaw, how dense; the skin a little
+// shadowed and the cut hairs as fine dots of the hair's colour)
+float bz = clamp(max(max(vBeard.x * beard.x, vBeard.y * beard.y), vBeard.z * beard.z), 0.0, 1.0);
 if (bz > 0.0) {
-  vec2 hu = vMapUv * vec2(2400.0, 900.0);
+  vec2 hu = vMapUv * vec2(6400.0, 2600.0);
   float hn = fract(sin(dot(floor(hu), vec2(12.9898, 78.233))) * 43758.5453);
-  float dense = bz * mix(0.55 + 0.45 * hn, 0.9 + 0.1 * hn, beard.w);
-  diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.6 + 0.5 * hn), dense * 0.92);
+  vec3 shade = mix(vec3(1.0), hairC / max(0.04, dot(hairC, vec3(0.33))) * 0.3 + 0.55, 0.7);
+  diffuseColor.rgb *= mix(vec3(1.0), shade * 0.82, bz * 0.7);
+  diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.6 + 0.3 * hn), smoothstep(1.0 - 0.7 * bz, 1.0 - 0.5 * bz, hn) * 0.55);
+  // (under a beard of cards (density 1): the skin is the beard's own colour, no skin shows between its cards)
+  diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.5 + 0.3 * hn), smoothstep(0.9, 1.0, bz) * 0.72);
 }`)
       // (the relief: the photos' lightness, the old one deeper, and the pores, strongest on the face's front)
       .replace('#include <bumpmap_pars_fragment>', `#ifdef USE_BUMPMAP
@@ -149,6 +153,10 @@ vec3 perturbNormalArb(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirec
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
 roughnessFactor = mix(roughnessFactor, 0.36, vZone.x * 0.85);
 roughnessFactor = mix(roughnessFactor, 0.3, vZone.y);`)
+      // (the scalp under the hair is not shiny: through the gaps between the cards it would show as white lines)
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+float scalpDull = 1.0 - smoothstep(0.1, 0.6, vScalp);
+material.specularColor *= scalpDull; material.specularF90 *= scalpDull; material.sheenColor *= scalpDull;`)
       // (light that goes a little through: a wrapped, reddish diffuse, more in the thin parts, and the ears glowing against
       // the light)
       .replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment
@@ -367,7 +375,7 @@ export class MhPerson {
   }
   // The shape key: what needs the geometry made again (colours and the skin's layers only touch the materials)
   static shapeKey(look) {
-    return JSON.stringify([look.sex, look.mh?.macro || null, look.mh?.face || null, look.hairStyle, look.brows, look.outfit, look.wear ? Object.values(look.wear).map(w => w?.id).join() : null]);
+    return JSON.stringify([look.sex, look.mh?.macro || null, look.mh?.face || null, look.hairStyle, look.brows, look.outfit, look.wear ? Object.values(look.wear).map(w => w?.id).join() : null, hairKey(look)]);
   }
   build(look) {
     const t0 = performance.now(), D = this.D, sex = look.sex === 'chico' ? 'chico' : 'chica';
@@ -381,7 +389,8 @@ export class MhPerson {
     lap('blend');
     // The bound meshes first, on the base still in its A pose; those of the face also with each expression on
     const parts = [['eyes', 'high-poly'], ['brows', browsOf(look)], ['lashes', lashesOf(look)], ['teeth', 'teeth_base'], ['tongue', 'tongue01']];
-    const hair = hairOf(look);
+    // (P4: our own hair and beard of cards, hair.js; MakeHuman's hair only if their pack did not load)
+    const hair = D.hair ? null : hairOf(look);
     if (hair) parts.push(['hair', hair]);
     const fitted = parts.map(([kind, name]) => ({ kind, name, P: D.proxies.get(name), d: proxy(D, name), v: fit(D, v, name) })).filter(x => x.v);
     // (the clothes: our own garments, bound to the skin's triangles)
@@ -389,12 +398,13 @@ export class MhPerson {
       const d = garment(D, c.name);
       if (d) fitted.push({ kind: 'garment', name: c.name, wear: c, P: D.garments.get(c.name), d, v: looseCloth(D, c.name, fitGarment(D, v, c.name)) });
     }
-    const facial = fitted.filter(f => ['brows', 'lashes', 'teeth', 'tongue'].includes(f.kind));
+    fitted.push(...hairFits(D, v, look));
+    const facial = fitted.filter(f => ['brows', 'lashes', 'teeth', 'tongue', 'ownbeard'].includes(f.kind));
     for (const f of facial) f.morphs = [];
     const shift = (e, k) => { for (let n = 0; n < e.idx.length; n++) { const i = e.idx[n] * 3; v[i] += e.d[n * 3] * k; v[i + 1] += e.d[n * 3 + 1] * k; v[i + 2] += e.d[n * 3 + 2] * k; } };
     for (const e of ex) {
       shift(e, 1);
-      for (const f of facial) { const w = fit(D, v, f.name); for (let i = 0; i < w.length; i++) w[i] -= f.v[i]; f.morphs.push(w); }
+      for (const f of facial) { const w = f.refit ? f.refit(v) : fit(D, v, f.name); for (let i = 0; i < w.length; i++) w[i] -= f.v[i]; f.morphs.push(w); }
       shift(e, -1);
     }
     lap('fit');
@@ -403,6 +413,7 @@ export class MhPerson {
     const pose = armPose(D, v, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140), arm = D.body.arm;
     const wU = i => arm[i * 2] / 255, wL = i => arm[i * 2 + 1] / 255;
     for (const f of fitted) {
+      if (!f.d) continue;   // (our hair: on the head, the arms do not move it)
       const { refs, w } = f.d, bw = (i, fn) => w[i * 3] * fn(refs[i * 3]) + w[i * 3 + 1] * fn(refs[i * 3 + 1]) + w[i * 3 + 2] * fn(refs[i * 3 + 2]);
       poseInPlace(f.v, f.P.nv, i => bw(i, wU), i => bw(i, wL), pose);
     }
@@ -426,7 +437,7 @@ export class MhPerson {
     this.ground = ground;
     // The skin under the clothes is not drawn (no poking through, fewer triangles)
     const hide = new Uint8Array(D.nv);
-    for (const f of fitted) if (f.d.del) for (const i of f.d.del) hide[i] = 1;
+    for (const f of fitted) if (f.d?.del) for (const i of f.d.del) hide[i] = 1;
     const bi = D.body.idx, rm = D.body.rmap, keep = [];
     // (a skin triangle goes when all of it is under cloth: the garments cover with a margin from their openings)
     for (let t = 0; t < bi.length; t += 3) if (!(hide[rm[bi[t]]] && hide[rm[bi[t + 1]]] && hide[rm[bi[t + 2]]])) keep.push(bi[t], bi[t + 1], bi[t + 2]);
@@ -436,7 +447,8 @@ export class MhPerson {
     lap('geo');
     const fm = faceMaps(D, v, rm);
     lap('maps');
-    bodyGeo.setAttribute('scalp', new THREE.BufferAttribute(scalp(D, fitted.find(f => f.kind === 'hair'), rm, v), 1));
+    const own = fitted.find(f => f.kind === 'ownhair');
+    bodyGeo.setAttribute('scalp', new THREE.BufferAttribute(D.hair ? scalpOf(own, D.nv, rm) : scalp(D, fitted.find(f => f.kind === 'hair'), rm, v), 1));
     lap('scalp');
     bodyGeo.setAttribute('beardZone', new THREE.BufferAttribute(fm.beard, 3));
     bodyGeo.setAttribute('zone', new THREE.BufferAttribute(fm.zone, 4));
@@ -449,6 +461,7 @@ export class MhPerson {
     this.root.add(body);
     this.eyes = [];
     for (const f of fitted) {
+      if (f.s) { this.root.add(...hairMeshes(f, ground, (k, make) => this.mat(k, make))); continue; }
       const g = geometry(f.v, f.P.nv, f.d.idx, f.d.rmap, f.d.uv, ground);
       if (f.morphs) morphs(g, f.d.rmap, f.morphs);
       let mesh;
@@ -483,7 +496,7 @@ export class MhPerson {
     this.colour(look);
     this.setExpression(this.face || {});
     this.tris = 0;
-    this.root.traverse(o => { if (o.isMesh && !o.name.startsWith('hairsoft')) this.tris += o.geometry.index.count / 3; });
+    this.root.traverse(o => { if (o.isMesh && !/^\w*soft:/.test(o.name)) this.tris += o.geometry.index.count / 3; });
     lap('parts');
     this.ms = performance.now() - t0;
     let at = t0;
@@ -529,7 +542,7 @@ export class MhPerson {
     const bw = look.sex === 'chico' ? BEARD[look.beard] : null;
     if (skinMat) skinMat.sheenColor.set(look.skin || '#e8b07a').multiplyScalar(0.55);   // (the soft light at the edges, of the skin's own colour)
     if (S) {
-      S.beard.value.set(...(bw || [0, 0, 0]), look.beard === 'larga' ? 1 : 0.4); S.hairC.value.copy(hairC); S.tone.value.set(look.skin || '#e8b07a');
+      S.beard.value.set(...(this.D.hair ? stubbleOf(look) : bw || [0, 0, 0]), 1); S.hairC.value.copy(hairC); S.tone.value.set(look.skin || '#e8b07a');
       S.age.value = Math.min(1, Math.max(0, (yearsOf(look.mh) - 30) / 45));
       S.eyesF.value.set(...(this.eyesF || [0.3, 0.45]));
       setLayers(S, look);
@@ -544,6 +557,7 @@ export class MhPerson {
       const U = this.mats['garment:' + c.name]?.userData.U;
       if (U) { U.c1.value.set(c.colour); U.c2.value.set(c.colour2); U.tear.value = c.tear; }
     }
+    hairColour(this.mats, look);
   }
   mat(key, make) { return (this.mats[key] ||= make()); }
   clear() {

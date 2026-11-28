@@ -5,7 +5,9 @@ const BASE = new URL('../../../assets/mh/', import.meta.url);
 export const mhUrl = name => new URL(name, BASE).href;
 
 let pending = null;
-export const loadMh = () => (pending ||= fetchPack().catch(err => { pending = null; throw err; }));
+// (with our own hair and beards, P4: hair.js; the person keeps MakeHuman's hair if that pack does not come)
+export const loadMh = () => (pending ||= Promise.all([fetchPack(), import('./hair.js').then(m => m.loadHair())])
+  .then(([D, H]) => { D.hair = H; if (H) D.downloaded += H.downloaded; return D; }).catch(err => { pending = null; throw err; }));
 
 async function fetchPack() {
   const res = await fetch(mhUrl('mh.bin.gz'));

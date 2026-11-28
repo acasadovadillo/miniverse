@@ -423,3 +423,5 @@ Lista de cada archivo usado (la escribe `tools/mh_pack.py` en cada pasada; los h
 | `tongue/tongue01/tongue01.obj` | MPFB 2.0.18, paquete "MakeHuman system assets" (`mpfb/data/tongue/tongue01/tongue01.obj`) | CC0 en el índice de MPFB (`packs/makehuman_system_assets.json`: "license": "CC0") | `12f4a6a9f85a` |
 | `tongue/tongue01/tongue01_diffuse.png` | MPFB 2.0.18, paquete "MakeHuman system assets" (`mpfb/data/tongue/tongue01/tongue01_diffuse.png`) | CC0 en el índice de MPFB (`packs/makehuman_system_assets.json`: "license": "CC0") | `3150be398e48` |
 <!-- mh_pack:end -->
+
+El pelo y las barbas del creador nuevo (plan CR, P4: `assets/mh/hair.bin.gz` y `assets/mh/hair-strands.png`) son **nuestros, CC0**: las tarjetas los hace `tools/mh_hair.py` en Blender en segundo plano, sobre la malla base de MakeHuman de arriba (solo se lee su forma, para atarlas a ella), y la textura de hebras la dibuja el mismo script con números. No se usa ninguna malla ni textura de pelo de MakeHuman ni de MPFB.
