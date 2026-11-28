@@ -368,7 +368,9 @@ function looseCloth(D, name, v) {
   }
   let dv = new Float32Array(v.length);
   for (let i = 0; i < v.length; i++) dv[i] = v[i] - rest[i];
-  for (let pass = 0; pass < 3; pass++) {
+  // (what hangs, bound far from the skin to the coarse skirt helper, more: its rows would show as ridges)
+  const passes = name === 'delantal' || name === 'tunica_larga' || name === 'abrigo' || name === 'tunica' ? 9 : 3;
+  for (let pass = 0; pass < passes; pass++) {
     const next = new Float32Array(dv.length);
     for (let i = 0; i < nb.length; i++) {
       const n = nb[i];
@@ -435,7 +437,7 @@ export class MhPerson {
     // its own rest pose instead: rig.js)
     if (this.opts.restPose) this.opts.restPose(this, D, v, fitted);
     else {
-      const mc = look.mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1 : fitted.some(f => f.name === 'tunica') ? 0.4 : 0;
+      const mc = look.mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1.5 : fitted.some(f => f.name === 'tunica') ? 0.5 : 0;
       const pose = armPose(D, v, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140), arm = D.body.arm;
       const wU = i => arm[i * 2] / 255, wL = i => arm[i * 2 + 1] / 255;
       for (const f of fitted) {
@@ -506,7 +508,7 @@ export class MhPerson {
         this.root.add(soft);
       } else if (f.kind === 'garment') {
         g.setAttribute('att', new THREE.BufferAttribute(f.d.att, 4, true));
-        mesh = new THREE.Mesh(g, this.mat('garment:' + f.name, () => clothMaterial({ leather: f.wear.leather })));
+        mesh = new THREE.Mesh(g, this.mat('garment:' + f.name, () => clothMaterial({ leather: f.wear.leather, fleece: f.wear.fleece })));
       }
       mesh.name = f.kind + ':' + f.name;
       if (f.kind === 'brows' || f.kind === 'lashes') mesh.renderOrder = 1;
@@ -583,7 +585,7 @@ export class MhPerson {
     }
     for (const c of garmentsOf(look)) {
       const U = this.mats['garment:' + c.name]?.userData.U;
-      if (U) { U.c1.value.set(c.colour); U.c2.value.set(c.colour2); U.tear.value = c.tear; }
+      if (U) { U.c1.value.set(c.colour); U.c2.value.set(c.colour2); U.tear.value = c.tear; U.skin.value.set(look.skin || '#c99d7b'); }
     }
     hairColour(this.mats, look);
   }

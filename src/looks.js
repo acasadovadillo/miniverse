@@ -47,6 +47,8 @@ export function clothesFor(look, bag = false) {
   if (L.outfit !== 'larga') e.piernas = { id: 'pantalon', color: L.pants || '#4a3a2a' };
   e.calcetines = { id: 'calcetines', color: '#ece6da' };
   e.pies = { id: 'botas', color: '#5a3a24' };
+  // (the new creator's coat or sheepskin jacket, when one was chosen: plan CR, ui/creatornew.js)
+  if (L.outer === 'wool_coat' || L.outer === 'sheepskin_jacket') e.outer = { id: L.outer, color: L.outer === 'wool_coat' ? '#5a4a3a' : '#8a6a48' };
   if (L.hairAcc && L.hairAcc !== 'ninguno') e.pelo = { id: L.hairAcc, color: L.accColor || '#e86aa0' };
   if (bag) e.espalda = { id: 'mochila', color: '#8a5a34' };
   return e;

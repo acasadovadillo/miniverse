@@ -790,6 +790,8 @@
  "gui.creator.row.hairStyle": "Hairstyle",
  "gui.creator.row.hair": "Hair colour",
  "gui.creator.row.beard": "Beard",
+ "gui.creator.row.outer": "Over the clothes",
+ "gui.creator.outer.none": "Nothing",
  "gui.creator.page.piel": "Skin",
  "gui.creator.row.mood": "Face",
  "gui.creator.desc.mood": "Try a face to see the head move: it does not stay in your character.",

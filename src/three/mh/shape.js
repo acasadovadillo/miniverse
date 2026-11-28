@@ -113,7 +113,7 @@ function rotZ(p, o, a) { const c = Math.cos(a), s = Math.sin(a), x = p[0] - o[0]
 function rotX(p, o, a) { const c = Math.cos(a), s = Math.sin(a), y = p[1] - o[1], z = p[2] - o[2]; return [p[0], o[1] + y * c - z * s, o[2] + y * s + z * c]; }
 // (a heavier or stronger body, or wide skirts, hold the arms a little out: spread 0..1)
 export function armPose(D, v, spread = 0) {
-  const out = {}, down = ARM_DOWN - 0.16 * Math.max(0, Math.min(1, spread));
+  const out = {}, down = ARM_DOWN - 0.16 * Math.max(0, Math.min(1.6, spread));
   for (const side of ['l', 'r']) {
     const sh = joint(D, v, `joint-${side}-shoulder`), el = joint(D, v, `joint-${side}-elbow`), sg = side === 'l' ? -1 : 1;
     const up = p => rotX(rotZ(p, sh, sg * down), sh, FORWARD);
