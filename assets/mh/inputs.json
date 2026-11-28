@@ -771,6 +771,10 @@
   "check": "header",
   "sha256": "001d0d135d96"
  },
+ "makehuman/data/targets/macrodetails/african-female-child.target": {
+  "check": "header",
+  "sha256": "f88b8f252df8"
+ },
  "makehuman/data/targets/macrodetails/african-female-old.target": {
   "check": "header",
   "sha256": "c165e7caf01a"
@@ -778,6 +782,10 @@
  "makehuman/data/targets/macrodetails/african-female-young.target": {
   "check": "header",
   "sha256": "92d61eeb3c16"
+ },
+ "makehuman/data/targets/macrodetails/african-male-child.target": {
+  "check": "header",
+  "sha256": "5b89c85ed7ba"
  },
  "makehuman/data/targets/macrodetails/african-male-old.target": {
   "check": "header",
@@ -787,6 +795,10 @@
   "check": "header",
   "sha256": "894abc1fbb3d"
  },
+ "makehuman/data/targets/macrodetails/asian-female-child.target": {
+  "check": "header",
+  "sha256": "a4fffea45a47"
+ },
  "makehuman/data/targets/macrodetails/asian-female-old.target": {
   "check": "header",
   "sha256": "1a90cb281df6"
@@ -794,6 +806,10 @@
  "makehuman/data/targets/macrodetails/asian-female-young.target": {
   "check": "header",
   "sha256": "095fe79694fa"
+ },
+ "makehuman/data/targets/macrodetails/asian-male-child.target": {
+  "check": "header",
+  "sha256": "c1b56e9cc549"
  },
  "makehuman/data/targets/macrodetails/asian-male-old.target": {
   "check": "header",
@@ -803,6 +819,10 @@
   "check": "header",
   "sha256": "ed2e8c191cb6"
  },
+ "makehuman/data/targets/macrodetails/caucasian-female-child.target": {
+  "check": "header",
+  "sha256": "17fc408839c0"
+ },
  "makehuman/data/targets/macrodetails/caucasian-female-old.target": {
   "check": "header",
   "sha256": "6560982486c4"
@@ -810,6 +830,10 @@
  "makehuman/data/targets/macrodetails/caucasian-female-young.target": {
   "check": "header",
   "sha256": "118379f6e8ba"
+ },
+ "makehuman/data/targets/macrodetails/caucasian-male-child.target": {
+  "check": "header",
+  "sha256": "401b9b0349c8"
  },
  "makehuman/data/targets/macrodetails/caucasian-male-old.target": {
   "check": "header",
@@ -883,6 +907,14 @@
   "check": "header",
   "sha256": "758c0b12e6ba"
  },
+ "makehuman/data/targets/macrodetails/universal-female-child-averagemuscle-maxweight.target": {
+  "check": "header",
+  "sha256": "311017f8768f"
+ },
+ "makehuman/data/targets/macrodetails/universal-female-child-averagemuscle-minweight.target": {
+  "check": "header",
+  "sha256": "a48d2f758970"
+ },
  "makehuman/data/targets/macrodetails/universal-female-old-averagemuscle-averageweight.target": {
   "check": "header",
   "sha256": "4ba5396ddabd"
@@ -954,6 +986,14 @@
  "makehuman/data/targets/macrodetails/universal-female-young-minmuscle-minweight.target": {
   "check": "header",
   "sha256": "856167f0a03e"
+ },
+ "makehuman/data/targets/macrodetails/universal-male-child-averagemuscle-maxweight.target": {
+  "check": "header",
+  "sha256": "7efd862be258"
+ },
+ "makehuman/data/targets/macrodetails/universal-male-child-averagemuscle-minweight.target": {
+  "check": "header",
+  "sha256": "03a9c12855ea"
  },
  "makehuman/data/targets/macrodetails/universal-male-old-averagemuscle-averageweight.target": {
   "check": "header",

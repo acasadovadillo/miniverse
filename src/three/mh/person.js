@@ -7,7 +7,7 @@
 // still persona.js.
 import * as THREE from 'three';
 import { mhUrl, proxy } from './data.js';
-import { blend, blendSteps, fit, fitGarment, joint, armPose, poseInPlace, yearsOf, expressions } from './shape.js';
+import { blend, blendSteps, fit, fitGarment, joint, armPose, poseInPlace, yearsOf, expressions, kidHeight } from './shape.js';
 import { garment } from './data.js';
 import { hairOf, browsOf, lashesOf, garmentsOf } from './looks.js';
 import { clothMaterial } from './cloth.js';
@@ -361,7 +361,9 @@ const BEARD = { bigote: [1, 0, 0], perilla: [0, 1, 0], candado: [1, 1, 0], compl
 // averaged with its neighbours' (three passes), so muscles and ribs do not show through a loose shirt. Not the boots
 // nor the belt, which fit tight
 const restCloth = new Map(), clothNb = new Map();
-function looseCloth(D, name, v) {
+// But never into the skin: where the smoothing took a vertex in by more than its own ease over its skin triangle (less
+// 2 mm), as over a very strong body's trapezius under the collar, it goes back out by the rest, softly round it
+function looseCloth(D, name, v, body) {
   if (name === 'botas' || name === 'botas_forro' || name === 'cinturon') return v;
   let rest = restCloth.get(name), nb = clothNb.get(name);
   if (!rest) {
@@ -385,7 +387,30 @@ function looseCloth(D, name, v) {
     }
     dv = next;
   }
-  for (let i = 0; i < v.length; i++) v[i] = rest[i] + dv[i];
+  const d = garment(D, name), n3 = nb.length;
+  let push = new Float32Array(n3), any = false;
+  for (let i = 0; i < n3; i++) {
+    const a = d.refs[i * 3] * 3, b = d.refs[i * 3 + 1] * 3, c = d.refs[i * 3 + 2] * 3;
+    const ux = body[b] - body[a], uy = body[b + 1] - body[a + 1], uz = body[b + 2] - body[a + 2], wx = body[c] - body[a], wy = body[c + 1] - body[a + 1], wz = body[c + 2] - body[a + 2];
+    let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    const ln = Math.hypot(nx, ny, nz) || 1;
+    nx /= ln; ny /= ln; nz /= ln;
+    const x = rest[i * 3] + dv[i * 3], y = rest[i * 3 + 1] + dv[i * 3 + 1], z = rest[i * 3 + 2] + dv[i * 3 + 2];
+    const inward = (v[i * 3] - x) * nx + (v[i * 3 + 1] - y) * ny + (v[i * 3 + 2] - z) * nz, p = inward - Math.max(0, d.off[i * 3 + 2] - 0.02);
+    if (p > 0) { push[i] = p; any = true; }
+    v[i * 3] = x; v[i * 3 + 1] = y; v[i * 3 + 2] = z;
+    dv[i * 3] = nx; dv[i * 3 + 1] = ny; dv[i * 3 + 2] = nz;   // (from here on, each vertex's skin normal)
+  }
+  if (any) {
+    // (spread softly round, never less than each one's own: no step at the edge of what was pushed, and no peaks)
+    const own = push.slice();
+    for (let pass = 0; pass < 6; pass++) {
+      const next = new Float32Array(n3);
+      for (let i = 0; i < n3; i++) { const n = nb[i]; let m = push[i]; for (let k = 0; k < n.length; k++) m += push[n[k]]; next[i] = Math.max(own[i] * (pass < 2 ? 1 : 0.85), m / (n.length + 1)); }
+      push = next;
+    }
+    for (let i = 0; i < n3; i++) if (push[i] > 0) for (let k = 0; k < 3; k++) v[i * 3 + k] += dv[i * 3 + k] * push[i];
+  }
   return v;
 }
 
@@ -430,7 +455,7 @@ export class MhPerson {
     for (const c of garmentsOf(look)) {
       if (late()) yield;
       const d = garment(D, c.name);
-      if (d) fitted.push({ kind: 'garment', name: c.name, wear: c, P: D.garments.get(c.name), d, v: looseCloth(D, c.name, fitGarment(D, v, c.name)) });
+      if (d) fitted.push({ kind: 'garment', name: c.name, wear: c, P: D.garments.get(c.name), d, v: looseCloth(D, c.name, fitGarment(D, v, c.name), v) });
     }
     if (late()) yield;
     // (a skirt over the shirt tucked in it, on any belly; an apron over a flared skirt lies on it)
@@ -471,8 +496,9 @@ export class MhPerson {
     // (twice MakeHuman's range can make a giant: the person is kept under 1.95 m and 0.78 m across, door, bed and saddle)
     let top = -Infinity, wide = 0;
     for (let i = 0; i < nb; i++) { top = Math.max(top, v[i * 3 + 1]); wide = Math.max(wide, Math.abs(v[i * 3])); }
-    const ky = Math.min(1, 19.5 / (top - ground)), kx = Math.min(1, 3.9 / (wide * ky));
-    const squeezed = ky < 1 || kx < 1;
+    // (a child, mh.kid: the whole of it scaled to a child's height, shape.js kidHeight)
+    const kid = !!look.mh?.kid, ky = kid ? kidHeight(look.mh) / (top - ground) : Math.min(1, 19.5 / (top - ground)), kx = kid ? 1 : Math.min(1, 3.9 / (wide * ky));
+    const squeezed = ky !== 1 || kx < 1;
     if (squeezed) {
       const squeeze = a => { for (let i = 0; i < a.length; i += 3) { a[i] *= ky * kx; a[i + 1] = ground + (a[i + 1] - ground) * ky; a[i + 2] *= ky; } };
       squeeze(v);
@@ -514,7 +540,8 @@ export class MhPerson {
     this.eyesF = fm.eyes;
     lap('body');
     if (late()) yield;
-    const body = new THREE.Mesh(bodyGeo, this.mat('skin:' + sex, () => skinMaterial(sex)));
+    // (a child's skin is the young woman's photo, for either sex: the young man's has the shadow of a beard)
+    const body = new THREE.Mesh(bodyGeo, this.mat('skin:' + sex, () => skinMaterial(kid ? 'chica' : sex)));
     body.name = 'body';
     this.root.add(body);
     if (late()) yield;
@@ -561,7 +588,7 @@ export class MhPerson {
       this.root.add(mesh);
     }
     this.root.traverse(o => { if (o.isMesh) { o.castShadow = o.material.depthWrite !== false; o.receiveShadow = true; } });
-    top = 0;
+    top = -Infinity;   // (a baby's head is under MakeHuman's origin: from no floor)
     for (let i = 0; i < nb; i++) top = Math.max(top, v[i * 3 + 1]);
     this.height = (top - ground) * M;
     this.eyeY = (joint(D, v, 'joint-l-eye')[1] - ground) * M;

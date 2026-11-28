@@ -421,8 +421,8 @@ def build(args):
     blob.add('body.skin', bytes(skin))
     head['bones'] = GAME_BONES
 
-    # Targets: macro (sex x age x muscle x weight corners, origins, height and proportions at the average corner, adults
-    # only) and the face sliders (left and right merged)
+    # Targets: macro (sex x age x muscle x weight corners, origins, height and proportions at the average corner, adults;
+    # a few of the children's, below) and the face sliders (left and right merged)
     def put_target(name, offs):
         acc = {}
         for vi, dx, dy, dz in offs:
@@ -473,6 +473,16 @@ def build(args):
             for pr in ('ideal', 'uncommon'):
                 rel = '%s-%s-averagemuscle-averageweight-%sproportions' % (sex, age, pr)
                 put_target('prop-' + rel, parse_target(L.text('targets/macrodetails/proportions/%s.target' % rel)))
+
+    # The children's (the game's kids, src/three/mh/folk.js kidMh): the origins' child shape and the average muscle's lean
+    # and heavy corners; no muscle, height nor proportions targets (a child's size is a scale, shape.js)
+    for sex in SEXES:
+        for o in ORIGINS:
+            rel = '%s-%s-child' % (o, sex)
+            put_target(rel, parse_target(L.text('targets/macrodetails/%s.target' % rel)))
+        for wt in ('min', 'max'):
+            rel = 'universal-%s-child-averagemuscle-%sweight' % (sex, wt)
+            put_target(rel, parse_target(L.text('targets/macrodetails/%s.target' % rel)))
 
     # The chest (women): MakeHuman's breast size at each age, muscle and weight corner, the cup min and max
     for age in AGES:

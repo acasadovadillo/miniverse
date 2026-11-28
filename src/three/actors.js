@@ -17,7 +17,7 @@ import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, SEAT, 
 import { nearX } from '../world/planet.js';
 import { scaleOf } from '../herds.js';
 import { raceKey } from '../horsebreeds.js';
-import { RealPerson, realBaby, prebuildReal, prebuildBody, prebuildStandIn, wearsMh, realReady, realStats } from './realperson.js';
+import { RealPerson, realBaby, mhBaby, babyMh, prebuildReal, prebuildBody, prebuildStandIn, wearsMh, realReady, realStats } from './realperson.js';
 import { LEVEL_M, NEAR_MAX, buildNext, requestShape, setUploader } from './mh/ingame.js';
 import { mhOfLook } from './mh/folk.js';
 import { armband } from './law3d.js';
@@ -340,6 +340,7 @@ export class Actors {
       s.modelos++;
       if (!m.root.visible) { s.dormidas++; continue; }
       s.vistas++;
+      if (m.kind === 'baby' && m.person?.mhb) { s.tris += m.person.tris; s['mh' + m.person.mhLevel] = (s['mh' + m.person.mhLevel] || 0) + 1; }   // (a MakeHuman baby)
       if (m.kind === 'person') { s['t' + Math.min(2, m.tier ?? 0)]++; if (m.person.lod) s.lod1++; s.tris += m.person.tris; if (m.person.mhb) s['mh' + m.person.mhLevel] = (s['mh' + m.person.mhLevel] || 0) + 1; }
     }
     const r = realStats();
@@ -476,6 +477,7 @@ export class Actors {
     }
   }
   makePerson(e, isPlayer, look) {
+    if (e.baby && babyMh(look)) { const root = new THREE.Group(), b = mhBaby(look); root.add(b.root); return { kind: 'baby', root, person: b.person, prev: null, speed: 0 }; }   // (a MakeHuman baby: its body made as anyone's, pose)
     if (e.baby) { const root = new THREE.Group(), b = realBaby(look); root.add(b); return { kind: 'baby', root, prev: null, speed: 0, release: b.userData.release }; }
     {
       const person = new RealPerson(look, { kid: !!e.kid, folk: !isPlayer && !e.remote, now: isPlayer }), root = new THREE.Group();
@@ -528,6 +530,9 @@ export class Actors {
       m.root.position.set(x, y + (e.h || 0), z); m.root.rotation.y = e.yaw || 0;
       SPH.center.set(x, y + 0.3, z); SPH.radius = 0.6;
       m.root.visible = ALL || FR.intersectsSphere(SPH);
+      // (a MakeHuman baby: its level of detail and its body to make, as anyone's; seen or not, it is small)
+      const P = m.person;
+      if (P && m.root.visible) { const d = this.view.camera.position.distanceTo(V3.set(x, y, z)); if (P.mhb) this.mhGrade(m, P, d); else if (P.mhWant) this.mhWait.push([P, d]); }
       return;
     }
     let pz = e.pose;

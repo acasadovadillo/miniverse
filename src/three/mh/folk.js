@@ -2,8 +2,8 @@
 // new creator's look (look.mh), or one of before with a head and a body from its look, like the folk below (game.js keeps that
 // in look.mh the first time it loads, so a haircut does not change the face); the named neighbours and Nilo with a head and a body chosen for each (Bruno strong, Paco and Eusebio old…);
 // the hamlet folk and the travellers with a head of their sex and origin and a body from their look, always the same for
-// the same look. Their colours and clothes stay as they are. Children and babies keep today's person. No Three here: the
-// tables only
+// the same look; the family's children with a child's body and a face of their parents' (kidMhOf). Their colours and
+// clothes stay as they are. No Three here: the tables only
 import { presetOf, presetsFor, fromPreset } from './presets.js';
 import { SKIN_TONES, nearestTone } from './skin.js';
 import { CREADOR_NUEVO } from '../../opciones.js';
@@ -35,8 +35,13 @@ const GREY = new Set(['#a8a4ac', '#c8c4cc', '#8a8480']);
 // one from its look either way: a player's of before too (another player still on an older version, or yours before game.js
 // keeps it)
 // (folk is kept for the callers: a player and the folk get one alike now)
-export function mhOfLook(look, folk = false) {
+// (kid: a child of the family, family.js: kidMhOf)
+export function mhOfLook(look, folk = false, kid = false) {
   if (!MH_ON || !look || Profile.server) return null;
+  return kid ? kidMhOf(look, kid === 'baby') : mhOf(look);
+}
+// (the same without the switch: the parents' heads at a birth, on the host or the world server too)
+export function mhOf(look) {
   const mh = look.mh;
   if (mh && typeof mh === 'object') {
     const p = presetOf(mh.preset);
@@ -53,6 +58,55 @@ export function mhOfLook(look, folk = false) {
   const base = fromPreset(p), old = GREY.has(look.hair), span = (k, a) => Math.round(((r(k) * 2 - 1) * a) / 5) * 5;
   return { ...base, macro: { ...base.macro, age: old ? 55 + Math.round(r(2) * 35) : Math.round(r(2) * 45), height: span(3, 40), weight: span(4, 35), muscle: span(5, 35), chest: span(6, 30), prop: span(7, 25) } };
 }
+
+// ---- The children (the family's kids, family.js): MakeHuman's child shape (shape.js, mh.kid) with a face of their own
+// What a child's face keeps of a grown-up one: the features softer (KID_K of each slider), what comes with age gone, and
+// a child's own over them: bigger eyes, a small low nose, round cheeks, a small chin and jaw, a smooth brow
+const KID_K = 0.45, AGED = new Set(['eye_bags', 'ear_size', 'ear_lobe', 'nose_hump', 'mouth_corners', 'brow_ridge', 'neck_width', 'head_fat']);
+const KID_FACE = { eye_size: 10, eye_open: -8, mouth_width: 10, nose_length: -18, nose_width: -12, nose_bridge: -15, nose_tip: 15, cheek_volume: 18, chin_forward: 25, chin_height: -10, jaw_width: -25, chin_width: -10, brow_ridge: -30, forehead_height: 10, lip_upper: -10, lip_lower: -5 };
+const clampS = v => Math.max(-100, Math.min(100, Math.round(v)));
+function kidFace(face, r) {
+  const out = {};
+  for (const [k, v] of Object.entries(face || {})) if (Number.isFinite(v) && !AGED.has(k)) out[k] = v * KID_K;
+  for (const [k, v] of Object.entries(KID_FACE)) out[k] = (out[k] || 0) + v;
+  // (a little of its own: four sliders nudged, by the child's own numbers)
+  const ids = Object.keys(out);
+  for (let k = 0; k < 4; k++) { const id = ids[Math.floor(r(10 + k) * ids.length) % ids.length]; out[id] += (r(20 + k) * 2 - 1) * 10; }
+  for (const k in out) { out[k] = clampS(out[k]); if (!out[k]) delete out[k]; }
+  return out;
+}
+// (a child's body: only its weight and height, ordinary ranges)
+const kidBody = (r, origin) => ({ ...origin, weight: Math.round(((r(4) * 2 - 1) * 40) / 5) * 5, height: Math.round(((r(3) * 2 - 1) * 60) / 5) * 5 });
+const originOf = m => ({ af: Math.round(m?.af || 0), as: Math.round(m?.as || 0), ca: Math.round(m?.ca ?? (m?.af || m?.as ? 0 : 100)) });
+// A newborn's, from its parents' looks (family.js, at the birth; kept in the child's look, so always the same child): the
+// origins of both, half each; the face between theirs, nearer one or the other; then a child's (kidFace)
+export function childMh(a, b, rnd = Math.random) {
+  const A = mhOf(a || {}), B = mhOf(b || a || {}), r = () => rnd(), t = 0.25 + r() * 0.5, oa = originOf(A.macro), ob = originOf(B.macro);
+  const face = {};
+  for (const k of new Set([...Object.keys(A.face || {}), ...Object.keys(B.face || {})])) face[k] = (A.face?.[k] || 0) * (1 - t) + (B.face?.[k] || 0) * t;
+  const n = Array.from({ length: 30 }, r), rr = k => n[k % 30];
+  const origin = { af: Math.round((oa.af + ob.af) / 2), as: Math.round((oa.as + ob.as) / 2), ca: Math.round((oa.ca + ob.ca) / 2) };
+  return { kid: 1, macro: kidBody(rr, origin), face: kidFace(face, rr) };
+}
+// A child's, whole: the one made at its birth (childMh), or for a child of before, from its look alone (as anyone's, mhOf),
+// always the same for the same look
+// (baby: the same child as a baby, mh.baby, its face rounder still: the child it will be)
+export function kidMhOf(look, baby = false) {
+  const mh = look.mh;
+  let out;
+  if (mh && typeof mh === 'object' && mh.kid) out = { kid: 1, macro: { ...(mh.macro || {}) }, face: { ...(mh.face || {}) } };
+  else {
+    const grown = mhOf({ ...look, mh: undefined, hair: GREY.has(look.hair) ? '#4a2c1c' : look.hair });
+    const h = hash('kid|' + keyOf(look) + '|' + (look.cloth || '') + '|' + (look.eyes || '')), r = k => ((h >>> (k * 3)) % 97) / 96;
+    out = { kid: 1, macro: kidBody(r, originOf(grown.macro)), face: kidFace(grown.face, r) };
+  }
+  if (baby) {
+    out.baby = 1;
+    for (const [k, v] of Object.entries(BABY_FACE)) out.face[k] = clampS((out.face[k] || 0) * 0.6 + v);
+  }
+  return out;
+}
+const BABY_FACE = { cheek_volume: 35, head_fat: 25, nose_length: -30, nose_width: -10, eye_size: 5, eye_open: -10, chin_height: -25, jaw_width: -30, forehead_height: 20, lip_upper: 5 };
 
 // What is saved: only the numbers that are not 0 (the look travels whole on the network: under 1 KB)
 export function packMh(mh) {

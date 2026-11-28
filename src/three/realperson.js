@@ -123,12 +123,13 @@ const BUCKLE = new THREE.MeshStandardMaterial({ color: '#b8964a', metalness: 0.5
 export class RealPerson {
   // (folk: not a player, who wears a MakeHuman body with ?creador=nuevo even without look.mh; now: the player's, made at
   // once: see wearMh)
-  constructor(look, { kid = false, folk = false, now = false } = {}) {
-    this.look = look; this.real = true; this.kid = kid;
+  // (baby: a baby of the family, kid too: its MakeHuman body lies in the crib, see mhBaby)
+  constructor(look, { kid = false, folk = false, now = false, baby = false } = {}) {
+    this.look = look; this.real = true; this.kid = kid; this.baby = baby;
     // (who will wear a MakeHuman body stands on a ring person of its sex that is never drawn, made once for everybody: its
     // bones and its walk; making the ring person of each look, its canvas and its mesh, was a stumble of 100-250 ms. Until the
     // body is on, nothing is drawn)
-    const mhw = kid ? null : mhOfLook(look, folk), stand = !!mhw && !mhFailed();
+    const mhw = mhOfLook(look, folk, baby ? 'baby' : kid), stand = !!mhw && !mhFailed();
     const r = (this.r = persona().build(stand ? standIn(look) : toReal(look, kid))), k = kid ? KID : 1;   // (la escala va en su raíz: cadera y estatura, por ella)
     if (stand) r.mesh.visible = false;
     this.root = new THREE.Group();
@@ -386,13 +387,31 @@ export function realBaby(look) {
 }
 // La manta del bebé: dos colores fijos, compartidos por todos
 const BLANKET_BALL = new THREE.SphereGeometry(1, 20, 14), BLANKET = new Map();
+// The crib's baby with a MakeHuman body (plan CR: a baby's shape, folk.js kidMhOf), laid as realBaby lays its ring one and
+// under the same blanket; its body is put on when actors.js says (buildNext), as anyone's. Returns { root, person }
+// (a baby wears only a little shirt, the rest is under the blanket, and its hair is a fuzz)
+export function mhBaby(look) {
+  const W = window.LOOK, person = new RealPerson(babyLook(look), { kid: true, baby: true, folk: true });
+  person.r.update(0.5, 0);
+  const root = new THREE.Group(), body = new THREE.Group();
+  body.add(person.root); body.rotation.x = -Math.PI / 2; body.position.set(0, 0.05, 0.26);   // (its toes under the blanket)
+  root.add(body);
+  const cloth = c => BLANKET.get(c) || BLANKET.set(c, new THREE.MeshStandardMaterial({ color: W.sobrio(c), roughness: 0.95 })).get(c);
+  for (const [c, p, sc] of [['#f4e6c8', [0, 0.065, 0.08], [0.12, 0.08, 0.23]], ['#e88aa8', [0, 0.075, 0.15], [0.125, 0.07, 0.15]]]) {
+    const m = new THREE.Mesh(BLANKET_BALL, cloth(c)); m.position.set(...p); m.scale.set(...sc); m.castShadow = m.receiveShadow = true; root.add(m);
+  }
+  return { root, person };
+}
+const babyLook = look => ({ ...look, hairStyle: 'rapado', beard: 'no', wear: { torso: { id: 'camisa', color: '#f4e6c8' } } });
+// Will this baby wear a MakeHuman body?
+export const babyMh = look => !!mhOfLook(babyLook(look), true, 'baby') && !mhFailed();
 // Deja hecho el prototipo de una persona (persona.js prebuild), para que salga sin tirón cuando haga falta
 export const prebuildReal = (look, kid = false) => persona().prebuild(toReal(look, kid));
 // And its MakeHuman body (plan CR P5, ?creador=nuevo), for someone who is not a player: folk.js; false if made already
-export const prebuildBody = (look, kid = false, folk = true) => !kid && mhData() !== null && prebuildMh(look, mhOfLook(look, folk));
+export const prebuildBody = (look, kid = false, folk = true) => mhData() !== null && prebuildMh(look, mhOfLook(look, folk, kid));
 // Will this look wear a MakeHuman body (then its ring person is not made: the stand-ins are)? And the stand-ins, made
 // beforehand one at a time (true if one was made now)
-export const wearsMh = (look, kid = false, folk = true) => !kid && !!mhOfLook(look, folk) && !mhFailed();
+export const wearsMh = (look, kid = false, folk = true) => !!mhOfLook(look, folk, kid) && !mhFailed();
 export function prebuildStandIn() {
   if (!mhOfLook({ sex: 'chico' }, true)) return false;
   for (const sex of ['chico', 'chica']) for (let i = 0; i < 3; i++) { const L = { sex, i }; if (persona().prebuild({ ...standIn({ sex }), semilla: [11, 47, 83][i] })) return true; void L; }

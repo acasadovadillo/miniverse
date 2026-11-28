@@ -1128,8 +1128,10 @@ def wardrobe(body):
         for j in range(36):
             a = 2 * math.pi * j / 36
             back = 0.5 - 0.5 * math.cos(a)
-            # (looser over the hair at the back and the top; round the neck it stands off to lie over the fall)
-            radii[j] += 0.1 + 0.1 * back * smooth(0.3, 0.75, hgt) + 0.26 * smooth(0.28, 0.0, hgt)
+            # (loose, never a hood moulded on the skull: the hair gathered under it at the back and the top, and from the
+            # jaw down it falls away from the neck, wide, onto the fall)
+            side = abs(math.sin(a))
+            radii[j] += 0.17 + 0.26 * back * smooth(0.25, 0.7, hgt) + 0.04 * smooth(0.6, 1.0, hgt) + (0.5 + 0.15 * side) * smooth(0.42, 0.0, hgt)
         L.add_ring(cc, e1, e2, UP, radii, y - ybot, {'surface': 'skin'})
     smooth_radii(L, 3)
     c0, e1, e2, axis, radii, along, meta = L.rings[-1]
@@ -1148,7 +1150,7 @@ def wardrobe(body):
         return p[1] - (sh_y - 0.62 + (0.05 if p[2] < 0.1 else 0.0) + 1.0 * k)
     t0 = len(g.tri)
     tris_ = tights_on({'torso', 'head', 'arm_l', 'arm_r'}, lambda t: max(v[i][1] for i in t) > sh_y - 0.8 and min(v[i][1] for i in t) < neck + 0.1)
-    g.skin_patch(body, tris_, lambda i, p: lerp(0.2, 0.3, smooth(neck, sh_y, p[1])), {'torso', 'head'}, [('hem', fall_hem), ('top', lambda p: neck + 0.02 - p[1])], round_uv)
+    g.skin_patch(body, tris_, lambda i, p: lerp(0.62, 0.3, smooth(neck, sh_y, p[1])), {'torso', 'head'}, [('hem', fall_hem), ('top', lambda p: neck + 0.02 - p[1])], round_uv)
     g.hem_from_border()
     def in_face(p):
         return face_open(p) < 0.25
