@@ -2779,6 +2779,10 @@ async function soloTests(game) {
     const t1 = performance.now(), Q = new RealPerson({ ...bruno, wear: { torso: { id: 'camisa', color: '#ffffff' }, espalda: { id: 'mochila', color: '#8a5a34' } } }, { folk: true });
     check(Q.mhb && performance.now() - t1 < 400, `the same look again: ${(performance.now() - t1).toFixed(0)} ms`);
     P.dispose(); Q.dispose();
+    // (the portrait of a player with look.mh: drawn from the MakeHuman body, something in its middle)
+    const { portrait3D } = await import('./three/portrait.js'), pic = portrait3D({ ...LOOK, mh: { preset: 'ca_f3', macro: { age: 20 } } });
+    const px = pic.getContext('2d').getImageData(pic.width >> 1, pic.height >> 1, 1, 1).data;
+    check(pic.width > 0 && px[3] > 0, `the portrait: ${pic.width} px, its middle ${[...px]}`);
   });
   await test('menu (english): the new creator (?creador=nuevo): body, head, fine tune, face and hair pages; a new character saves look.mh; the mirror keeps the creator of before', () => keepMenus(async $ => {
     if (new URLSearchParams(location.search).get('creador') !== 'nuevo') { check(!$('cr-canvas-mh') && !document.getElementById('cr-new-style'), 'without the switch, nothing of it'); return; }

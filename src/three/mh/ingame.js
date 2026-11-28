@@ -234,12 +234,12 @@ class MhShape {
     for (let i = 0; i < nv; i++) {
       const x = pv[i * 3], y = pv[i * 3 + 1], z = pv[i * 3 + 2], b = B.near(x, y, z, 0.03);
       let c = tone, a = 1;
-      const f = face.near(x, y, z, 0.009), out_ = (p, cap) => Math.max(0, Math.min(cap, (p.x - x) * nn[i * 3] + (p.y - y) * nn[i * 3 + 1] + (p.z - z) * nn[i * 3 + 2]));
+      const f = y > this.eyeY + 0.01 ? face.near(x, y, z, 0.009) : null, out_ = (p, cap) => Math.max(0, Math.min(cap, (p.x - x) * nn[i * 3] + (p.y - y) * nn[i * 3 + 1] + (p.z - z) * nn[i * 3 + 2]));
       const g = f ? null : cloth.near(x, y, z, b && !shown[b.d] ? 0.1 : 0.035), h = f || g || front(x, y, z) ? null : hair.near(x, y, z, 0.05);
-      // (round an eye, the photo's dark socket is not used: the skin's tone, and the iris a dark dot)
-      let eye = null;
-      for (const E of eyes) { const dd = E.c.distanceTo(V.set(x, y, z)); if (dd < 0.034) eye = E; }
-      if (eye) { const iris = eye.f.distanceTo(V) < 0.014; c = iris ? IRIS : tone; a = 0; }
+      // (the eye itself, on the photo a white ball: dark, as an eye looks from metres away; a hole there is closed: eyePlugs)
+      let eye = false;
+      for (const E of eyes) if (E.f.distanceTo(V.set(x, y, z)) < 0.013) eye = true;
+      if (eye) { c = IRIS; a = 0; }
       else if (f) { c = f.d; a = 0; }
       else if (g) { c = g.d; a = 0; push[i] = out_(g, 0.04) + 0.004; }
       else if (h) { c = hairC; a = 0; push[i] = out_(h, 0.05) + 0.003; }
@@ -254,7 +254,7 @@ class MhShape {
     }
     uv.set(d.uv);
     // (the low body is open where the eyes go: each hole round an eye closed with a fan to a dark point at its front)
-    const plugs = this.eyePlugs(tri, pv, eyes, rm, toSkel);
+    const plugs = this.eyePlugs(tri, pv, eyes, rm, d.uv);
     this.lowMs = performance.now() - t0;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -269,7 +269,7 @@ class MhShape {
       const grow = (attr, size, extra) => { const a = new attr.array.constructor((k + m) * size); a.set(attr.array); a.set(extra, k * size); return new THREE.BufferAttribute(a, size, attr.normalized); };
       g.setAttribute('position', grow(g.attributes.position, 3, plugs.pts.flatMap(p => [p.x, p.y, p.z])));
       g.setAttribute('normal', grow(g.attributes.normal, 3, plugs.pts.flatMap(() => [0, 0, 1])));
-      g.setAttribute('uv', grow(g.attributes.uv, 2, plugs.pts.flatMap(() => [0, 0])));
+      g.setAttribute('uv', grow(g.attributes.uv, 2, plugs.uvs));
       g.setAttribute('lc', grow(g.attributes.lc, 4, plugs.pts.flatMap(() => [IRIS.r, IRIS.g, IRIS.b, 0])));
       g.setAttribute('skinIndex', grow(g.attributes.skinIndex, 4, plugs.pts.flatMap(() => [toSkel[BONES.indexOf('head')], 0, 0, 0])));
       g.setAttribute('skinWeight', grow(g.attributes.skinWeight, 4, plugs.pts.flatMap(() => [1, 0, 0, 0])));
@@ -282,22 +282,23 @@ class MhShape {
   }
   // The holes' edges (edges of one triangle only, over the shared vertices) within 3.5 cm of an eye: a triangle from each
   // to a new point at the eye's front (its render vertex: any of that shared vertex's; new points as -1, -2…)
-  eyePlugs(tri, pv, eyes, rm, toSkel) {
-    const count = new Map(), key = (a, b) => (a < b ? a * 65536 + b : b * 65536 + a), out = { pts: [], tris: [] };
+  eyePlugs(tri, pv, eyes, rm, uv) {
+    const count = new Map(), key = (a, b) => (a < b ? a * 65536 + b : b * 65536 + a), out = { pts: [], tris: [], uvs: [] };
     for (let t = 0; t < tri.length; t += 3) for (let e = 0; e < 3; e++) { const k = key(tri[t + e], tri[t + (e + 1) % 3]); count.set(k, (count.get(k) || 0) + 1); }
     const rOf = new Map();
     for (let r = rm.length - 1; r >= 0; r--) rOf.set(rm[r], r);
     eyes.forEach(E => {
       const id = -(out.pts.length + 1), at = E.f.clone(); at.z -= 0.004;
-      let used = false;
+      let used = false, u = 0, w = 0, n = 0;
       for (let t = 0; t < tri.length; t += 3) for (let e = 0; e < 3; e++) {
         const a = tri[t + e], b = tri[t + (e + 1) % 3];
         if (count.get(key(a, b)) !== 1) continue;
         const near = i => E.c.distanceTo(V.set(pv[i * 3], pv[i * 3 + 1], pv[i * 3 + 2])) < 0.035;
         if (!near(a) || !near(b)) continue;
-        out.tris.push(rOf.get(b), rOf.get(a), id); used = true;   // (the other way round from the triangle that has the edge)
+        out.tris.push(rOf.get(a), rOf.get(b), id); used = true;
+        u += uv[rOf.get(a) * 2]; w += uv[rOf.get(a) * 2 + 1]; n++;   // (its uv, the rim's mean: the photo's eye there)
       }
-      if (used) out.pts.push(at);
+      if (used) { out.pts.push(at); out.uvs.push(u / n, w / n); }
     });
     return out;
   }

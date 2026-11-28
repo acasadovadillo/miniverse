@@ -30,12 +30,32 @@ function setup() {
 // que son de todas las personas con este look, se quedarían subidos aquí mientras viva el vecino. Se pinta con copias
 // que solo conoce él, y se sueltan al acabar: la textura copiada comparte la imagen, y soltarla solo la borra de aquí)
 function ownCopies(p) {
+  if (p.mhb) return mhCopies(p);
   const mesh = p.r.mesh, own = [mesh.geometry.clone(), mesh.material.clone()];
   const base = mesh.material;
   own[1].onBeforeCompile = base.onBeforeCompile; own[1].customProgramCacheKey = base.customProgramCacheKey;   // (clone() no copia el parche de la piel)
   if (base.map) own.push((own[1].map = base.map.clone()));
   [mesh.geometry, mesh.material] = own;
   return own;
+}
+// A MakeHuman body (plan CR P5, ?creador=nuevo: three/mh/ingame.js), drawn whole: the same, for each of its near parts
+// (the first three are a geometry, a material and a map, as the ring person's, for Figure.dispose)
+function mhCopies(p) {
+  p.mhLevel = 0;
+  const own = [];
+  for (const o of p.mhb.parts) {
+    const g = o.geometry.clone(), one = m => {
+      const c = m.clone();
+      if (m.onBeforeCompile) { c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; }
+      for (const k of ['map', 'alphaMap', 'bumpMap']) if (m[k]) own.push((c[k] = m[k].clone()));
+      own.push(c);
+      return c;
+    };
+    o.geometry = g; o.material = Array.isArray(o.material) ? o.material.map(one) : one(o.material);
+    own.push(g);
+  }
+  const first = own.findIndex(x => x.isBufferGeometry), mat = own.find(x => x.isMaterial);
+  return [own[first], mat, null, ...own.filter((x, i) => i !== first && x !== mat)];
 }
 // The size of what this renderer paints: a portrait's, or the figure's (Figure). Only touched when it changes
 function sized(w, h) {
@@ -51,7 +71,7 @@ export function portrait3D(look) {
   if (cache.has(k)) return cache.get(k);
   const { renderer, scene, camera } = R || setup();
   let p;
-  try { p = new RealPerson(look); }
+  try { p = new RealPerson(look, { now: true }); }
   catch (err) {   // (si no se puede hacer, un retrato vacío: el juego sigue)
     console.warn('Miniverse: no se pudo hacer el retrato', err);
     const out = document.createElement('canvas');
@@ -74,8 +94,9 @@ export function portrait3D(look) {
   // (se sueltan las copias y la persona, no su malla ni su lienzo de verdad: son los mismos que los de quien tenga este look
   // en el mundo, y geometry.dispose los borraría también de la gráfica del juego. Se liberan juntos cuando ya no los usa
   // nadie: persona.js trim)
-  for (const x of own) x.dispose();
-  p.r.mesh.skeleton?.dispose();   // (its bones' texture: one for each person painted would stay here)
+  for (const x of own) x?.dispose();
+  p.r.mesh.skeleton?.dispose();
+  p.mhb?.skel.dispose();   // (its bones' texture: one for each person painted would stay here)
   p.dispose();
   const out = document.createElement('canvas');
   out.width = out.height = PORTRAIT_SIZE;
@@ -94,7 +115,7 @@ export class Figure {
     if (look !== this.lookNow || !this.person) {
       this.dispose();
       if (!R) setup();
-      try { this.person = new RealPerson({ ...look }); } catch (err) { console.warn('Miniverse: no se pudo hacer la figura', err); return; }
+      try { this.person = new RealPerson({ ...look }, { now: true }); } catch (err) { console.warn('Miniverse: no se pudo hacer la figura', err); return; }
       this.own = ownCopies(this.person);
       this.lookNow = look;
       this.person.update(0.5, 0);
@@ -126,8 +147,10 @@ export class Figure {
     if (this.person) {
       // (its program stays, with the last material that used it, without its map: compiling it again would be a stumble of a
       // tenth of a second each time the page opens)
-      const [geo, mat, map] = this.own;
+      const [geo, mat, map, ...more] = this.own;
       geo.dispose(); map?.dispose(); mat.map = null;
+      for (const x of more) x.dispose();   // (a MakeHuman body's other parts)
+      this.person.mhb?.skel.dispose();
       Figure.held?.dispose();
       Figure.held = mat;
       this.person.r.mesh.skeleton?.dispose();

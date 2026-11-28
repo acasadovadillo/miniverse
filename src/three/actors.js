@@ -281,7 +281,10 @@ export class Actors {
   // torre, a caballo o en barca). La esfera crece hacia donde cae su sombra, para que una sombra larga al atardecer no
   // aparezca de golpe en el borde de la pantalla; tumbada, cubre el cuerpo a lo largo; a caballo o en barca, también eso
   grade(m, e, x, y, z, lying) {
-    if (m.person?.mhWant && (ALL || m === this.player)) { if (m.person.mhb) { m.person.mhLevel = 0; this.mhSeen.push([m, 0]); } else this.mhWait.push([m.person, 0]); }
+    if (m.person?.mhWant && (ALL || m === this.player)) {   // (the player's MakeHuman body, by its distance to the camera too)
+      const d = this.view.camera.position.distanceTo(V3.set(x, y + 0.9, z));
+      if (m.person.mhb) this.mhGrade(m, m.person, d); else this.mhWait.push([m.person, 0]);
+    }
     if (ALL || m === this.player || !m.person) return (m.tier = 0);
     const P = m.person, h = P.height, cy = lying ? y + 0.3 : y + h * 0.5, cam = this.view.camera, me = this.me;
     const shLen = Math.min(16, h * this.shK);
