@@ -40,7 +40,7 @@ W_Q = 400.0         # a card's width in uint8: 1/400 dm (0.25 mm), up to 6.4 cm
 TILE = 1.0          # one texture height every decimetre of strand
 COLS = 8            # texture columns (kinds of strands)
 COL = {'dense': 0, 'clump': 1, 'fine': 2, 'wavy': 3, 'curly': 4, 'beard': 5, 'coarse': 6, 'fuzz': 7}
-TEX_W, TEX_H = 512, 512
+TEX_W, TEX_H = 1024, 512
 DOWN = Vector((0, -1, 0))
 UP = Vector((0, 1, 0))
 BACK = Vector((0, 0, -1))
@@ -141,7 +141,7 @@ class Body:
 
 # The lowest the hair grows, by the angle round the head (degrees from the front), in decimetres over the eyes: a
 # forehead about 7 cm over the eyes, the temples a little back, sideburns in front of the ears, over the ears, the nape
-HAIRLINE = [(0, 0.74), (18, 0.72), (32, 0.62), (44, 0.46), (54, 0.26), (60, 0.04), (68, -0.12), (75, -0.12), (82, 0.12),
+HAIRLINE = [(0, 0.74), (18, 0.72), (32, 0.62), (44, 0.46), (54, 0.26), (60, 0.0), (67, -0.26), (75, -0.26), (82, 0.12),
             (96, 0.3), (108, 0.18), (116, -0.3), (135, -0.62), (160, -0.82), (180, -0.86)]
 
 
@@ -274,11 +274,12 @@ def resample(pts, n):
 
 
 class Card:
-    __slots__ = ('p0', 'p1', 'nrm', 'width', 'col', 'ao', 'rand', 'v0', 'len0', 'taper')
+    __slots__ = ('p0', 'p1', 'nrm', 'width', 'col', 'ao', 'rand', 'v0', 'len0', 'taper', 'flags')
 
     def __init__(self, p0, p1, nrm, width, col, ao, rand, len0, taper=(0.75, 1.0, 0.35)):
         self.p0, self.p1, self.nrm, self.width, self.col, self.ao, self.rand, self.len0, self.taper = p0, p1, nrm, width, col, ao, rand, len0, taper
         self.v0 = rand * 3.0
+        self.flags = 0   # (1: a sideburn's card)
 
 
 def nseg_for(L):
@@ -350,8 +351,8 @@ def tail_cards(ctx, axis0, axis1, radius, n_around, col, width_k, seed, ao=(0.55
     a0, l0 = resample(axis0, n)
     a1, l1 = resample(axis1, n)
     cards = []
-    for ring, rk, aok in ((0, 0.45, ao[0]), (1, 1.0, ao[1])):
-        m = max(3, n_around // 2) if ring == 0 else n_around
+    for ring, rk, aok in ((0, 0.3, ao[0]), (1, 0.58, (ao[0] + ao[1]) / 2), (2, 0.82, ao[1])):
+        m = max(3, int(n_around * (0.4, 0.75, 1.25)[ring]))
         for k in range(m):
             ph = 2 * math.pi * (k + 0.5 * ring + rng.random() * 0.3) / m
             pts = []
@@ -369,32 +370,26 @@ def tail_cards(ctx, axis0, axis1, radius, n_around, col, width_k, seed, ao=(0.55
             for i in range(n + 1):
                 c = a1[i]
                 nr.append((pts[1][i] - c).normalized() if (pts[1][i] - c).length > 1e-5 else UP)
-            w = 2 * math.pi * radius(0.4) * max(rk, 0.6) / m * width_k
+            w = 2 * math.pi * radius(0.4) * max(rk, 0.6) / m * width_k * 1.5
             cards.append(Card(pts[0], pts[1], nr, w, col, aok, float(rng.random()), l0, (0.9, 1.0, 0.5)))
     return cards
 
 
 def bun_cards(ctx, centre, axis, R, n_rings, col, seed, grow=0.0):
-    """A bun: rings of cards coiled round a ball at centre (its axis out of the head), the outer ones smaller."""
-    rng = np.random.default_rng(seed)
+    """A bun: a twisted rope of hair coiled on itself, from its outer turn at the head to the middle on top (the rings of
+    cards of before read as a striped disc). The rope is a tail (tail_cards) along the spiral, strongly twisted."""
     u, v = frame_of(axis)
-    cards = []
-    for k in range(n_rings):
-        lat = -0.9 + 1.8 * k / max(1, n_rings - 1)          # from the head to the bun's top
-        rr = R * math.cos(lat * 1.2)
-        h = R * math.sin(lat) * 0.85
-        for arc in range(2):
-            ph0 = arc * math.pi + rng.random() * 0.6
-            pts0, pts1, nr = [], [], []
-            n = 6
-            for i in range(n + 1):
-                an = ph0 + math.pi * 1.15 * i / n
-                for lst, g in ((pts0, 0.0), (pts1, grow)):
-                    r2 = rr * (1 + 0.18 * g)
-                    lst.append(centre + axis * (h + R * 0.45) + (u * math.cos(an) + v * math.sin(an)) * r2)
-                nr.append((u * math.cos(an) + v * math.sin(an) + axis * math.sin(lat)).normalized())
-            cards.append(Card(pts0, pts1, nr, R * 0.62, col, 0.75 + 0.25 * k / n_rings, float(rng.random()), math.pi * rr, (1.0, 1.0, 1.0)))
-    return cards
+    turns = 2.2
+
+    def spiral(g):
+        pts = []
+        for i in range(61):
+            t = i / 60
+            an = 2 * math.pi * turns * t
+            rad = R * (1 + 0.15 * g) * (1 - 0.62 * t)
+            pts.append(centre + axis * (R * (0.18 + 0.5 * math.sin(t * math.pi * 0.5))) + (u * math.cos(an) + v * math.sin(an)) * rad)
+        return pts
+    return tail_cards(ctx, spiral(0.0), spiral(grow), lambda f: R * 0.36 * (1 - 0.35 * f), 6, col, 1.3, seed, ao=(0.7, 1.0), twist=2 * math.pi * turns * 1.6, nseg=30)
 
 
 def braid_cards(ctx, axis0, axis1, radius, col, seed, lobes_per_dm=2.1):
@@ -432,6 +427,12 @@ def region_scalp(extra=0.0):
     return lambda x, a, y: sm(-0.02, 0.03, y - hairline(a) - wobble(x) + extra)
 
 
+def sideburn(B, x):
+    """The sideburn's band, in front of the ear and under the temple: a man's only (hair.js leaves it out for a woman)."""
+    a = B.head_angle(x)
+    return 56 < a < 84 and x[1] - B.ye < 0.16
+
+
 def in_ear(B, x):
     """The ear's own skin (no roots on it)."""
     a = B.head_angle(x)
@@ -453,6 +454,8 @@ def scalp_layers(ctx, flow, length, height, grav, layers, seed, cut=None, hug=1.
             hg = hug(x) if callable(hug) else hug
             cards.append(strand_card(ctx, x, n, (lambda r: (lambda p, t: flow(p, t, r)))(x), length(x, 0), length(x, 1), hh, grav,
                                      width, COL[col], ao, seed + li * 1000 + ri, hg, c0, c1, post=post, nseg=nseg))
+            if sideburn(B, x):
+                cards[-1].flags = 1
     return cards
 
 
@@ -471,7 +474,7 @@ def fuzz_layer(ctx, seed, count=200, region=None):
     """Very short hair lying flat all over the scalp, under the style: where the long cards leave a gap (the sideburns,
     over the ears, the nape) it still reads as hair, not paint."""
     flow = lambda p, t, r: (DOWN * 0.75 + BACK * 0.55).normalized()
-    return scalp_layers(ctx, flow, lambda r, g: 0.07 + 0.04 * g, lambda t, h0: h0, lambda t: 0.0, [(count, 0.07, 0.13, 0.006, 'fuzz', 0.85)], seed,
+    return scalp_layers(ctx, flow, lambda r, g: 0.07 + 0.04 * g, lambda t, h0: h0, lambda t: 0.0, [(count, 0.06, 0.075, 0.006, 'fuzz', 1.0)], seed,
                         region=region, nseg=2)
 
 
@@ -517,13 +520,13 @@ class Styles:
 
         def height(t, h0):
             return h0 + 0.035 * sm(0, 0.3, t)
-        cards = fuzz_layer(ctx, 3329) + scalp_layers(ctx, flow, lambda r, g: 2.4, height, lambda t: 0.0, [(100, 0.1, 0.26, 0.015, 'dense', 0.82), (90, 0.11, 0.2, 0.04, 'clump', 0.93),
-                                                                              (80, 0.12, 0.15, 0.065, 'clump', 1.0)], 101, cut=self.edge_cut(0.06, 0.26), nseg=7)
+        cards = fuzz_layer(ctx, 3329) + scalp_layers(ctx, flow, lambda r, g: 2.4, height, lambda t: 0.0, [(125, 0.085, 0.18, 0.015, 'dense', 0.85), (110, 0.085, 0.15, 0.04, 'clump', 0.94),
+                                                                              (110, 0.075, 0.11, 0.062, 'clump', 1.0)], 101, cut=self.edge_cut(0.06, 0.26), nseg=6)
         cards += hairline_wisps(ctx, lambda p, t, r: flow(p, t, r), 0.08, 0.14, 50, 191)
         return cards
 
     # ---- straight and long, a centre parting, to the middle of the back (largo; ondas with waves; melena shorter)
-    def long_(self, ctx, xp=0.0, L=3.4, cut_y=None, waves=0.0, seed=201, fringe=False, curl=0.0, vol=0.05, kinds=None, counts=(80, 75, 60)):
+    def long_(self, ctx, xp=0.0, L=3.4, cut_y=None, waves=0.0, seed=201, fringe=False, curl=0.0, vol=0.05, kinds=None, counts=(95, 110, 110)):
         B, ye = self.B, self.ye
 
         def flow(p, t, r):
@@ -569,15 +572,16 @@ class Styles:
                     out.append(q + w * (k * math.sin(s * 2 * math.pi / 0.95 + rand * 6.28)) + n * (0.4 * k * math.cos(s * 2 * math.pi / 0.95 + rand * 6.28)))
             return out
         grav = lambda t: sm(0.03, 0.2, t)
-        nseg = 10 if L > 2 else 8
+        nseg = (8 if waves or curl else 7) if L > 2 else 7
         kinds = kinds or (('wavy', 'wavy', 'clump') if waves else ('dense', 'clump', 'clump'))
         cards = []
-        for li, (count, spacing, width, h0, col, ao) in enumerate([(counts[0], 0.11, 0.32, 0.02, kinds[0], 0.9), (counts[1], 0.12, 0.24, 0.02 + vol * 0.7, kinds[1], 0.96), (counts[2], 0.13, 0.17, 0.02 + vol * 1.4, kinds[2], 1.0)]):
+        for li, (count, spacing, width, h0, col, ao) in enumerate([(counts[0], 0.1, 0.3, 0.02, kinds[0], 0.9), (counts[1], 0.085, 0.17, 0.02 + vol * 0.7, kinds[1], 0.96), (counts[2], 0.08, 0.12, 0.02 + vol * 1.4, kinds[2], 1.0)]):
             roots = ctx.scalp_roots(count, lambda x, a, y: 0 if in_ear(B, x) else region_scalp()(x, a, y), spacing, seed + li * 1000)
             for ri, (x, n) in enumerate(roots):
                 c = cut(x, 0), cut(x, 1)
                 cards.append(strand_card(ctx, x, n, (lambda r: (lambda p, t: flow(p, t, r)))(x), length(x, 0), length(x, 1),
-                                         lambda t, h0=h0: height(t, h0), grav, width, COL[col], ao, seed + li * 1000 + ri, 1.0, c[0], c[1], nseg=nseg, post=post))
+                                         lambda t, h0=h0: height(t, h0), grav, width, COL[col], ao, seed + li * 1000 + ri, 1.0, c[0], c[1], nseg=nseg, post=post,
+                                         taper=(0.8, 1.0, 0.75) if li == 0 else (0.75, 1.0, 0.35)))
         cards += hairline_wisps(ctx, lambda p, t, r: flow(p, t, r), 0.1, 0.18, 40, seed + 90, col='curly' if curl else 'fine')
         return cards
 
@@ -585,7 +589,7 @@ class Styles:
         return self.long_(ctx, 0.0, 3.4, None, 0.0, 201)
 
     def ondas(self, ctx):
-        return self.long_(ctx, 0.28, 3.6, None, 0.065, 301, counts=(85, 80, 60))
+        return self.long_(ctx, 0.28, 3.6, None, 0.065, 301, counts=(90, 100, 100))
 
     def melena(self, ctx):
         return self.long_(ctx, 0.0, 2.2, self.ye - 1.72, 0.0, 401)
@@ -617,23 +621,23 @@ class Styles:
 
     # ---- curly, medium (rizado)
     def rizado(self, ctx):
-        return self.long_(ctx, 0.0, 1.5, self.ye - 1.25, 0.0, 601, curl=0.065, vol=0.14, kinds=('curly', 'curly', 'curly'), counts=(90, 85, 70))
+        return self.long_(ctx, 0.0, 1.5, self.ye - 1.25, 0.0, 601, curl=0.055, vol=0.14, kinds=('curly', 'curly', 'curly'), counts=(105, 125, 115))
 
     # ---- the afro: shells of curly cards round the head
     def afro(self, ctx):
         B = self.B
         rng = np.random.default_rng(701)
         cards = []
-        shells = [(0.05, 180, 0.3, 0.75), (0.2, 200, 0.26, 0.85), (0.36, 200, 0.24, 0.93), (0.5, 200, 0.2, 1.0)]
+        shells = [(0.05, 200, 0.24, 0.82), (0.17, 250, 0.2, 0.88), (0.3, 270, 0.18, 0.94), (0.43, 280, 0.16, 0.98), (0.54, 220, 0.13, 1.0)]
         for si, (r0, count, width, ao) in enumerate(shells):
-            roots = ctx.scalp_roots(count, lambda x, a, y: 0 if in_ear(B, x) else region_scalp()(x, a, y), 0.085 - 0.008 * si, 701 + si * 100)
+            roots = ctx.scalp_roots(count, lambda x, a, y: 0 if in_ear(B, x) else region_scalp()(x, a, y), 0.07 - 0.006 * si, 701 + si * 100)
             for ri, (x, n) in enumerate(roots):
                 rad = (x - B.C).normalized()
                 sp = sm(-0.9, 0.2, x[1] - B.ye)             # (less out low on the nape and round the ears)
                 c0 = x + rad * (r0 * (0.35 + 0.65 * sp))
                 c1 = x + rad * ((r0 * 1.3 + 0.12) * (0.35 + 0.65 * sp))
                 tdir = rad.cross(Vector((rng.random() - 0.5, rng.random() - 0.5, rng.random() - 0.5))).normalized()
-                L = 0.3
+                L = 0.24
                 p0, p1, nr = [], [], []
                 for i in range(3):
                     f = (i / 2 - 0.5) * L
@@ -642,7 +646,7 @@ class Styles:
                         q = B.C + (q - B.C).normalized() * ((c - B.C).length)
                         lst.append(q)
                     nr.append((p1[-1] - B.C).normalized())
-                cards.append(Card(p0, p1, nr, width, COL['curly'], ao, float(rng.random()), L, (0.6, 1.0, 0.6)))
+                cards.append(Card(p0, p1, nr, width * (1.4 if si == 0 else 1.0), COL['dense' if si == 0 else 'curly'], ao, float(rng.random()), L, (0.6, 1.0, 0.6) if si else (0.9, 1.0, 0.9)))   # (the first shell solid: no holes to the scalp)
         return cards
 
     # ---- shaved to a few millimetres; grown, a crop (rapado)
@@ -683,7 +687,7 @@ class Styles:
         def length(r, g):
             y = r[1] - ye
             return (0.18 + 0.32 * sm(0.4, 0.9, y) + g * 0.15) if y > 0.45 else 2.0
-        layers = [(130, 0.09, 0.24, 0.015, 'dense', 0.8), (110, 0.1, 0.16, 0.04, 'clump', 0.92), (80, 0.12, 0.12, 0.06, 'clump', 1.0)]
+        layers = [(140, 0.085, 0.18, 0.015, 'dense', 0.85), (110, 0.1, 0.15, 0.04, 'clump', 0.93), (70, 0.12, 0.11, 0.06, 'clump', 1.0)]
         cards = fuzz_layer(ctx, 3604) + scalp_layers(ctx, flow, length, lambda t, h0: h0 + 0.02 * t, lambda t: 0.0, layers, 1001, hug=lambda r: 0.3 if r[1] - ye > 0.45 else 1.0,
                              cut=self.edge_cut(0.04, 0.2, keep=lambda r: r[1] - ye > 0.45), nseg=6)
         cards += hairline_wisps(ctx, lambda p, t, r: flow(p, t, r), 0.06, 0.1, 40, 1091)
@@ -707,7 +711,7 @@ class Styles:
             y, a = r[1] - ye, B.head_angle(r)
             front = sm(0.5, 0.8, y) * (1 - sm(50, 90, a))
             return 0.25 + 0.55 * front + 0.2 * sm(0.4, 0.8, y) + g * 0.18
-        layers = [(110, 0.1, 0.28, 0.015, 'dense', 0.8), (100, 0.11, 0.22, 0.045, 'clump', 0.92), (80, 0.12, 0.16, 0.07, 'clump', 1.0)]
+        layers = [(130, 0.085, 0.19, 0.015, 'dense', 0.85), (100, 0.1, 0.17, 0.045, 'clump', 0.93), (70, 0.12, 0.13, 0.07, 'clump', 1.0)]
         front = lambda r: r[1] - ye > 0.55 and B.head_angle(r) < 70
         cards = fuzz_layer(ctx, 3776, 185) + scalp_layers(ctx, flow, lambda r, g: length(r, g) if front(r) else 2.4, lambda t, h0: h0 + 0.05 * sm(0, 0.4, t), lambda t: 0.05, layers, 1101, hug=lambda r: 0.5 if front(r) else 1.0,
                              cut=self.edge_cut(0.05, 0.24, keep=front), nseg=7)
@@ -733,15 +737,15 @@ class Styles:
         def length(r, g):
             return (nearest_tie(r) - r).length * 1.8
 
-        layers = [(100, 0.1, 0.34, 0.012, 'dense', 0.9), (85, 0.11, 0.26, 0.035, 'clump', 0.96), (55, 0.14, 0.2, 0.055, 'clump', 1.0)]
-        cards = fuzz_layer(ctx, seed + 7, 160) + scalp_layers(ctx, flow, length, lambda t, h0: h0, lambda t: 0.0, layers, seed, cut=cut, hug=1.0, nseg=7)
+        layers = [(90, 0.1, 0.32, 0.012, 'dense', 0.9), (100, 0.09, 0.2, 0.032, 'clump', 0.96), (90, 0.08, 0.14, 0.05, 'clump', 1.0)]
+        cards = fuzz_layer(ctx, seed + 7, 160) + scalp_layers(ctx, flow, length, lambda t, h0: h0, lambda t: 0.0, layers, seed, cut=cut, hug=1.0, nseg=6)
         for k, (T, d0) in enumerate(ties):
             if tail == 'tail':
                 L0, L1 = 2.3, 2.9
                 rad = lambda f: 0.1 + 0.16 * sm(0, 0.15, f) - 0.14 * sm(0.5, 1, f)
                 a0 = tail_axis(ctx, T, d0, L0, lambda t: 0.2, 0.0)
                 a1 = tail_axis(ctx, T, d0, L1, lambda t: 0.2, 0.0)
-                cards += tail_cards(ctx, a0, a1, rad, 16, COL['dense'], 1.4, seed + 50 + k, nseg=9, twist=0.25)
+                cards += tail_cards(ctx, a0, a1, rad, 16 if len(ties) == 1 else 11, COL['dense'], 1.35, seed + 50 + k, nseg=8 if len(ties) == 1 else 7, twist=0.25, ao=(0.7, 1.0))
             elif tail == 'bun':
                 axis = (T - B.C).normalized()
                 cards += bun_cards(ctx, T, axis, 0.34, 6, COL['coarse'], seed + 60 + k, 0.4)
@@ -804,7 +808,7 @@ class Styles:
             bare = max(lips, nostr)
             m = sm(mouth + 0.05, mouth + 0.09, Y) * (1 - sm(nose[1] - 0.12, nose[1] - 0.06, Y)) * (1 - sm(0.24, 0.32, X)) * front
             c = sm(chin[1] - 0.32, chin[1] - 0.24, Y) * (1 - sm(mouth - 0.13, mouth - 0.09, Y)) * (1 - sm(0.18, 0.26, X)) * front
-            j = sm(chin[1] - 0.62, chin[1] - 0.5, Y) * (1 - sm(ye - 0.66, ye - 0.56, Y)) * (1 - sm(0.66, 0.76, X)) * sm(-1.3, -1.05, Z - chin[2])
+            j = sm(chin[1] - 0.4, chin[1] - 0.3, Y) * (1 - sm(ye - 0.66, ye - 0.56, Y)) * (1 - sm(0.66, 0.76, X)) * sm(-1.3, -1.05, Z - chin[2])
             # (the cheek's upper edge slants up to the sideburn)
             j *= 1 - sm(0, 0.08, Y - (mouth + 0.05 + 0.5 * sm(0.2, 0.7, X)))
             corners = (1 - sm(0.26, 0.32, X)) * sm(chin[1] - 0.2, chin[1] - 0.1, Y) * (1 - sm(mouth + 0.06, mouth + 0.1, Y)) * front
@@ -822,16 +826,21 @@ class Styles:
                 return (DOWN + Vector((0.8 * math.copysign(1, X), 0, 0))).normalized()
             return (DOWN + FWD * 0.15).normalized()
         long_ = kind == 'larga'
-        n = {'bigote': 0.4, 'perilla': 0.45, 'candado': 0.65, 'completa': 1.0, 'larga': 1.0}[kind]
-        layers = [(int(190 * n), 0.042, 0.17, 0.006, 'beard', 0.85), (int(160 * n), 0.045, 0.15, 0.017, 'beard', 0.95),
-                  (int(80 * n), 0.06, 0.11, 0.028, 'fine', 1.0)]
+        n = {'bigote': 0.45, 'perilla': 0.5, 'candado': 0.7, 'completa': 1.0, 'larga': 1.0}[kind]
+        # (a base of short hair lying flat over the whole zone, so no skin shows between the cards; then the beard's
+        # layers, the last fine and loose)
+        layers = [(int(240 * n), 0.032, 0.1, 0.004, 'beard', 0.8, 'base'), (int(220 * n), 0.036, 0.095, 0.008, 'beard', 0.9, 'body'),
+                  (int(180 * n), 0.04, 0.085, 0.018, 'beard', 0.97, 'body'), (int(80 * n), 0.06, 0.07, 0.028, 'fine', 1.0, 'body')]
         cards = []
-        for li, (count, spacing, width, h0, col, ao) in enumerate(layers):
+        for li, (count, spacing, width, h0, col, ao, kind_) in enumerate(layers):
             roots = ctx.scalp_roots(count, reg, spacing, seed + li * 100)
+            base = kind_ == 'base'
             for ri, (x, n) in enumerate(roots):
-                grav = (lambda t: sm(0.2, 0.6, t)) if long_ else (lambda t: 0.3 * t)
-                cards.append(strand_card(ctx, x, n, (lambda r: (lambda p, t: flow(p, t, r)))(x), L0, L1, lambda t, h0=h0: h0 + (0.05 if long_ else 0.015) * t,
-                                         grav, width * (1.5 if long_ else 1.0), COL[col], ao, seed + li * 100 + ri, 0.8, nseg=5 if long_ else 2, taper=(0.7, 1.0, 0.45), shield=False))
+                grav = (lambda t: sm(0.2, 0.6, t)) if long_ and not base else (lambda t: 0.3 * t)
+                l0, l1 = (min(L0, 0.05), min(L1, 0.09)) if base else (L0, L1)
+                cards.append(strand_card(ctx, x, n, (lambda r: (lambda p, t: flow(p, t, r)))(x), l0, l1, lambda t, h0=h0: h0 + (0.05 if long_ and not base else 0.012) * t,
+                                         grav, width * (1.5 if long_ and not base else 1.0), COL[col], ao, seed + li * 100 + ri, 0.9 if base else 0.8,
+                                         nseg=4 if long_ and not base else 2, taper=(0.7, 1.0, 0.45), shield=False))
         return cards
 
 
@@ -871,15 +880,17 @@ def strand_texture():
     xs = np.arange(cw, dtype=np.float32)
     # (kind: strands, their width (px, sigma), alpha, waves (cycles per tile, amplitude px), clumps (how many, pull),
     # spread of the roots across the column (sigma, in columns), gaps (how much of the tile a strand may miss))
+    # (P4 polish: 128 px a column, so a strand is about a fifth of a millimetre on a card two centimetres wide; the solid kinds
+    # (dense, coarse) are opaque in their middle with a dark undercoat between strands, the others only their strands)
     spec = {
-        'dense': dict(n=320, w=(0.45, 0.75), a=(0.35, 0.75), wave=(1, 1.5), clumps=(4, 0.35), spread=0.24, gap=0.12),
-        'clump': dict(n=240, w=(0.45, 0.75), a=(0.35, 0.8), wave=(1, 2.0), clumps=(4, 0.6), spread=0.2, gap=0.25),
-        'fine': dict(n=70, w=(0.35, 0.6), a=(0.3, 0.65), wave=(2, 3.0), clumps=(0, 0), spread=0.22, gap=0.4),
-        'wavy': dict(n=260, w=(0.45, 0.75), a=(0.4, 0.8), wave=(4, 5.0), clumps=(4, 0.45), spread=0.22, gap=0.15),
-        'curly': dict(n=200, w=(0.5, 0.85), a=(0.45, 0.85), wave=(14, 6.0), clumps=(5, 0.5), spread=0.2, gap=0.2),
-        'beard': dict(n=240, w=(0.5, 0.8), a=(0.45, 0.85), wave=(5, 2.5), clumps=(0, 0), spread=0.27, gap=0.25),
-        'coarse': dict(n=260, w=(0.5, 0.85), a=(0.45, 0.85), wave=(2, 2.0), clumps=(3, 0.3), spread=0.25, gap=0.1),
-        'fuzz': dict(n=200, w=(0.4, 0.7), a=(0.45, 0.8), wave=(24, 1.5), clumps=(0, 0), spread=0.26, gap=0.82),
+        'dense': dict(n=900, w=(0.35, 0.6), a=(0.3, 0.7), wave=(1, 2.0), clumps=(7, 0.3), spread=0.26, gap=0.12, body=0.9),
+        'clump': dict(n=620, w=(0.35, 0.6), a=(0.35, 0.8), wave=(1, 2.5), clumps=(7, 0.55), spread=0.24, gap=0.25, body=0.0),
+        'fine': dict(n=160, w=(0.3, 0.5), a=(0.3, 0.65), wave=(2, 4.0), clumps=(0, 0), spread=0.26, gap=0.4, body=0.0),
+        'wavy': dict(n=640, w=(0.35, 0.6), a=(0.4, 0.8), wave=(4, 8.0), clumps=(6, 0.45), spread=0.24, gap=0.15, body=0.0),
+        'curly': dict(n=520, w=(0.4, 0.7), a=(0.45, 0.85), wave=(14, 9.0), clumps=(8, 0.5), spread=0.24, gap=0.2, body=0.45),
+        'beard': dict(n=520, w=(0.4, 0.7), a=(0.45, 0.85), wave=(5, 4.0), clumps=(6, 0.35), spread=0.26, gap=0.3, body=0.0),
+        'coarse': dict(n=700, w=(0.4, 0.7), a=(0.45, 0.85), wave=(2, 3.0), clumps=(5, 0.3), spread=0.27, gap=0.1, body=0.85),
+        'fuzz': dict(n=700, w=(0.3, 0.55), a=(0.5, 0.85), wave=(24, 2.0), clumps=(0, 0), spread=0.3, gap=0.6, body=0.0),
     }
     for name, ci in COL.items():
         S = spec[name]
@@ -889,7 +900,7 @@ def strand_texture():
         centres = rng.uniform(12, cw - 12, nc) if nc else None
         strands = []
         for k in range(S['n']):
-            x0 = float(np.clip(cw / 2 + rng.normal() * cw * S['spread'], 3, cw - 4))
+            x0 = float(np.clip(cw / 2 + rng.normal() * cw * S['spread'], 5, cw - 6))
             strands.append((rng.random(), x0, k))
         strands.sort()
         for d, x0, k in strands:
@@ -904,7 +915,7 @@ def strand_texture():
                 x = x + (c - x) * pk
             w = rng.uniform(*S['w'])
             a = rng.uniform(*S['a'])
-            b = 0.55 + 0.45 * d
+            b = 0.45 + 0.55 * d
             on = np.ones(H, np.float32)
             if S['gap'] > 0:
                 g0 = rng.uniform(0, H)
@@ -915,13 +926,17 @@ def strand_texture():
             if name == 'curly':
                 lit = b * (0.8 + 0.2 * np.cos(2 * math.pi * cyc * v / H + ph + 1.0))
             else:
-                lit = b * (0.92 + 0.08 * np.sin(v / 18.5 + k))
+                lit = b * (0.85 + 0.15 * np.sin(v / (9.0 + 9.0 * rng.random()) + k))   # (light and dark along the strand)
             prof = np.exp(-((xs[None, :] - x[:, None]) ** 2) / (2 * w * w)) * (a * on)[:, None]
             L = L * (1 - prof) + lit[:, None] * prof
             A = 1 - (1 - A) * (1 - prof)
-        side = np.clip(np.minimum(xs, cw - 1 - xs) / 9.0, 0, 1) ** 1.5
-        lum[:, ci * cw:(ci + 1) * cw] = np.where(A > 0.02, L / np.maximum(A, 1e-3), 0.7)
-        A *= side[None, :]
+        # (the solid kinds: an opaque body in the middle, the gaps between strands dark (the hair under them), the sides only
+        # strands; the side fade is wide and soft, so the card's edge is strands, not a line)
+        body = S['body'] * np.clip((np.minimum(xs, cw - 1 - xs) - 12) / 34.0, 0, 1) ** 1.2
+        A2 = 1 - (1 - A) * (1 - body[None, :])
+        lum[:, ci * cw:(ci + 1) * cw] = np.where(A2 > 0.02, (L + (A2 - A) * 0.28) / np.maximum(A2, 1e-3), 0.6)
+        side = np.clip(np.minimum(xs, cw - 1 - xs) / 16.0, 0, 1) ** 1.3
+        A = A2 * side[None, :]
         alp[:, ci * cw:(ci + 1) * cw] = A
     lum = np.clip(lum, 0, 1)
     rows = []
@@ -986,7 +1001,7 @@ def pack_style(B, blob, name, cards, kind, mask):
             if i:
                 acc += (c.p0[i] - c.p0[i - 1]).length if c.len0 > 0.02 else (c.p1[i] - c.p1[i - 1]).length
             vv.append(min(65535, int(round((c.v0 + acc / TILE) % 8.0 * V_Q))))
-        cd += [n, c.col, int(c.rand * 255), int(round(c.ao * 255))]
+        cd += [n, c.col | (c.flags << 7), int(c.rand * 255), int(round(c.ao * 255))]
         npts += n
     p = 's.%s.' % name
     blob.add(p + 'tri', np.array(tri, '<u2').tobytes())
@@ -1000,6 +1015,9 @@ def pack_style(B, blob, name, cards, kind, mask):
     if mask:
         blob.add(p + 'mi', np.array(mask[0], '<u2').tobytes())
         blob.add(p + 'mw', np.array(mask[1], 'u1').tobytes())
+        sb = [i for i in mask[0] if sideburn(B, Vector(B.P[i]))]
+        if sb:
+            blob.add(p + 'ms', np.array(sb, '<u2').tobytes())   # (the mask's sideburn vertices: a woman's are bare)
     tris = sum(2 * (len(c.p0) - 1) for c in cards)
     return {'kind': kind, 'npts': npts, 'ncards': len(cards), 'tris': tris, 'mask': len(mask[0]) if mask else 0}
 

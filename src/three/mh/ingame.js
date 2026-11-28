@@ -37,7 +37,10 @@ const KEEP = ['blink', 'jaw_open', 'smile', 'pucker'];
 const DROP = n => n === 'cornea' || n.startsWith('tongue') || n.startsWith('ownbeardsoft');
 // What a part is, by its name (person.js): the clothes (P3's garments; the provisional MakeHuman ones), the hair and the
 // beard (P4's cards, cut and soft passes; MakeHuman's), the brows, the rest
-const kindOf = n => (/^(garment|cloth):/.test(n) ? 'cloth' : /^(own)?hair(soft)?:/.test(n) ? 'hair' : /^ownbeard(soft)?:/.test(n) ? 'beard' : n.split(':')[0]);
+// (P4's fur shells, ownshell:hair and ownshell:beard, near only: on the head bone like the cards, and their colour and
+// volume painted on the middle level, never their copies)
+const kindOf = n => (/^(garment|cloth):/.test(n) ? 'cloth' : /^((own)?hair(soft)?|ownshell):hair/.test(n) || /^(own)?hair(soft)?:/.test(n) ? 'hair' : /^own(beard(soft)?|shell):beard/.test(n) || /^ownbeard(soft)?:/.test(n) ? 'beard' : n.split(':')[0]);
+const isShell = n => n.startsWith('ownshell:');
 const softPass = n => /soft:/.test(n);
 export const LEVEL_M = [8, 30];    // m: near under the first, middle under the second
 export const NEAR_MAX = 6;         // people drawn whole at once
@@ -324,7 +327,12 @@ class MhShape {
     const ez = eyes.length ? eyes[0].c.z : 0;
     const front = (x, y, z) => z > ez - 0.06 && y < this.eyeY + 0.055 && Math.abs(x) < 0.075;   // (the face, chin too: never hair)
     const U = m => m.userData.U || {};
-    const tint = (m, k) => (U(m).tint?.value || U(m).hairC?.value || m.color || new THREE.Color('#777')).clone().multiplyScalar(k);
+    // (the hair's and the beard's: their colour greyed as much as the near ones are)
+    const tint = (m, k) => {
+      const u = U(m), c = (u.tint?.value || u.hairC?.value || m.color || new THREE.Color('#777')).clone();
+      if (u.greyK && u.greyC) c.lerp(u.greyC.value, Math.min(1, u.greyK.value) * 0.85);
+      return c.multiplyScalar(k);
+    };
     // (a skirt: per 2 cm of height, how far out it goes from the middle; the legs inside it are hidden by it)
     const SK = 0.02, skirt = new Map();
     let hairC = null;
@@ -398,7 +406,7 @@ class MhShape {
     this.stage = 'cards';
     const cards = [];
     for (const p of this.parts) {
-      if (kindOf(p.name) !== 'hair' || softPass(p.name) || !p.name.startsWith('own')) continue;
+      if (kindOf(p.name) !== 'hair' || softPass(p.name) || !p.name.startsWith('own') || isShell(p.name)) continue;
       const a = p.g.attributes.position, ix = p.g.index.array, off = new Uint8Array(a.count), keep = [];
       for (let i = 0; i < a.count; i++) { off[i] = B.near(a.getX(i), a.getY(i), a.getZ(i), 0.022) ? 0 : 1; if ((i & 255) === 0 && late()) yield; }
       for (let t = 0; t < ix.length; t += 3) if (off[ix[t]] || off[ix[t + 1]] || off[ix[t + 2]]) keep.push(ix[t], ix[t + 1], ix[t + 2]);

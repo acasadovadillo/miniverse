@@ -12,7 +12,7 @@ import { garment } from './data.js';
 import { hairOf, browsOf, lashesOf, garmentsOf } from './looks.js';
 import { clothMaterial } from './cloth.js';
 import { skinLayers, layerUniforms } from './skin.js';
-import { hairFits, hairKey, hairMeshes, scalpOf, hairColour, stubbleOf } from './hair.js';
+import { hairFits, hairKey, hairMeshes, scalpOf, hairColour, stubbleOf, shellMeshes, shellOnly } from './hair.js';
 
 const M = 0.1;   // MakeHuman's decimetres to metres
 
@@ -131,7 +131,7 @@ diffuseColor.rgb = layers(diffuseColor.rgb, dl);
 // (the scalp under the hair: the roots' shade of the hair's colour, fading softly at the hairline, made of fine dots there)
 float sn = fract(sin(dot(floor(vMapUv * vec2(3200.0, 1300.0)), vec2(12.9898, 78.233))) * 43758.5453);
 float sk = smoothstep(0.05, 0.85, vScalp) * mix(0.55 + 0.45 * sn, 1.0, smoothstep(0.5, 0.95, vScalp));
-diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.42 + 0.35 * dl), sk * 0.88);
+diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.5 + 0.45 * dl) * (0.8 + 0.4 * sn), sk * 0.7);   // (P4 polish: a lighter paint, short hair, not a dark slab)
 // (the stubble (P4: the beard itself is of cards, hair.js): per zone, moustache, chin and jaw, how dense; the skin a little
 // shadowed and the cut hairs as fine dots of the hair's colour)
 float bz = clamp(max(max(vBeard.x * beard.x, vBeard.y * beard.y), vBeard.z * beard.z), 0.0, 1.0);
@@ -493,7 +493,7 @@ export class MhPerson {
     lap('maps');
     if (late()) yield;
     const own = fitted.find(f => f.kind === 'ownhair');
-    bodyGeo.setAttribute('scalp', new THREE.BufferAttribute(D.hair ? scalpOf(own, D.nv, rm) : scalp(D, fitted.find(f => f.kind === 'hair'), rm, v), 1));
+    bodyGeo.setAttribute('scalp', new THREE.BufferAttribute(D.hair ? scalpOf(own || shellOnly(D, look), D.nv, rm) : scalp(D, fitted.find(f => f.kind === 'hair'), rm, v), 1));
     lap('scalp');
     if (late()) yield;
     bodyGeo.setAttribute('beardZone', new THREE.BufferAttribute(fm.beard, 3));
@@ -506,6 +506,8 @@ export class MhPerson {
     const body = new THREE.Mesh(bodyGeo, this.mat('skin:' + sex, () => skinMaterial(sex)));
     body.name = 'body';
     this.root.add(body);
+    if (late()) yield;
+    for (const sh of shellMeshes(bodyGeo, look, (k, make) => this.mat(k, make))) this.root.add(sh);   // (P4: the fur of the beards and the short hair)
     this.eyes = [];
     for (const f of fitted) {
       if (late()) yield;
