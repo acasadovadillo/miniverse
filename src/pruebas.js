@@ -1612,7 +1612,7 @@ async function soloTests(game) {
       await shot(21.5, 19.6); aimAt(21.5, 1.1, 16.5); check(!game.nearest(), `de lejos dice: ${game.nearest()?.text}`);
       // La cama, una valla del jardín, Nilo y el tablón
       const H = game.houseRect(), bed = w().placedNear((H.x0 + H.x1) / 2, (H.y0 + H.y1) / 2, 16).find(o => o.placed === 'cama'); check(bed, 'no hay cama');
-      await shot(bed.x + 1.2, bed.y + 1.2); aimAt(bed.x, 0.45, bed.y); let act = game.nearest(); check(act?.text === 'Usar la cama' && act.alt, `en la cama dice: ${act?.text}`);
+      await shot(bed.x + 1.2, bed.y + 1.2); aimAt(bed.x, 0.45, bed.y); let act = game.nearest(); check(act?.text === 'Usar la cama' && (act.alt || act.inB), `en la cama dice: ${act?.text}, alt ${!!act?.alt}, inB ${!!act?.inB}`);   // (built: taken down only in B since 2026-11-26.4, game.js inB)
       const nilo = w().nilo; await shot(nilo.x + 1, nilo.y + 1); aimAt(nilo.x, 0.8, nilo.y); check(game.nearest()?.text === 'Hablar con Nilo', `con Nilo dice: ${game.nearest()?.text}`);
       await shot(BOARD.x + 0.5, BOARD.y + 1.6); aimAt(BOARD.x, 1, BOARD.y); check(game.nearest()?.text.includes('tablón'), `en el tablón dice: ${game.nearest()?.text}`);
     } finally { game.mouse = was; game.highlight = null; }
