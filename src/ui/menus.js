@@ -570,6 +570,7 @@ export function initMenus(game) {
     named('pelo', 'hairStyle');
     colours('pelo', 'hair');
     named('pelo', 'beard');
+    extra?.hair();
     // The barber's services and the mirror's beard options: yes or no, with the price when there is one (paintMirror says
     // which, what is on and how much)
     for (const [win, id, run] of MARKS) {
@@ -710,6 +711,7 @@ export function initMenus(game) {
     if (!b && mirror.act === 'shave') out.beard = 'no';
     if (hair) out.hairGrow = hair;
     if (beard && look.sex === 'chico') out.beardGrow = beard;
+    if (NEW) ensureMh(out);   // (the new person: a look of before gets its first head, only in the picture)
     return out;
   }
   // The marks (pressed, with their prices), the bill and the button
@@ -746,7 +748,7 @@ export function initMenus(game) {
     if (barber && wear.cabeza?.id !== 'hijab') delete wear.cabeza;   // (the hat off, to see the hair; a hijab stays on)
     mirror = { wear, hides, barber, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle) : null };
     Object.assign(look, DEFAULT_LOOK, game.player.look);
-    if (NEW) { preview.use('old'); for (const id of ['cabeza', 'ajuste', 'piel']) tabOf(id).hidden = true; }
+    if (NEW) { preview.use('new'); for (const id of ['cabeza', 'ajuste', 'piel']) tabOf(id).hidden = true; }   // (P4: the new person, its hair and beard)
     if (typeof look.beard !== 'string') look.beard = look.beard ? 'completa' : 'no';   // (an old look's true)
     nameIn.value = game.player.name; nameIn.disabled = true;
     $('cr-random').hidden = barber;
