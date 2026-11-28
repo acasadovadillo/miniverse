@@ -1,6 +1,10 @@
 // The barber (Plan E §4.3): what Eusebio charges and what a haircut does. The window is the creator's in its barber mode
 // (ui/menus.js onMirror('barber')); the chair, a piece of tavern furniture that is only where you sit meanwhile.
 import { realHair } from './three/realperson.js';
+import { HAIR_STYLE } from './three/mh/hair.js';
+import { MH_ON } from './three/mh/folk.js';
+// (how a style is drawn: today's person's, or, for a look of the new creator with ?creador=nuevo, our own hair's, hair.js)
+const drawnAs = (s, look) => (MH_ON && look?.mh ? HAIR_STYLE[s] || s : realHair(s));
 import { LOOK_OPTIONS, DEFAULT_LOOK, fullLook } from './looks.js';
 import { hud } from './ui/hud.js';
 import { inTavern } from './world/village.js';
@@ -16,10 +20,10 @@ export const MIRROR_HIDES = {
 export const PRICES = { cut: 40, style: 80, trim: 25, beard: 50, dye: 120 };
 
 // The styles he offers: one for each real style (the ones drawn the same are one choice), the one you wear standing for its own
-export function barberStyles(now) {
-  const out = [], seen = new Set(), all = LOOK_OPTIONS.hairStyle, mine = all.some(([v]) => v === now) ? realHair(now) : null;
+export function barberStyles(now, look = null) {
+  const out = [], seen = new Set(), all = LOOK_OPTIONS.hairStyle, mine = all.some(([v]) => v === now) ? drawnAs(now, look) : null;
   for (const o of all) {
-    const real = realHair(o[0]);
+    const real = drawnAs(o[0], look);
     if (real === mine ? o[0] === now : !seen.has(real)) { seen.add(real); out.push(o); }
   }
   return out;
@@ -30,7 +34,7 @@ export function barberStyles(now) {
 export function barberBill(from, to, ask = {}, factor = 1) {
   const lines = [], add = id => lines.push({ id, n: Math.max(1, Math.round(PRICES[id] * factor)) });
   from = { ...DEFAULT_LOOK, ...fullLook(from) };   // (an old look: what it lacks, as the window shows it)
-  const style = realHair(from.hairStyle) !== realHair(to.hairStyle), beard = from.beard !== fullLook(to).beard;
+  const style = drawnAs(from.hairStyle, from) !== drawnAs(to.hairStyle, from), beard = from.beard !== fullLook(to).beard;
   if (style) add('style'); else if (ask.cut) add('cut');
   if (from.hair !== to.hair) add('dye');
   if (beard) add('beard'); else if (ask.trim) add('trim');

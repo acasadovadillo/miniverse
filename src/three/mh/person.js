@@ -18,10 +18,22 @@ const M = 0.1;   // MakeHuman's decimetres to metres
 
 // ---- Textures: one copy each, shared by every person ----
 const texCache = new Map();
+// (the game draws its people smaller than the creator: from then on, a texture loaded is cut to the side this gives for its
+// name; ingame.js)
+let texMax = null;
+export const limitTextures = f => { texMax = f; };
+const fitSide = (t, name) => {
+  const img = t.image, side = texMax?.(name) || 0;
+  if (!side || !img || Math.max(img.width, img.height) <= side) return;
+  const k = side / Math.max(img.width, img.height), c = document.createElement('canvas');
+  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  t.image = c;
+};
 function tex(name, { srgb = true, onLoad = null } = {}) {
   let t = texCache.get(name);
   if (!t) {
-    t = new THREE.TextureLoader().load(mhUrl(name), () => { t.userData.ready = true; for (const f of t.userData.wait) f(t.image); t.userData.wait = []; });
+    t = new THREE.TextureLoader().load(mhUrl(name), () => { fitSide(t, name); t.userData.ready = true; for (const f of t.userData.wait) f(t.image); t.userData.wait = []; });
     t.userData.wait = [];
     if (srgb) t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 4;
@@ -32,8 +44,13 @@ function tex(name, { srgb = true, onLoad = null } = {}) {
 }
 // Every texture asked for so far has arrived (portraits wait for it)
 export const texturesReady = () => [...texCache.values()].every(t => t.userData.ready);
-// The mean colour of a photo, linear (to take it out of the skin and keep only its detail)
+// The mean colour of a photo, linear (to take it out of the skin and keep only its detail); worked out once per image
+const MEANS = new WeakMap();
 function meanLinear(img) {
+  if (!MEANS.has(img)) MEANS.set(img, meanOf(img));
+  return MEANS.get(img).clone();
+}
+function meanOf(img) {
   const c = document.createElement('canvas'); c.width = c.height = 64;
   const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 64, 64);
   const px = g.getImageData(0, 0, 64, 64).data, s = [0, 0, 0];
@@ -156,7 +173,10 @@ roughnessFactor = mix(roughnessFactor, 0.3, vZone.y);`)
       // (the scalp under the hair is not shiny: through the gaps between the cards it would show as white lines)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
 float scalpDull = 1.0 - smoothstep(0.1, 0.6, vScalp);
-material.specularColor *= scalpDull; material.specularF90 *= scalpDull; material.sheenColor *= scalpDull;`)
+material.specularColor *= scalpDull; material.specularF90 *= scalpDull;
+#ifdef USE_SHEEN
+material.sheenColor *= scalpDull;
+#endif`)
       // (light that goes a little through: a wrapped, reddish diffuse, more in the thin parts, and the ears glowing against
       // the light)
       .replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment
@@ -366,8 +386,11 @@ function looseCloth(D, name, v) {
 // A built person: root (a Group, feet on y 0, facing +z), height, eyeY (for the camera), ms (how long it took), and the
 // expressions (EXPR ids) to set with setExpression, the eyes to turn with setGaze
 export class MhPerson {
-  constructor(D, look) {
+  // (opts.restPose: the game's pose in place of the arms down, src/three/mh/rig.js; it may leave this.rig.squeeze, arrays
+  // of decimetres squeezed with the rest)
+  constructor(D, look, opts = {}) {
     this.D = D;
+    this.opts = opts;
     this.root = new THREE.Group();
     this.mats = {};
     this.expr = D.head.expr || [];
@@ -408,16 +431,20 @@ export class MhPerson {
       shift(e, -1);
     }
     lap('fit');
-    // Then the arms down: the body with its weights; each bound vertex with its three base vertices' weights
-    const mc = look.mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1 : fitted.some(f => f.name === 'tunica') ? 0.4 : 0;
-    const pose = armPose(D, v, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140), arm = D.body.arm;
-    const wU = i => arm[i * 2] / 255, wL = i => arm[i * 2 + 1] / 255;
-    for (const f of fitted) {
-      if (!f.d) continue;   // (our hair: on the head, the arms do not move it)
-      const { refs, w } = f.d, bw = (i, fn) => w[i * 3] * fn(refs[i * 3]) + w[i * 3 + 1] * fn(refs[i * 3 + 1]) + w[i * 3 + 2] * fn(refs[i * 3 + 2]);
-      poseInPlace(f.v, f.P.nv, i => bw(i, wU), i => bw(i, wL), pose);
+    // Then the arms down: the body with its weights; each bound vertex with its three base vertices' weights (in the game,
+    // its own rest pose instead: rig.js)
+    if (this.opts.restPose) this.opts.restPose(this, D, v, fitted);
+    else {
+      const mc = look.mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1 : fitted.some(f => f.name === 'tunica') ? 0.4 : 0;
+      const pose = armPose(D, v, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140), arm = D.body.arm;
+      const wU = i => arm[i * 2] / 255, wL = i => arm[i * 2 + 1] / 255;
+      for (const f of fitted) {
+        if (!f.d) continue;   // (our hair: on the head, the arms do not move it)
+        const { refs, w } = f.d, bw = (i, fn) => w[i * 3] * fn(refs[i * 3]) + w[i * 3 + 1] * fn(refs[i * 3 + 1]) + w[i * 3 + 2] * fn(refs[i * 3 + 2]);
+        poseInPlace(f.v, f.P.nv, i => bw(i, wU), i => bw(i, wL), pose);
+      }
+      poseInPlace(v, nb, wU, wL, pose);
     }
-    poseInPlace(v, nb, wU, wL, pose);
     lap('pose');
     // Feet on the ground: the lowest of the body and the boots
     let ground = Infinity;
@@ -431,6 +458,7 @@ export class MhPerson {
     if (squeezed) {
       const squeeze = a => { for (let i = 0; i < a.length; i += 3) { a[i] *= ky * kx; a[i + 1] = ground + (a[i + 1] - ground) * ky; a[i + 2] *= ky; } };
       squeeze(v);
+      for (const a of this.rig?.squeeze || []) squeeze(a);
       for (const f of fitted) { squeeze(f.v); for (const m of f.morphs || []) for (let i = 0; i < m.length; i += 3) { m[i] *= ky * kx; m[i + 1] *= ky; m[i + 2] *= ky; } }
       for (const e of ex) for (let n = 0; n < e.d.length; n += 3) { e.d[n] *= ky * kx; e.d[n + 1] *= ky; e.d[n + 2] *= ky; }
     }

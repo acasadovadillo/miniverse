@@ -8,6 +8,8 @@ import { Builder, paint, mergeParts } from './geo.js';
 import { KIT_MAT } from './kit3d.js';
 import { injectGrime, grimeMaterial, writeGrime, clearGrime, hasGrime } from './grime.js';
 import { apagada } from '../opciones.js';
+import { mhOfLook } from './mh/folk.js';
+import { mhData, shapeReady, MhBody, prebuildMh } from './mh/ingame.js';
 // (se cargan con el juego, en este orden: base.js deja window.LOOK con sus ayudas, y pelo y persona solo se apuntan en
 // LOOK.parts; THREE lo usan dentro de sus funciones, así que basta con dárselo antes de construir a nadie. Así entran
 // también en la lista de archivos que index.html vuelve a pedir sin caché al cambiar de versión)
@@ -112,7 +114,9 @@ const BUCKLE = new THREE.MeshStandardMaterial({ color: '#b8964a', metalness: 0.5
 // Una persona con lo que el juego espera de ella: root, body, torso, head, legs, shins, arms, fore (índice 0 a -x y
 // 1 a +x), facing, update, clone…
 export class RealPerson {
-  constructor(look, { kid = false } = {}) {
+  // (folk: not a player, who wears a MakeHuman body with ?creador=nuevo even without look.mh; now: the player's, made at
+  // once: see wearMh)
+  constructor(look, { kid = false, folk = false, now = false } = {}) {
     this.look = look; this.real = true; this.kid = kid;
     const r = (this.r = persona().build(toReal(look, kid))), k = kid ? KID : 1;   // (la escala va en su raíz: cadera y estatura, por ella)
     this.root = new THREE.Group();
@@ -129,6 +133,9 @@ export class RealPerson {
     this.bag = null; this.bagKey = null;
     // (the surface overlay: the shared material of its look, the own one while it has a surface, and its height at rest)
     this.shared = r.mesh.material; this.grimeMat = null; this.grimeOn = false; this.grimeTall = r.d?.alto || 1.7;
+    // The new creator's body (plan CR P5, ?creador=nuevo: three/mh/ingame.js), on these same bones; until it is made (the
+    // pack still on its way, or another one made this frame), today's person
+    this.mhb = null; this.mhWant = kid ? null : mhOfLook(look, folk); this.mhNow = now;
     if (W.espalda) this.setBag(W.espalda);   // (la mochila, si la lleva puesta)
     r.root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     // El esqueleto solo se recalcula (y se sube a la gráfica) si algo ha cambiado: Three lo hace en cada fotograma con
@@ -143,7 +150,25 @@ export class RealPerson {
       if (!go) for (let i = 0; i < 16; i++) if (e[i] !== last[i]) { go = true; break; }
       if (go) { up(); last.set(e); this.dirty = false; }
     };
+    if (this.mhWant && (now || shapeReady(look, this.mhWant))) this.wearMh();   // (else when actors.js says: buildNext)
   }
+  // Puts the MakeHuman body on (false while it cannot be made yet: the pack on its way). Its hips, height and fits are its
+  // own from then on; mhFresh tells actors.js to place the tools on the body again
+  wearMh() {
+    if (this.mhb || !this.mhWant || !mhData()) return false;
+    try { this.mhb = new MhBody(this.look, this.mhWant, this.r); }
+    catch (err) { console.warn('Miniverse: no MakeHuman body', err); this.mhWant = null; return false; }
+    this.mhb.attach(this.r.root);
+    this.mhb.near.traverse(o => { if (o.isMesh) o.receiveShadow = true; });
+    this.hipY = this.mhb.hipY; this.height = this.grimeTall = this.mhb.height;
+    this.fit = this.belt = null;
+    if (this.bag) { const k = this.bagKey; this.bagKey = undefined; this.setBag(k ? { color: k } : null); }
+    this.mhFresh = true; this.dirty = true;
+    return true;
+  }
+  // The level of detail of a MakeHuman body (0 near, 1 middle, 2 far: ingame.js), chosen by actors.js
+  set mhLevel(n) { this.mhb?.setLevel(n); }
+  get mhLevel() { return this.mhb ? this.mhb.level : -1; }
   set facing(yaw) { this.targetYaw = yaw; }
   get facing() { return this.targetYaw; }
   // Andar y posar (los huesos) y girar hacia donde mira, por separado: el juego gira a todos en cada fotograma (crew.js lee
@@ -154,6 +179,7 @@ export class RealPerson {
     this.speed += (speed - this.speed) * Math.min(1, dt * 10);
     this.r.update(dt, this.speed, gait);
     this.dirty = true;
+    if (this.mhb) { this.mhb.afterPose(); this.mhb.face(dt, !!this.say); }   // (say: talking, actors.js)
   }
   turn(dt) {
     let d = this.targetYaw - this.root.rotation.y;
@@ -161,11 +187,14 @@ export class RealPerson {
     this.root.rotation.y += d * Math.min(1, dt * 12);
   }
   // El detalle: 0 de cerca, 1 de lejos (ver persona.js setLod)
-  set lod(n) { if (n !== this.lodNow) { this.lodNow = n; this.r.setLod(n); } }
-  get lod() { return this.lodNow; }
+  set lod(n) { if (this.mhb) return; if (n !== this.lodNow) { this.lodNow = n; this.r.setLod(n); } }   // (a MakeHuman body: mhLevel)
+  get lod() { return this.mhb ? (this.mhb.level === 2 ? 1 : 0) : this.lodNow; }
+  // Triangles drawn now (F3 and the bench)
+  get tris() { return this.mhb ? this.mhb.tris : this.lodNow ? this.r.trisL : this.r.tris; }
   // Ya no se usa: suelta su malla compartida (persona.js release) y lo que es solo suyo (la barriga). La mochila es de
   // geometría propia con materiales compartidos
   dispose() {
+    this.mhb?.dispose();
     this.r.release();
     for (const o of Object.values(this.kit || {})) if (o.geometry !== EMPTY_GEO) o.geometry.dispose();   // (the tools on the body: their geometry is only theirs)
     if (this.bag) for (const o of this.bag.children) if (o.geometry !== BUCKLE_GEO) o.geometry.dispose();   // (la hebilla es de todas)
@@ -217,8 +246,8 @@ export class RealPerson {
     if (this.fit) return this.fit;
     const b = this.r.bones, v = new THREE.Vector3(), M = new THREE.Matrix4(), A = new THREE.Matrix4();
     let back = -0.08, front = 0.08, top = null;
-    this.r.root.traverse(o => {
-      if (!o.isSkinnedMesh) return;
+    (this.mhb?.near || this.r.root).traverse(o => {
+      if (!o.isSkinnedMesh || !this.fits(o)) return;
       const sk = o.skeleton, iT = sk.bones.indexOf(b.torso), iA = sk.bones.indexOf(b.armL);
       if (iT < 0) return;
       M.multiplyMatrices(sk.boneInverses[iT], o.bindMatrix);   // (de la malla en reposo al hueso del pecho en reposo)
@@ -232,14 +261,16 @@ export class RealPerson {
     });
     return (this.fit = { back, front, top: top ?? 0.3 });
   }
+  // (a MakeHuman body's skin is measured, not its hair; nor the clothes, which only add a few mm)
+  fits(o) { return !this.mhb || o.name === 'body'; }
   // Where the belt goes on this body, in the hip bone and at rest (as bagFit, measured once): w, half the width of the
   // waist; back and front, how far it goes behind and in front (for the tools hanging at the hip: kit3d.js)
   beltFit() {
     if (this.belt) return this.belt;
     const b = this.r.bones, v = new THREE.Vector3(), M = new THREE.Matrix4();
     let w = 0.15, back = -0.1, front = 0.1, found = false;
-    this.r.root.traverse(o => {
-      if (!o.isSkinnedMesh || found) return;
+    (this.mhb?.near || this.r.root).traverse(o => {
+      if (!o.isSkinnedMesh || found || !this.fits(o)) return;
       const sk = o.skeleton, i = sk.bones.indexOf(b.body);
       if (i < 0) return;
       found = true; w = 0; back = 0; front = 0;
@@ -313,7 +344,7 @@ export class RealPerson {
     }
     if (this.belly) {
       this.belly.visible = k > 0;
-      this.belly.position.set(0, -0.05 + 0.01 * k, 0.03 + 0.045 * k);
+      this.belly.position.set(0, -0.05 + 0.01 * k, 0.03 + 0.045 * k + (this.mhb ? this.mhb.bellyFront - 0.1 : 0));   // (a MakeHuman belly, as far out as its waist)
       this.belly.scale.set(0.14 + 0.03 * k, 0.13 + 0.04 * k, 0.07 + 0.11 * k);
     }
     return made;
@@ -342,6 +373,8 @@ export function realBaby(look) {
 const BLANKET_BALL = new THREE.SphereGeometry(1, 20, 14), BLANKET = new Map();
 // Deja hecho el prototipo de una persona (persona.js prebuild), para que salga sin tirón cuando haga falta
 export const prebuildReal = (look, kid = false) => persona().prebuild(toReal(look, kid));
+// And its MakeHuman body (plan CR P5, ?creador=nuevo), for someone who is not a player: folk.js; false if made already
+export const prebuildBody = (look, kid = false) => !kid && mhData() !== null && prebuildMh(look, mhOfLook(look, true));
 // Is it made already (so putting it on screen costs nothing)?
 export const realReady = (look, kid = false) => persona().ready(toReal(look, kid));
 // Cuántos prototipos hay, cuántos sin usar y cuántos lienzos

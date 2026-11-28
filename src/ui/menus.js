@@ -746,7 +746,7 @@ export function initMenus(game) {
     game.mode = 'mirror';
     const wear = { ...game.appearance().wear };
     if (barber && wear.cabeza?.id !== 'hijab') delete wear.cabeza;   // (the hat off, to see the hair; a hijab stays on)
-    mirror = { wear, hides, barber, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle) : null };
+    mirror = { wear, hides, barber, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle, game.player.look) : null };
     Object.assign(look, DEFAULT_LOOK, game.player.look);
     if (NEW) { preview.use('new'); for (const id of ['cabeza', 'ajuste', 'piel']) tabOf(id).hidden = true; }   // (P4: the new person, its hair and beard)
     if (typeof look.beard !== 'string') look.beard = look.beard ? 'completa' : 'no';   // (an old look's true)

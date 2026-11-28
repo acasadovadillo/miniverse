@@ -1259,125 +1259,21 @@
   "check": "pack index",
   "sha256": "4659691c7295"
  },
- "mpfb/system_assets/hair/afro01/afro01.mhclo": {
+ "mpfb/system_assets/proxymeshes/female1605/female1605.obj": {
+  "check": "pack index",
+  "sha256": "0441ef434702"
+ },
+ "mpfb/system_assets/proxymeshes/female1605/female1605.proxy": {
   "check": "header",
-  "sha256": "9977bd4507e2"
+  "sha256": "d79c1688779a"
  },
- "mpfb/system_assets/hair/afro01/afro01.obj": {
+ "mpfb/system_assets/proxymeshes/male1591/male1591.obj": {
   "check": "pack index",
-  "sha256": "8344fffef151"
+  "sha256": "0e067b133800"
  },
- "mpfb/system_assets/hair/afro01/afro_diffuse.png": {
-  "check": "pack index",
-  "sha256": "dc0db7dd8a13"
- },
- "mpfb/system_assets/hair/bob01/bob01.mhclo": {
+ "mpfb/system_assets/proxymeshes/male1591/male1591.proxy": {
   "check": "header",
-  "sha256": "a295b11ab6c7"
- },
- "mpfb/system_assets/hair/bob01/bob01.obj": {
-  "check": "pack index",
-  "sha256": "d7fb73806f47"
- },
- "mpfb/system_assets/hair/bob01/bob01_diffuse.png": {
-  "check": "pack index",
-  "sha256": "2b38bc7a028e"
- },
- "mpfb/system_assets/hair/bob02/bob02.mhclo": {
-  "check": "header",
-  "sha256": "a48dcf87c6a6"
- },
- "mpfb/system_assets/hair/bob02/bob02.obj": {
-  "check": "pack index",
-  "sha256": "30d44038836d"
- },
- "mpfb/system_assets/hair/bob02/bob02_diffuse.png": {
-  "check": "pack index",
-  "sha256": "38c88e6f7163"
- },
- "mpfb/system_assets/hair/braid01/braid01.mhclo": {
-  "check": "header",
-  "sha256": "e350614dab32"
- },
- "mpfb/system_assets/hair/braid01/braid01.obj": {
-  "check": "pack index",
-  "sha256": "ad0b449c8024"
- },
- "mpfb/system_assets/hair/braid01/braid01_diffuse.png": {
-  "check": "pack index",
-  "sha256": "24c0d2a639f0"
- },
- "mpfb/system_assets/hair/long01/long01.mhclo": {
-  "check": "header",
-  "sha256": "94ecbebfd834"
- },
- "mpfb/system_assets/hair/long01/long01.obj": {
-  "check": "pack index",
-  "sha256": "7f1d6dadbdf9"
- },
- "mpfb/system_assets/hair/long01/long01_diffuse.png": {
-  "check": "pack index",
-  "sha256": "e8dc25d90f8f"
- },
- "mpfb/system_assets/hair/ponytail01/ponytail01.mhclo": {
-  "check": "header",
-  "sha256": "97fc50b12bcb"
- },
- "mpfb/system_assets/hair/ponytail01/ponytail01.obj": {
-  "check": "pack index",
-  "sha256": "d9f5fe96fbed"
- },
- "mpfb/system_assets/hair/ponytail01/ponytail01_diffuse.png": {
-  "check": "pack index",
-  "sha256": "dcb364300cac"
- },
- "mpfb/system_assets/hair/short01/short01.mhclo": {
-  "check": "header",
-  "sha256": "ae1ffaa98da5"
- },
- "mpfb/system_assets/hair/short01/short01.obj": {
-  "check": "pack index",
-  "sha256": "d998d8416f9b"
- },
- "mpfb/system_assets/hair/short01/short01_diffuse.png": {
-  "check": "pack index",
-  "sha256": "f34a0957184e"
- },
- "mpfb/system_assets/hair/short02/short02.mhclo": {
-  "check": "header",
-  "sha256": "625736cdb73e"
- },
- "mpfb/system_assets/hair/short02/short02.obj": {
-  "check": "pack index",
-  "sha256": "48f979114adf"
- },
- "mpfb/system_assets/hair/short02/short02_diffuse.png": {
-  "check": "pack index",
-  "sha256": "47fe33831a39"
- },
- "mpfb/system_assets/hair/short03/short03.mhclo": {
-  "check": "header",
-  "sha256": "d80bbb8fd9b0"
- },
- "mpfb/system_assets/hair/short03/short03.obj": {
-  "check": "pack index",
-  "sha256": "4a9fc385718f"
- },
- "mpfb/system_assets/hair/short03/short03_diffuse.png": {
-  "check": "pack index",
-  "sha256": "fe6ed0bb1449"
- },
- "mpfb/system_assets/hair/short04/short04.mhclo": {
-  "check": "header",
-  "sha256": "d60640aa4c4f"
- },
- "mpfb/system_assets/hair/short04/short04.obj": {
-  "check": "pack index",
-  "sha256": "676964a133ee"
- },
- "mpfb/system_assets/hair/short04/short04_diffuse.png": {
-  "check": "pack index",
-  "sha256": "0bef7fc0e403"
+  "sha256": "6fc9a44fc19d"
  },
  "mpfb/system_assets/skins/old_caucasian_female/old_lightskinned_female_diffuse.png": {
   "check": "pack index",

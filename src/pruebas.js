@@ -2781,6 +2781,78 @@ async function soloTests(game) {
     const m = packMh({ macro: {}, face: {}, grey: 30, hl: 40, hlC: '#c87a3a' });
     check(m.grey === 30 && m.hl === 40 && m.hlC === '#c87a3a' && !('hl' in packMh({ macro: {}, face: {}, hl: 0, hlC: '#c87a3a' })), `saved: ${JSON.stringify(m)}`);
   });
+  await test('mh game (english): with ?creador=nuevo the neighbours and a player with look.mh wear a MakeHuman body on the bones of today, posed as today; three levels; without it, nothing changes', async () => {
+    const { PEOPLE } = await import('./neighbors.js'), F = await import('./three/mh/folk.js'), I = await import('./three/mh/ingame.js');
+    const bruno = PEOPLE.bruno.look;
+    if (!F.MH_ON) {
+      const P = new RealPerson(bruno, { folk: true });
+      check(!P.mhWant && !P.mhb && !F.mhOfLook(bruno, true) && !F.mhOfLook({ ...LOOK, mh: { preset: 'ca_f1' } }), 'without the switch, nobody wears one');
+      check(toReal({ ...bruno, mh: { preset: 'af_m1' } }).semilla === toReal(bruno).semilla, 'nor does it change today\'s person');
+      P.dispose(); return;
+    }
+    const t0 = performance.now();
+    while (!I.mhData() && performance.now() - t0 < 20000) await sleep(100);
+    check(I.mhData(), 'the pack arrives');
+    // Who: Bruno a strong African head; the same look, the same body; a player only with look.mh; a child, never
+    const mh = F.mhOfLook(bruno, true);
+    check(mh.preset === 'af_m1' && mh.macro.muscle > 50 && JSON.stringify(F.mhOfLook({ ...bruno }, true)) === JSON.stringify(mh), `Bruno: ${mh.preset}`);
+    check(F.mhOfLook(PEOPLE.paco.look, true).macro.age >= 60 && !F.mhOfLook(LOOK, false) && F.mhOfLook({ ...LOOK, mh: { preset: 'ca_f1' } }, false)?.face, 'Paco older; a player without look.mh, none; with it, its face');
+    const folk = F.mhOfLook({ sex: 'chico', skin: '#8a5234', hair: '#8a8480', cloth: '#5a5a58', pants: '#3a3a3a', hairStyle: 'corto', outfit: 'larga' }, true);
+    check(folk.preset.startsWith('af_m') && folk.macro.age >= 55, `a villager with grey hair and dark skin: ${folk.preset}, ${folk.macro.age}`);
+    const K = new RealPerson(bruno, { kid: true, folk: true });
+    check(!K.mhWant && !K.mhb, 'a child keeps today\'s person'); K.dispose();
+    const P = new RealPerson({ ...bruno, wear: { torso: { id: 'camisa', color: '#ffffff' }, espalda: { id: 'mochila', color: '#8a5a34' } } }, { folk: true, now: true }), B = P.mhb;
+    check(B && B.parts.length >= 6 && B.low, `built: ${B?.parts.map(o => o.name)}`);
+    console.log(`▶ mh game: Bruno built in ${B.built.toFixed(0)} ms, ${B.tris0} triangles near, ${B.tris1} in the middle, ${P.height.toFixed(2)} m, hips ${P.hipY.toFixed(2)} m`);
+    check(P.height > 1.6 && P.height < 1.96 && P.hipY > 0.75 && P.hipY < 1.15, `${P.height} m, hips at ${P.hipY}`);
+    // (the bones of today, at the MakeHuman joints: the hand at the wrist, under the shoulder)
+    P.root.updateMatrixWorld(true);
+    const at = b => new THREE.Vector3().setFromMatrixPosition(b.matrixWorld), hand = at(P.hand), sh = at(P.arms[0]), hip = at(P.body);
+    check(Math.abs(hand.x - sh.x) < 0.12 && hand.y < hip.y + 0.15 && hand.y > hip.y - 0.3, `the hand hangs by the side: ${hand.toArray().map(v => v.toFixed(2))}`);
+    // (three levels: near, middle, far; what hangs from the bones stays seen)
+    for (const n of [0, 1, 2]) {
+      P.mhLevel = n;
+      check(B.near.visible === (n === 0) && B.low.visible === (n === 1) && P.r.mesh.visible === (n === 2) && P.bag.parent && (n !== 2 || P.lod === 1), `level ${n}`);
+    }
+    P.mhLevel = 0;
+    // (the backpack, the belt and the belly on this body: measured on it)
+    const f = P.bagFit(), b = P.beltFit();
+    check(f.back < -0.05 && f.back > -0.25 && f.front > 0.05 && b.w > 0.1 && b.w < 0.3, `fits: ${JSON.stringify(f)} ${JSON.stringify(b)}`);
+    P.setBelly(1); check(P.belly.visible && P.belly.parent === P.r.bones.spine, 'the belly');
+    // (sitting as today: the hips on the seat; walking, the feet on the ground)
+    const A = game.view3d.actors, m = { kind: 'person', root: new THREE.Group(), person: P, prev: null, speed: 0 };
+    m.root.add(P.root);
+    A.poseBones(m, {}, P, { kind: 'sit', yaw: 0 }, false, 0.1, null);
+    check(Math.abs(P.legs[0].rotation.x + Math.PI / 2) < 0.01, 'sitting: the thighs forward');
+    m.speed = 1.4;
+    for (let i = 0; i < 20; i++) A.poseBones(m, {}, P, null, false, 0.05, null);
+    P.root.updateMatrixWorld(true);
+    let low = Infinity; const pos = B.body.geometry.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i += 7) { B.body.getVertexPosition(i, v); B.body.localToWorld(v); low = Math.min(low, v.y); }
+    check(low > -0.08 && low < 0.08, `walking, the lowest point of the body: ${low.toFixed(3)} m`);
+    // (talking moves the mouth; the same look again costs nothing: its shape is kept)
+    P.say = true; for (let i = 0; i < 10; i++) P.animate(0.05, 0);
+    check(B.body.morphTargetInfluences[B.exNames.indexOf('jaw_open')] > 0.05, 'talking, the jaw');
+    const t1 = performance.now(), Q = new RealPerson({ ...bruno, wear: { torso: { id: 'camisa', color: '#ffffff' }, espalda: { id: 'mochila', color: '#8a5a34' } } }, { folk: true });
+    check(Q.mhb && performance.now() - t1 < 400, `the same look again: ${(performance.now() - t1).toFixed(0)} ms`);
+    P.dispose(); Q.dispose();
+    // (P3's clothes and P4's hair on it: the garments of the outfit, a torn one torn; long hair keeps its length in the
+    // middle level; grown hair is another shape; the barber charges by our own styles)
+    const torn = { ...PEOPLE.lia.look, wear: { torso: { id: 'camisa', color: '#2e8a8a', r: 2 }, piernas: { id: 'pantalon', color: '#3a4a6a' }, pies: { id: 'botas', color: '#5a4030' } } };
+    const T = new RealPerson(torn, { folk: true, now: true }), TB = T.mhb, names = TB.parts.map(o => o.name);
+    check(names.includes('garment:camisa') && names.includes('garment:pantalon') && names.some(n => n.startsWith('ownhair:')), `Lía's parts: ${names}`);
+    check(TB.shape.mp.mats['garment:camisa']?.userData.U.tear.value === 2, 'the torn shirt, torn');
+    check(TB.tris1 > 3300, `long hair in the middle level: ${TB.tris1} triangles`);
+    const G = new RealPerson({ ...torn, hairGrow: 3 }, { folk: true, now: true });
+    check(G.mhb.shape !== TB.shape && G.mhb.shape.mp.key !== TB.shape.mp.key, 'grown hair, another shape');
+    T.dispose(); G.dispose();
+    const { barberBill: bill, PRICES: PR } = await import('./barber.js'), L2 = { ...LOOK, mh: { preset: 'ca_f1' }, hairStyle: 'mullet' };
+    check(bill(L2, { ...L2, hairStyle: 'corto' }).total === 0 && bill(L2, { ...L2, hairStyle: 'tazon' }).total === PR.style, 'the barber, by our own styles');
+    // (the portrait of a player with look.mh: drawn from the MakeHuman body, something in its middle)
+    const { portrait3D } = await import('./three/portrait.js'), pic = portrait3D({ ...LOOK, mh: { preset: 'ca_f3', macro: { age: 20 } } });
+    const px = pic.getContext('2d').getImageData(pic.width >> 1, pic.height >> 1, 1, 1).data;
+    check(pic.width > 0 && px[3] > 0, `the portrait: ${pic.width} px, its middle ${[...px]}`);
+  });
   await test('menu (english): the new creator (?creador=nuevo): body, head, fine tune, face and hair pages; a new character saves look.mh; the mirror and the barber show the new person', () => keepMenus(async $ => {
     if (new URLSearchParams(location.search).get('creador') !== 'nuevo') { check(!$('cr-canvas-mh') && !document.getElementById('cr-new-style'), 'without the switch, nothing of it'); return; }
     const [, , { presetsFor }, { FACE_SLIDERS }] = await mhMods();

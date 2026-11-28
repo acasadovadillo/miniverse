@@ -17,7 +17,8 @@ import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, SEAT, 
 import { nearX } from '../world/planet.js';
 import { scaleOf } from '../herds.js';
 import { raceKey } from '../horsebreeds.js';
-import { RealPerson, realBaby, prebuildReal, realReady, realStats } from './realperson.js';
+import { RealPerson, realBaby, prebuildReal, prebuildBody, realReady, realStats } from './realperson.js';
+import { LEVEL_M, NEAR_MAX, buildNext } from './mh/ingame.js';
 import { armband } from './law3d.js';
 import { apagada } from '../opciones.js';
 import { smoothstep } from '../util.js';
@@ -122,18 +123,26 @@ const LOD_PX = [60, 72];                   // de lejos por debajo de 60 px; de c
 const LOD_GAP = 0.6;                       // segundos, como poco, entre dos cambios de detalle de la misma persona
 // ?personas=0 (o =todas): todas a todo (sin dormidas, sin LOD1 y animadas en cada fotograma), para comparar (opciones.js)
 const ALL = apagada('personas');
+// A material's copy, with its shader patch (clone() does not copy it: the realistic people carry one for the skin and hair)
+function cloneMat(base) {
+  const c = base.clone();
+  if (base.onBeforeCompile) { c.onBeforeCompile = base.onBeforeCompile; c.customProgramCacheKey = base.customProgramCacheKey; }
+  return c;
+}
 const FR = new THREE.Frustum(), PV = new THREE.Matrix4(), SPH = new THREE.Sphere(), V3 = new THREE.Vector3(), V2 = new THREE.Vector2(), CAMDIR = new THREE.Vector3();
 
 // Una malla del jugador: con su propio material (para dibujar su silueta) y en la capa 2. En la primera pasada del
 // dibujo no escribe ni color ni fondo (solo deja su sombra): esa vez se salta, sin dejar de dar sombra (el mapa de
 // sombras se pinta aparte), y se ahorra una llamada por pieza en cada fotograma
 function ownMesh(o, m, body = false) {
-  const base = o.material;
-  o.material = base.clone();
-  // (clone() no copia el parche del shader: las personas realistas lo llevan para la piel y el pelo)
-  if (base.onBeforeCompile) { o.material.onBeforeCompile = base.onBeforeCompile; o.material.customProgramCacheKey = base.customProgramCacheKey; }
-  m.mats.push(o.material);
-  if (body) m.body.push(o.material);
+  // (a MakeHuman garment has two materials, upper and lower part: each its copy)
+  const one = base => {
+    const c = cloneMat(base);
+    m.mats.push(c);
+    if (body) m.body.push(c);
+    return c;
+  };
+  o.material = Array.isArray(o.material) ? o.material.map(one) : one(o.material);
   o.layers.set(2);
   let count = null;
   o.onBeforeRender = (r, s, c, geo, mat) => { if (!mat.colorWrite && !mat.depthWrite) { count = geo.drawRange.count; geo.drawRange.count = -1; } };
@@ -149,6 +158,7 @@ export class Actors {
     this.lights = [];
     this.player = null;
     this.time = 0; this.stats = null;
+    this.mhSeen = []; this.mhNear = new Set(); this.mhWait = [];   // (the MakeHuman bodies seen last frame, the nearest, and those to make: mhRank)
     this.warm = []; this.warmKey = null;   // las personas por hacer de antemano (ver prewarm)
     this.built = new WeakSet();   // (the looks made that way: later)
     this.rushing = 0;
@@ -162,12 +172,10 @@ export class Actors {
     m.root.traverse(o => {
       if (!o.isMesh) return;
       if (on && !o.userData.solid) {
-        const base = o.material;
-        o.userData.solid = base; o.material = base.clone(); Object.assign(o.material, { transparent: true, opacity: 0.35, depthWrite: false });
-        // (clone() no copia el parche del shader: sin él, la piel de la persona realista saldría sin su sombreado)
-        if (base.onBeforeCompile) { o.material.onBeforeCompile = base.onBeforeCompile; o.material.customProgramCacheKey = base.customProgramCacheKey; }
+        const base = o.material, see = b => Object.assign(cloneMat(b), { transparent: true, opacity: 0.35, depthWrite: false });
+        o.userData.solid = base; o.material = Array.isArray(base) ? base.map(see) : see(base);
       }
-      else if (!on && o.userData.solid) { o.material.dispose(); o.material = o.userData.solid; delete o.userData.solid; }
+      else if (!on && o.userData.solid) { for (const x of [].concat(o.material)) x.dispose(); o.material = o.userData.solid; delete o.userData.solid; }
     });
   }
   own(o, m) { ownMesh(o, m); }   // (something drawn with the player that is not theirs to make: reins3d.js)
@@ -177,6 +185,7 @@ export class Actors {
     const seen = new Set(), p = game.player && game.scene ? game.player : null;
     this.time += dt;
     this.prepView(scene);
+    this.mhRank();
     this.prewarm(game);
     if (!this.horseWarm && this.view.drawn) { this.horseWarm = true; prewarmHorse(this.view.renderer, this.view.camera, this.view.scene); }   // (the horse's mud program: animals.js)
     const list = [...(scene.entities || [])];
@@ -219,6 +228,7 @@ export class Actors {
       }
     }
     for (const [e, m] of this.models) if (!seen.has(e)) this.drop(e, m);
+    if (this.mhWait.length) { buildNext(this.mhWait, covered()); this.mhWait = []; }
     if (this.rushing > 0) this.rushing--;
     this.count();
     // En cuevas y mazmorras el jugador lleva un farol
@@ -238,7 +248,7 @@ export class Actors {
       if (m.kind === 'animal') disposeAnimal(m.root);   // (its merged geometries and a horse's mud material)
       if (m.horse) disposeAnimal(m.horse);
       m.root.traverse(o => {
-        if (o.userData.solid) o.material.dispose();
+        if (o.userData.solid) for (const x of [].concat(o.material)) x.dispose();
         if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); }
       });
       // (de espectador, la barca lleva clones, ya soltados arriba: los suyos de verdad están en userData.solid)
@@ -271,6 +281,10 @@ export class Actors {
   // torre, a caballo o en barca). La esfera crece hacia donde cae su sombra, para que una sombra larga al atardecer no
   // aparezca de golpe en el borde de la pantalla; tumbada, cubre el cuerpo a lo largo; a caballo o en barca, también eso
   grade(m, e, x, y, z, lying) {
+    if (m.person?.mhWant && (ALL || m === this.player)) {   // (the player's MakeHuman body, by its distance to the camera too)
+      const d = this.view.camera.position.distanceTo(V3.set(x, y + 0.9, z));
+      if (m.person.mhb) this.mhGrade(m, m.person, d); else this.mhWait.push([m.person, 0]);
+    }
     if (ALL || m === this.player || !m.person) return (m.tier = 0);
     const P = m.person, h = P.height, cy = lying ? y + 0.3 : y + h * 0.5, cam = this.view.camera, me = this.me;
     const shLen = Math.min(16, h * this.shK);
@@ -296,7 +310,25 @@ export class Actors {
     m.tier = t;
     const now = P.lod | 0, want = cerca ? 0 : px < LOD_PX[0] ? 1 : px > LOD_PX[1] ? 0 : now;
     if (want !== now && this.time - (m.lodAt ?? -9) > LOD_GAP) { P.lod = want; m.lodAt = this.time; }
+    if (P.mhb) this.mhGrade(m, P, d);
+    else if (P.mhWant) this.mhWait.push([P, d]);   // (its MakeHuman body still to make: buildNext, nearest first)
     return t;
+  }
+  // A MakeHuman body's level (plan CR P5, three/mh/ingame.js): near under LEVEL_M[0] if it is one of the NEAR_MAX nearest
+  // (chosen from last frame's distances: mhRank), middle under LEVEL_M[1], far beyond; a metre of slack each way
+  mhGrade(m, P, d) {
+    this.mhSeen.push([m, d]);
+    const now = P.mhLevel, slack = now < 0 ? 0 : 1;
+    let want = d < LEVEL_M[0] + (now === 0 ? slack : -slack) && this.mhNear.has(m) ? 0 : d < LEVEL_M[1] + (now <= 1 ? slack : -slack) ? 1 : 2;
+    if (now < 0) want = Math.max(1, want);
+    if (want !== now && (now < 0 || this.time - (m.mhAt ?? -9) > LOD_GAP / 2)) { P.mhLevel = want; m.mhAt = this.time; }
+  }
+  mhRank() {
+    const s = this.mhSeen || [];
+    s.sort((a, b) => a[1] - b[1]);
+    this.mhNear = new Set();
+    for (const [m, d] of s) { if (this.mhNear.size >= NEAR_MAX || d > LEVEL_M[0] + 1) break; this.mhNear.add(m); }
+    this.mhSeen = [];
   }
   // Las cifras para F3 y el banco
   count() {
@@ -306,7 +338,7 @@ export class Actors {
       s.modelos++;
       if (!m.root.visible) { s.dormidas++; continue; }
       s.vistas++;
-      if (m.kind === 'person') { s['t' + Math.min(2, m.tier ?? 0)]++; if (m.person.lodNow) s.lod1++; s.tris += m.person.lodNow ? m.person.r.trisL : m.person.r.tris; }
+      if (m.kind === 'person') { s['t' + Math.min(2, m.tier ?? 0)]++; if (m.person.lod) s.lod1++; s.tris += m.person.tris; if (m.person.mhb) s['mh' + m.person.mhLevel] = (s['mh' + m.person.mhLevel] || 0) + 1; }
     }
     const r = realStats();
     if (r) { s.protos = r.protos; s.protosLibres = r.libres; s.lienzos = r.lienzos; }
@@ -331,7 +363,7 @@ export class Actors {
     }
     if (!this.warm.length) return;
     // (una que haya que hacer de verdad: las que ya están hechas no cuestan nada)
-    const one = () => { for (let it; (it = this.warm.shift());) { this.built.add(it[0]); try { if (prebuildReal(it[0], it[1])) return; } catch (err) { /* (la hará al verla) */ } } };
+    const one = () => { for (let it; (it = this.warm.shift());) { this.built.add(it[0]); try { if (prebuildReal(it[0], it[1])) { this.warm.unshift(it); return; } if (prebuildBody(it[0], it[1])) return; } catch (err) { /* (la hará al verla) */ } } };   // (a neighbour's MakeHuman body after its ring one, the next time: one each time)
     // (a oscuras, solo en un rato libre: mientras se espera a algo que no es este hilo; ver engine.js, coverSpare. Si no, cada
     // persona alargaba lo que se está a oscuras al entrar 0,3-0,4 s)
     if (covered()) { if (this.view.coverSpare?.() ?? true) one(); return; }
@@ -426,7 +458,7 @@ export class Actors {
   makePerson(e, isPlayer, look) {
     if (e.baby) { const root = new THREE.Group(), b = realBaby(look); root.add(b); return { kind: 'baby', root, prev: null, speed: 0, release: b.userData.release }; }
     {
-      const person = new RealPerson(look, { kid: !!e.kid }), root = new THREE.Group();
+      const person = new RealPerson(look, { kid: !!e.kid, folk: !isPlayer && !e.remote, now: isPlayer }), root = new THREE.Group();
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
       if (look?.armband) armband(person);   // (the constable's: law3d.js)
@@ -574,6 +606,7 @@ export class Actors {
       const bones = m.acc >= BONE_DT[tier], bdt = bones ? Math.min(0.5, m.acc) : 0;
       if (bones) m.acc = 0;
       if (bones) this.poseBones(m, e, P, pz, lying, bdt, game);
+      if (P.mhFresh) this.mhFresh(m, P);
       if (m.hand) {   // (los jugadores: la barriga, si espera un bebé, y la mochila, si la lleva; no son huesos)
         const made = P.setBelly(this.game.family.bellyOf(e));
         if (made && m === this.player) ownMesh(made, m, true);
@@ -630,6 +663,15 @@ export class Actors {
     m.root.position.set(x, y, z);
   }
 
+  // A MakeHuman body just put on (realperson.js wearMh): the tools on the body placed again on its fits, and the player's
+  // parts with their own materials (the outline), as made with the person
+  mhFresh(m, P) {
+    P.mhFresh = false;
+    m.kitShown = undefined; m.kitIds = undefined;
+    if (m.carriedObj) { m.carriedKey = undefined; }
+    if (m === this.player) { P.mhb.near.traverse(o => { if (o.isMesh) ownMesh(o, m, true); }); if (P.mhb.low) ownMesh(P.mhb.low, m, true); if (P.bag) P.bag.traverse(o => { if (o.isMesh) ownMesh(o, m, true); }); }
+    if (m.ghosted) { m.ghosted = false; this.ghost(m, true); }
+  }
   // The tools they carry and do not hold, on their body (kit.js says which and where; kit3d.js draws them): the player's
   // from their inventory, another player's from what their messages say (kt). Rebuilt only when what shows changes
   // (picking up, dropping or moving a tool, the backpack, sitting, lying, riding or crouching, swimming, or the hand going
@@ -956,6 +998,7 @@ export class Actors {
   // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
   // caballo o en barca, y mirar a quien tiene al lado. dt: el tiempo desde la última pose (ver pose)
   poseBones(m, e, P, pz, lying, dt, game) {
+    P.say = e.emote?.k === 'talk';   // (a MakeHuman body moves its mouth: three/mh/ingame.js)
     P.animate(dt, e.mount || e.boat || e.aboard || m.swimK > 0.5 ? 0 : m.speed, e.gait);   // (saliendo del agua, ya andando: las piernas, a andar; gait: the player's three speeds, entities.js)
     if (e.z - (e.floor || 0) > 0.03) {   // en el aire: con las piernas recogidas
       if (!e.mount) { const k = Math.min(1, (e.z - (e.floor || 0)) / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
