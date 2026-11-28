@@ -2869,6 +2869,70 @@ async function soloTests(game) {
     const px = pic.getContext('2d').getImageData(pic.width >> 1, pic.height >> 1, 1, 1).data;
     check(pic.width > 0 && px[3] > 0, `the portrait: ${pic.width} px, its middle ${[...px]}`);
   });
+  await test('mh wardrobe (english): every piece of the legs, head, hair, socks and underwear slots (and the linen shirt, lined boots, wolf coat, leather apron) is drawn on the MakeHuman body, on extreme bodies of both sexes, or hidden on purpose', async () => {
+    const [{ loadMh }, { MhPerson }, { fromPreset, PRESETS }] = await mhMods(), HW = await import('./three/mh/headwear.js');
+    const D = await loadMh(), names = [...D.garments.keys()];
+    check(['falda', 'calcetines', 'medias', 'bragas', 'calzoncillos', 'camiseta', 'camisa_corta', 'botas_forro', 'cuello_lobo', 'hijab'].every(n => names.includes(n)), `the new garments: ${names}`);
+    for (const g of D.garments.values()) check(g.ntri >= 100 && g.ntri <= 3000, `${g.name}: ${g.ntri} triangles`);
+    // (what each id draws: meshes by name; every wearable of these slots must be here, so a new one is not forgotten)
+    const DRAWS = {
+      pantalon: ['garment:pantalon'], falda: ['garment:falda'], sombrero: ['hat:sombrero'], gorro: ['hat:gorro'], hijab: ['garment:hijab'],
+      lazo: ['acc:lazo'], diadema: ['acc:diadema'], flor_pelo: ['acc:flor_pelo'], horquillas: ['acc:horquillas'], corona_flores: ['acc:corona_flores'],
+      calcetines: ['garment:calcetines'], wool_socks: ['garment:medias'], bragas: ['garment:bragas'], calzoncillos: ['garment:calzoncillos'],
+      camiseta_interior: ['garment:camiseta'], linen_shirt: ['garment:camisa_corta'], lined_boots: ['garment:botas_forro'],
+      wolf_lined_coat: ['garment:abrigo', 'garment:cuello_lobo'], leather_apron: ['garment:delantal'],
+    };
+    for (const m of ['cobre', 'hierro', 'oro']) { DRAWS['casco_' + m] = ['hat:casco']; DRAWS['grebas_' + m] = ['garment:pantalon']; }
+    const SLOTS = ['piernas', 'cabeza', 'pelo', 'calcetines', 'interiorAbajo', 'interiorArriba'], extra = { linen_shirt: 'torso', lined_boots: 'pies', wolf_lined_coat: 'outer', leather_apron: 'encima' };
+    const ids = Object.entries(ITEMS).filter(([, it]) => SLOTS.includes(it.wear)).map(([id, it]) => [id, it.wear]).concat(Object.entries(extra));
+    check(ids.every(([id]) => DRAWS[id]), `wearables without a drawing: ${ids.filter(([id]) => !DRAWS[id]).map(([id]) => id)}`);
+    const bodies = { average: {}, thin: { weight: -100, muscle: -60 }, heavy: { weight: 100, muscle: -40 }, strong: { muscle: 100, weight: 30 }, tall: { height: 100 }, old: { age: 100 }, chest: { chest: 100, weight: 30 } };
+    const meshBox = o => new THREE.Box3().setFromBufferAttribute(o.geometry.attributes.position);
+    for (const sex of ['chica', 'chico']) for (const [label, macro] of Object.entries(bodies)) {
+      const mh = fromPreset(PRESETS.find(x => x.sex === sex)); Object.assign(mh.macro, macro);
+      for (const [id, slot] of ids) {
+        const hairStyle = slot === 'pelo' || slot === 'cabeza' ? (label === 'strong' ? 'afro' : label === 'old' ? 'coleta' : 'largo') : 'calvo';
+        const P = new MhPerson(D, { sex, hairStyle, hair: '#4a2c1c', mh, wear: { [slot]: { id, color: '#8a5a3a' } } });
+        const got = P.root.children.map(o => o.name), miss = DRAWS[id].filter(n => !got.includes(n));
+        let bad = 0;
+        for (const n of DRAWS[id]) { const q = P.root.getObjectByName(n)?.geometry.attributes.position.array || []; for (let i = 0; i < q.length; i++) if (!Number.isFinite(q[i]) || Math.abs(q[i]) > 2.5) bad++; }
+        check(!miss.length && !bad, `${sex} ${label} ${id}: missing ${miss}, ${bad} bad numbers`);
+        // (a hat holds the hair under its top; the headscarf hides it all; an accessory sits on the head, not off it)
+        if (slot === 'cabeza' && id !== 'hijab') {
+          const hat = meshBox(P.root.getObjectByName(DRAWS[id][0])), hair = P.root.children.filter(o => /^own(hair|shell):/.test(o.name)).map(meshBox);
+          check(hair.length && hair.every(b => b.max.y < hat.max.y - 0.01) && hat.min.y > P.eyeY - 0.08, `${sex} ${label} ${id}: the hair through the hat (${hair.map(b => b.max.y.toFixed(3))} under ${hat.max.y.toFixed(3)}; brim ${hat.min.y.toFixed(3)}, eyes ${P.eyeY.toFixed(3)})`);
+        }
+        if (id === 'hijab') check(!got.some(n => /^own(hair|shell):hair|^ownhair/.test(n)), `${sex} ${label}: hair under the headscarf: ${got}`);
+        if (slot === 'pelo') {
+          const b = meshBox(P.root.getObjectByName('acc:' + id)), c = b.getCenter(new THREE.Vector3()), head = P.eyeY;
+          check(c.y > head - 0.06 && c.y < head + 0.25 && Math.abs(c.x) < 0.2 && Math.abs(c.z) < 0.25, `${sex} ${label} ${id}: off the head at ${c.toArray().map(x => x.toFixed(2))}`);
+        }
+        P.dispose();
+      }
+    }
+    // (hidden on purpose: underwear and socks under trousers and boots, an accessory under a hat or a headscarf; a skirt under a tunic only below it)
+    const mh = fromPreset(PRESETS[0]), base = { pies: { id: 'botas', color: '#5a3a24' }, piernas: { id: 'pantalon', color: '#4a3a2a' }, torso: { id: 'camisa', color: '#e0d6c0' } };
+    let P = new MhPerson(D, { sex: 'chica', hairStyle: 'coleta', mh, wear: { ...base, interiorAbajo: { id: 'bragas', color: '#f4d8e2' }, interiorArriba: { id: 'camiseta_interior', color: '#f2efe8' }, calcetines: { id: 'calcetines', color: '#ece6da' }, cabeza: { id: 'gorro', color: '#c83a3a' }, pelo: { id: 'lazo', color: '#e86aa0' } } });
+    check(!P.root.children.some(o => /bragas|camiseta|calcetines|^acc:/.test(o.name)) && P.root.getObjectByName('hat:gorro'), `hidden: ${P.root.children.map(o => o.name)}`);
+    P.dispose();
+    P = new MhPerson(D, { sex: 'chica', hairStyle: 'coleta', mh, wear: { ...base, torso: { id: 'tunica', color: '#4a7a4a' }, piernas: { id: 'falda', color: '#7a4a2a', r: 2 } } });
+    const sk = P.root.getObjectByName('garment:falda');
+    check(sk && sk.geometry.index.count < D.garments.get('falda').ntri * 3 && P.mats['garment:falda'].userData.U.tear.value === 2, 'the skirt under a tunic: only its lower part; torn');
+    P.dispose();
+    check(HW.headwearOf({ wear: { cabeza: { id: 'hijab' }, pelo: { id: 'lazo' } } }).acc === null && HW.headwearOf({ wear: { pelo: { id: 'lazo' } } }).acc === 'lazo', 'no accessory under a headscarf');
+    // (in the game: a hat goes into the middle level's one mesh, not a draw of its own; the accessories stay near only)
+    const F = await import('./three/mh/folk.js'), I = await import('./three/mh/ingame.js');
+    const t0 = performance.now();
+    while (F.MH_ON && !I.mhData() && performance.now() - t0 < 20000) await sleep(100);
+    if (F.MH_ON) {
+      const look = { ...LOOK, sex: 'chico', hairStyle: 'corto', mh: { preset: 'ca_m1' }, wear: { ...base, cabeza: { id: 'sombrero', color: '#e0c070' }, espalda: { id: 'mochila', color: '#8a5a34' } } };
+      const A = new RealPerson(look, { now: true }), B = new RealPerson({ ...look, wear: { ...look.wear, cabeza: undefined } }, { now: true });
+      check(A.mhb && A.mhb.parts.some(p => p.name === 'hat:sombrero') && A.mhb.tris1 > B.mhb.tris1 + 400 && A.bag?.parent, `the hat in the middle level: ${A.mhb?.tris1} against ${B.mhb?.tris1} triangles`);
+      console.log(`▶ mh wardrobe: with a straw hat ${A.mhb.tris0} triangles near (${A.mhb.parts.length} parts), ${A.mhb.tris1} in the middle; without, ${B.mhb.tris0} (${B.mhb.parts.length}) and ${B.mhb.tris1}`);
+      for (const n of [1, 2]) { A.mhLevel = n; check(!A.mhb.near.visible && A.mhb.low.visible, `level ${n}: one mesh`); }
+      A.dispose(); B.dispose();
+    }
+  });
   await test('menu (english): the new creator (?creador=nuevo): body, head, fine tune, face and hair pages; a new character saves look.mh; the mirror and the barber show the new person', () => keepMenus(async $ => {
     if (!(await import('./opciones.js')).CREADOR_NUEVO) { check(!$('cr-canvas-mh') && !document.getElementById('cr-new-style'), 'with ?creador=viejo, nothing of it'); return; }
     const [, , { presetsFor }, { FACE_SLIDERS }] = await mhMods();

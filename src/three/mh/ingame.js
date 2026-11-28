@@ -183,7 +183,7 @@ function grid(C) {
 
 // (as person.js: wide skirts and a heavy or strong body hold the arms out)
 function spreadOf(look, mh, fitted) {
-  const mc = mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1.5 : fitted.some(f => f.name === 'tunica') ? 0.5 : 0;
+  const mc = mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1.5 : fitted.some(f => f.name === 'falda') ? 0.9 : fitted.some(f => f.name === 'tunica') ? 0.5 : 0;
   return Math.max(0, Math.min(1.6, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140));
 }
 // What a look builds once: the MakeHuman person in the rest pose, its parts' geometries with their skin weights (bone
@@ -257,9 +257,9 @@ class MhShape {
     Object.assign(body.mat, { bumpMap: null, sheen: 0, needsUpdate: true });
     // (the surface overlay on the skin and the clothes)
     this.grimeMats = [withGrime(body.mat, '1.0')];
-    for (const p of this.parts) if (kindOf(p.name) === 'cloth') for (const m of [].concat(p.mat)) this.grimeMats.push(withGrime(m, '0.0'));
-    // (only the body, the clothes and the hair cast a shadow: what else would cast one is too small to see in it)
-    for (const p of this.parts) if (!/^(body|garment|cloth|ownhair|hair):?/.test(p.name)) p.shadow = false;
+    for (const p of this.parts) if (kindOf(p.name) === 'cloth' || kindOf(p.name) === 'hat') for (const m of [].concat(p.mat)) this.grimeMats.push(withGrime(m, '0.0'));
+    // (only the body, the clothes, the hair and a hat cast a shadow: what else would cast one is too small to see in it)
+    for (const p of this.parts) if (!/^(body|garment|cloth|ownhair|hair|hat):?/.test(p.name)) p.shadow = false;
     this.stage = 'under';
     yield* this.underClothes(body);
     this.stage = 'low';
@@ -279,10 +279,13 @@ class MhShape {
   // the garments 3 mm out, for the same reason
   *underClothes(body) {
     const G = grid(0.02);
-    for (const p of this.parts) if (kindOf(p.name) === 'cloth') {
-      const a = p.g.attributes.position, nr = p.g.attributes.normal;
+    // (not the headscarf: round the face it lies close to the skin that shows, which must stay)
+    for (const p of this.parts) if (kindOf(p.name) === 'cloth' && !/:hijab$/.test(p.name)) {
+      const a = p.g.attributes.position, nr = p.g.attributes.normal, att = p.g.attributes.att;
       for (let i = 0; i < a.count; i++) {
-        G.add(a.getX(i), a.getY(i), a.getZ(i), 1);
+        // (not by its hem: where a piece ends on bare skin (underwear, socks, a waistband) the skin there shows, or its
+        // inside and a hole would)
+        if (!att || att.getZ(i) * 255 > 20) G.add(a.getX(i), a.getY(i), a.getZ(i), 1);
         if (!/shoes|botas/.test(p.name)) a.setXYZ(i, a.getX(i) + nr.getX(i) * 0.003, a.getY(i) + nr.getY(i) * 0.003, a.getZ(i) + nr.getZ(i) * 0.003);
       }
       a.needsUpdate = true;
@@ -341,10 +344,10 @@ class MhShape {
       if (softPass(p.name)) continue;
       if (kind === 'hair' && !hairC) hairC = tint(mat, 0.8);
       if (kind !== 'cloth' && kind !== 'brows' && kind !== 'hair' && kind !== 'beard') continue;
-      const into = kind === 'cloth' ? (layers[layers.length] = Object.assign(grid(0.12), { apron: /delantal/.test(p.name), upper: /:(camisa|chaleco|zamarra)$/.test(p.name) })) : kind === 'hair' ? hair : kind === 'beard' ? beard : face, seen = new Uint8Array(pos.count), att = p.g.attributes.att;
+      const into = kind === 'cloth' ? (layers[layers.length] = Object.assign(grid(0.12), { apron: /delantal/.test(p.name), upper: /:(camisa|camisa_corta|camiseta|chaleco|zamarra)$/.test(p.name), scarf: /:hijab$/.test(p.name) })) : kind === 'hair' ? hair : kind === 'beard' ? beard : face, seen = new Uint8Array(pos.count), att = p.g.attributes.att;
       // (P3's garment: its two colours by the part of each vertex; MakeHuman's provisional one: by its groups)
       const two = att && U(mat).c1 ? [U(mat).c1.value.clone().multiplyScalar(0.75), U(mat).c2.value.clone().multiplyScalar(0.75)] : null;
-      const wide = kind === 'cloth' && /:(tunica|tunica_larga|abrigo)$/.test(p.name);
+      const wide = kind === 'cloth' && /:(tunica|tunica_larga|abrigo|falda)$/.test(p.name);
       const put = (i, c) => {
         if (seen[i]) return;
         seen[i] = 1;
@@ -379,7 +382,7 @@ class MhShape {
       const arm = isArm(i), hand = isHand(i);
       if (!f && !hand) for (let L = layers.length - 1; L >= 0 && !g; L--) {
         // (not under a garment's hem, nor a shirt between the legs)
-        if ((arm && layers[L].apron) || y < layers[L].minY - 0.01 || (layers[L].upper && y < this.J.body.y - 0.02 && !arm)) continue;
+        if ((arm && layers[L].apron) || y < layers[L].minY - 0.01 || (layers[L].upper && y < this.J.body.y - 0.02 && !arm) || (layers[L].scarf && front(x, y, z))) continue;
         const q = layers[L].near(x, y, z, layers[L].apron ? 0.04 : arm ? 0.12 : b && shown[b.d] ? 0.06 : 0.08);   // (wide sleeves stand well off the arm)
         if (q && along(q) > -0.025) g = q;
       }   // (the low body may stand a little out of a garment)
@@ -412,6 +415,8 @@ class MhShape {
       for (let t = 0; t < ix.length; t += 3) if (off[ix[t]] || off[ix[t + 1]] || off[ix[t + 2]]) keep.push(ix[t], ix[t + 1], ix[t + 2]);
       if (keep.length) cards.push({ p, keep });
     }
+    // (a hat, whole, in the same mesh: its two colours as a garment's; the hair accessories are left out here)
+    for (const p of this.parts) if (kindOf(p.name) === 'hat') cards.push({ p, keep: p.g.index.array, hat: true });
     const nc = cards.reduce((k, c) => k + c.p.g.attributes.position.count, 0), np = plugs.pts.length, N = n + np + nc;
     const pos = new Float32Array(N * 3), nor = new Float32Array(N * 3), lc = new Float32Array(N * 4), uv = new Float32Array(N * 2);
     const si = new Uint8Array(N * 4), sw = new Float32Array(N * 4), head = Math.max(0, toSkel[BONES.indexOf('head')]);
@@ -425,13 +430,14 @@ class MhShape {
     plugs.pts.forEach((p, j) => { const r = n + j; pos.set([p.x, p.y, p.z], r * 3); nor.set([0, 0, 1], r * 3); uv.set(plugs.uvs.slice(j * 2, j * 2 + 2), r * 2); lc.set([IRIS.r, IRIS.g, IRIS.b, 0], r * 4); si[r * 4] = head; sw[r * 4] = 1; });
     for (const t of plugs.tris) index.push(t < 0 ? n + (-t - 1) : t);
     let at = n + np;
-    for (const { p, keep: ix } of cards) {
-      const a = p.g.attributes.position, nr = p.g.attributes.normal, c = tint(p.mat, 0.8);
+    for (const { p, keep: ix, hat } of cards) {
+      const a = p.g.attributes.position, nr = p.g.attributes.normal, c = hat ? null : tint(p.mat, 0.8), att = p.g.attributes.att;
+      const two = hat && [U(p.mat).c1.value.clone().multiplyScalar(0.75), U(p.mat).c2.value.clone().multiplyScalar(0.75)];
       for (let i = 0; i < a.count; i++) {
-        const r = at + i;
+        const r = at + i, ci = hat ? two[att.getX(i) > 0.5 ? 1 : 0] : c;
         pos[r * 3] = a.getX(i); pos[r * 3 + 1] = a.getY(i); pos[r * 3 + 2] = a.getZ(i);
         nor[r * 3] = nr.getX(i); nor[r * 3 + 1] = nr.getY(i); nor[r * 3 + 2] = nr.getZ(i);
-        lc[r * 4] = c.r; lc[r * 4 + 1] = c.g; lc[r * 4 + 2] = c.b; lc[r * 4 + 3] = 0;
+        lc[r * 4] = ci.r; lc[r * 4 + 1] = ci.g; lc[r * 4 + 2] = ci.b; lc[r * 4 + 3] = 0;
         si[r * 4] = head; sw[r * 4] = 1;
       }
       for (let t = 0; t < ix.length; t++) index.push(at + ix[t]);

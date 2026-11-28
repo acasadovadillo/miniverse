@@ -58,7 +58,8 @@ export const HAIR_STYLE = {
   melena: 'melena', coletas: 'coletas', trenza: 'trenza', cresta: 'pinchos', tupe: 'tupe', afro: 'afro', rastas: 'ondas', coletaAlta: 'coleta',
   monos: 'mono', trenzas: 'trenza', ondas: 'ondas', flequillo: 'tazon', mullet: 'corto', tazon: 'tazon', samurai: 'mono',
 };
-export const hairStyleOf = look => (look.hairStyle === 'panuelo' ? null : HAIR_STYLE[look.hairStyle] || 'corto');
+// (under a headscarf, no hair at all: it covers it, P6)
+export const hairStyleOf = look => (look.hairStyle === 'panuelo' || look.wear?.cabeza?.id === 'hijab' ? null : HAIR_STYLE[look.hairStyle] || 'corto');
 // The beard and how far it has grown (look.beardGrow 0..4, body.js): a shape keeps its outline for two steps, growing a
 // little, while stubble comes up round it; from the third it fills into a full beard, the long one at the fourth. With no
 // shape: stubble, more stubble, then a short full beard. Returns { shape, k (0 cut .. 1 grown), stubble: [moustache,
@@ -246,6 +247,11 @@ export function hairFits(D, v, look) {
   if (bd.shape && (!SHELLS || bd.shape === 'larga')) add('ownbeard', 'beard_' + bd.shape, bd.k);   // (the others: shells, below)
   return out;
 }
+// How far the short hair's fur stands out (metres; 0 for a style of cards alone): headwear.js sits a hat over it
+export function furOf(look) {
+  const H = SHELLS && SHELL_HAIR[hairStyleOf(look)];
+  return H ? H.L[0] + (H.L[1] - H.L[0]) * Math.max(0, Math.min(3, look.hairGrow | 0)) / 3 : 0;
+}
 // A style drawn by shells alone (no cards fitted): its scalp mask is still the style's (scalpOf)
 export function shellOnly(D, look) {
   const hs = hairStyleOf(look);
@@ -374,18 +380,19 @@ diffuseColor.rgb *= fc;`)
 }
 // The shells of a person: its body geometry (metres, ground at 0; with the 'scalp' and 'beardZone' it was given), the look,
 // and the materials' cache. Returns the meshes (none with ?capas=0 or nothing to cover)
-export function shellMeshes(bodyGeo, look, mat) {
+// (cap: a hat's, P6: the hair's copies pressed into its crown, headwear.js capFur)
+export function shellMeshes(bodyGeo, look, mat, cap = null) {
   if (!SHELLS) return [];
   const out = [], hs = hairStyleOf(look), bd = beardOf(look), grow = Math.max(0, Math.min(3, look.hairGrow | 0)) / 3;
   const H = SHELL_HAIR[hs];
-  if (H) out.push(shellMesh(bodyGeo, 'hair', bodyGeo.attributes.scalp, null, H.n, H.L[0] + (H.L[1] - H.L[0]) * grow, H.den, H.r, H.lean, [0, -0.6, -0.8], false, mat));
+  if (H) out.push(shellMesh(bodyGeo, 'hair', bodyGeo.attributes.scalp, null, H.n, H.L[0] + (H.L[1] - H.L[0]) * grow, H.den, H.r, H.lean, [0, -0.6, -0.8], false, mat, cap));
   if (bd.shape) {
     const z = ZONES[bd.shape], L = bd.shape === 'larga' ? 0.014 : 0.004 + 0.011 * bd.k;
     out.push(shellMesh(bodyGeo, 'beard', bodyGeo.attributes.beardZone, z, SHELL_BEARD.n, L, SHELL_BEARD.den, SHELL_BEARD.r, SHELL_BEARD.lean, [0, -1, 0.15], true, mat));
   }
   return out.filter(Boolean);
 }
-function shellMesh(bg, kind, wAttr, zones, n, L, den, r, lean, fall, withMorphs, mat) {
+function shellMesh(bg, kind, wAttr, zones, n, L, den, r, lean, fall, withMorphs, mat, cap = null) {
   if (!wAttr) return null;
   const pos = bg.attributes.position, nor = bg.attributes.normal, uv = bg.attributes.uv, idx = bg.index.array, nv = pos.count;
   const w = new Float32Array(nv);
@@ -417,6 +424,7 @@ function shellMesh(bg, kind, wAttr, zones, n, L, den, r, lean, fall, withMorphs,
       F[o] = h; F[o + 1] = Math.min(1, w[i] * 1.1) * den; F[o + 2] = 1;
     }
   }
+  if (cap) cap(P);
   const index = new (m * n > 65535 ? Uint32Array : Uint16Array)(tri.length * n);
   // (outermost copy first: where its hairs are, the inner copies fail the depth test before they are shaded)
   for (let l = 0; l < n; l++) for (let t = 0; t < tri.length; t++) index[l * tri.length + t] = tri[t] + (n - 1 - l) * m;

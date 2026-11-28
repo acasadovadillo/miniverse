@@ -12,7 +12,8 @@ import { garment } from './data.js';
 import { hairOf, browsOf, lashesOf, garmentsOf } from './looks.js';
 import { clothMaterial } from './cloth.js';
 import { skinLayers, layerUniforms } from './skin.js';
-import { hairFits, hairKey, hairMeshes, scalpOf, hairColour, stubbleOf, shellMeshes, shellOnly } from './hair.js';
+import { hairFits, hairKey, hairMeshes, scalpOf, hairColour, stubbleOf, shellMeshes, shellOnly, furOf } from './hair.js';
+import { headwearOf, hatFrame, pressHair, capFur, hatFit, surfaceOf, accFit, HAT_COLOUR2, ACC_COLOUR2 } from './headwear.js';
 
 const M = 0.1;   // MakeHuman's decimetres to metres
 
@@ -361,7 +362,7 @@ const BEARD = { bigote: [1, 0, 0], perilla: [0, 1, 0], candado: [1, 1, 0], compl
 // nor the belt, which fit tight
 const restCloth = new Map(), clothNb = new Map();
 function looseCloth(D, name, v) {
-  if (name === 'botas' || name === 'cinturon') return v;
+  if (name === 'botas' || name === 'botas_forro' || name === 'cinturon') return v;
   let rest = restCloth.get(name), nb = clothNb.get(name);
   if (!rest) {
     restCloth.set(name, (rest = fitGarment(D, D.pos, name)));
@@ -372,7 +373,7 @@ function looseCloth(D, name, v) {
   let dv = new Float32Array(v.length);
   for (let i = 0; i < v.length; i++) dv[i] = v[i] - rest[i];
   // (what hangs, bound far from the skin to the coarse skirt helper, more: its rows would show as ridges)
-  const passes = name === 'delantal' || name === 'tunica_larga' || name === 'abrigo' || name === 'tunica' ? 9 : 3;
+  const passes = name === 'delantal' || name === 'tunica_larga' || name === 'abrigo' || name === 'tunica' || name === 'falda' ? 9 : 3;
   for (let pass = 0; pass < passes; pass++) {
     const next = new Float32Array(dv.length);
     for (let i = 0; i < nb.length; i++) {
@@ -404,7 +405,7 @@ export class MhPerson {
   }
   // The shape key: what needs the geometry made again (colours and the skin's layers only touch the materials)
   static shapeKey(look) {
-    return JSON.stringify([look.sex, look.mh?.macro || null, look.mh?.face || null, look.hairStyle, look.brows, look.outfit, look.wear ? Object.values(look.wear).map(w => w?.id).join() : null, hairKey(look)]);
+    return JSON.stringify([look.sex, look.mh?.macro || null, look.mh?.face || null, look.hairStyle, look.brows, look.outfit, look.outer || null, look.hairAcc || null, look.wear ? Object.values(look.wear).map(w => w?.id).join() : null, hairKey(look)]);
   }
   build(look) { const it = this.steps(look); while (!it.next().done); }
   // The build, giving way (yield) when late() says so (the game's frames: ingame.js), at once otherwise
@@ -432,6 +433,10 @@ export class MhPerson {
       if (d) fitted.push({ kind: 'garment', name: c.name, wear: c, P: D.garments.get(c.name), d, v: looseCloth(D, c.name, fitGarment(D, v, c.name)) });
     }
     if (late()) yield;
+    // (a skirt over the shirt tucked in it, on any belly; an apron over a flared skirt lies on it)
+    const skirt = fitted.find(f => f.name === 'falda'), apron = fitted.find(f => f.name === 'delantal'), shirt = fitted.find(f => /^(camisa|camisa_corta|camiseta)$/.test(f.name));
+    if (skirt && shirt) layOver(skirt.v, shirt.v, 0.6);
+    if (skirt && apron) layOver(apron.v, skirt.v, 1.2);
     fitted.push(...hairFits(D, v, look));
     const facial = fitted.filter(f => ['brows', 'lashes', 'teeth', 'tongue', 'ownbeard'].includes(f.kind));
     for (const f of facial) f.morphs = [];
@@ -447,7 +452,7 @@ export class MhPerson {
     // its own rest pose instead: rig.js)
     if (this.opts.restPose) { const r = this.opts.restPose(this, D, v, fitted, late); if (r?.next) yield* r; }
     else {
-      const mc = look.mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1.5 : fitted.some(f => f.name === 'tunica') ? 0.5 : 0;
+      const mc = look.mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1.5 : fitted.some(f => f.name === 'falda') ? 0.9 : fitted.some(f => f.name === 'tunica') ? 0.5 : 0;
       const pose = armPose(D, v, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140), arm = D.body.arm;
       const wU = i => arm[i * 2] / 255, wL = i => arm[i * 2 + 1] / 255;
       for (const f of fitted) {
@@ -476,6 +481,12 @@ export class MhPerson {
       for (const e of ex) for (let n = 0; n < e.d.length; n += 3) { e.d[n] *= ky * kx; e.d[n + 1] *= ky; e.d[n + 2] *= ky; }
     }
     this.ground = ground;
+    // What is worn on the head (P6, headwear.js): a hat measured on this head, the hair pressed into its crown; or an
+    // accessory sat on this hair. Rigid pieces, made on the body as it now stands (the head does not move in the rest pose)
+    const hw = headwearOf(look), fur = furOf(look) / M;
+    let hatF = null;
+    if (hw.hat) { hatF = hatFrame(D, v, fitted, hw.hat, fur); pressHair(hatF, fitted); fitted.push(hatFit(hatF)); }
+    else if (hw.acc) fitted.push(accFit(surfaceOf(D, v, fitted, look, fur), hw.acc));
     // The skin under the clothes is not drawn (no poking through, fewer triangles)
     const hide = new Uint8Array(D.nv);
     for (const f of fitted) if (f.d?.del) for (const i of f.d.del) hide[i] = 1;
@@ -507,12 +518,27 @@ export class MhPerson {
     body.name = 'body';
     this.root.add(body);
     if (late()) yield;
-    for (const sh of shellMeshes(bodyGeo, look, (k, make) => this.mat(k, make))) this.root.add(sh);   // (P4: the fur of the beards and the short hair)
+    for (const sh of shellMeshes(bodyGeo, look, (k, make) => this.mat(k, make), hatF && capFur(hatF, ground))) this.root.add(sh);   // (P4: the fur of the beards and the short hair)
     this.eyes = [];
     for (const f of fitted) {
       if (late()) yield;
       if (f.s) { this.root.add(...hairMeshes(f, ground, (k, make) => this.mat(k, make))); continue; }
-      const g = geometry(f.v, f.P.nv, f.d.idx, f.d.rmap, f.d.uv, ground);
+      if (f.kind === 'hat' || f.kind === 'acc') {
+        const g = geometry(f.v, f.nv, f.idx, f.rmap, f.uv, ground), key = `${f.kind}:${f.name}`;
+        g.setAttribute('att', new THREE.BufferAttribute(f.att, 4, true));
+        const mesh = new THREE.Mesh(g, this.mat(key, () => clothMaterial({ straw: f.name === 'sombrero', fleece: f.name === 'gorro', leather: f.name === 'casco' })));
+        mesh.name = key;
+        this.root.add(mesh);
+        continue;
+      }
+      // (a garment drawn only from some way down: a skirt under a tunic)
+      let idx = f.d.idx;
+      if (f.wear?.from || f.wear?.upto) {
+        const uv = f.d.uv, k = [], at = i => uv[idx[i] * 2 + 1], lo = f.wear.from || -Infinity, hi = f.wear.upto || Infinity;
+        for (let t = 0; t < idx.length; t += 3) if (Math.max(at(t), at(t + 1), at(t + 2)) > lo && Math.min(at(t), at(t + 1), at(t + 2)) < hi) k.push(idx[t], idx[t + 1], idx[t + 2]);
+        idx = Uint16Array.from(k);
+      }
+      const g = geometry(f.v, f.P.nv, idx, f.d.rmap, f.d.uv, ground);
       if (f.morphs) morphs(g, f.d.rmap, f.morphs);
       let mesh;
       if (f.kind === 'eyes') { this.eyeBalls(g); continue; }
@@ -528,7 +554,7 @@ export class MhPerson {
         this.root.add(soft);
       } else if (f.kind === 'garment') {
         g.setAttribute('att', new THREE.BufferAttribute(f.d.att, 4, true));
-        mesh = new THREE.Mesh(g, this.mat('garment:' + f.name, () => clothMaterial({ leather: f.wear.leather, fleece: f.wear.fleece, inside: f.name === 'delantal' ? 0.22 : 0.8 })));
+        mesh = new THREE.Mesh(g, this.mat(garmentKey(f.wear), () => clothMaterial({ leather: f.wear.leather, fleece: f.wear.fleece, inside: f.name === 'delantal' ? 0.22 : 0.8 })));
       }
       mesh.name = f.kind + ':' + f.name;
       if (f.kind === 'brows' || f.kind === 'lashes') mesh.renderOrder = 1;
@@ -604,9 +630,13 @@ export class MhPerson {
       else if (k.startsWith('brows:')) m.userData.U.tint.value.copy(hairC).multiplyScalar(0.75);
     }
     for (const c of garmentsOf(look)) {
-      const U = this.mats['garment:' + c.name]?.userData.U;
-      if (U) { U.c1.value.set(c.colour); U.c2.value.set(c.colour2); U.tear.value = c.tear; U.skin.value.set(look.skin || '#c99d7b'); }
+      const U = this.mats[garmentKey(c)]?.userData.U;
+      if (U) { U.c1.value.set(c.colour); U.c2.value.set(c.colour2); U.tear.value = c.tear; U.fleece.value = c.fleece ? 1 : 0; U.skin.value.set(look.skin || '#c99d7b'); }
     }
+    // (the hat's and the accessory's colours: their own and their second)
+    const hw = headwearOf(look), H = hw.hat && this.mats['hat:' + hw.hat]?.userData.U, A = hw.acc && this.mats['acc:' + hw.acc]?.userData.U;
+    if (H) { H.c1.value.set(hw.hatColour); H.c2.value.set(HAT_COLOUR2[hw.hat] || hw.hatColour); }
+    if (A) { A.c1.value.set(hw.accColour); A.c2.value.set(ACC_COLOUR2[hw.acc] || hw.accColour).multiplyScalar(ACC_COLOUR2[hw.acc] ? 1 : 0.8); }
     hairColour(this.mats, look);
   }
   mat(key, make) { return (this.mats[key] ||= make()); }
@@ -620,5 +650,27 @@ export class MhPerson {
   }
 }
 
+// An outer garment pushed out to lie over an inner one (decimetres, both on the base as fitted): per band of height and of
+// angle round the body's axis, the inner one's farthest point, and the outer one at least 7 mm beyond it there (never
+// pushed more than most: what is much farther out is not under it, a sleeve)
+function layOver(outer, inner, most) {
+  const H = 0.15, A = 40, bins = new Map();
+  let cz = 0;
+  for (let i = 0; i < inner.length; i += 3) cz += inner[i + 2];
+  cz /= inner.length / 3;
+  const key = (y, a) => Math.floor(y / H) * 1000 + ((Math.floor((a + Math.PI) / (2 * Math.PI) * A) + A) % A);
+  for (let i = 0; i < inner.length; i += 3) {
+    const x = inner[i], z = inner[i + 2] - cz, k = key(inner[i + 1], Math.atan2(x, z)), r = Math.hypot(x, z);
+    if (!(bins.get(k) >= r)) bins.set(k, r);
+  }
+  for (let i = 0; i < outer.length; i += 3) {
+    const x = outer[i], z = outer[i + 2] - cz, a = Math.atan2(x, z), r = Math.hypot(x, z);
+    let need = 0;
+    for (const da of [-1, 0, 1]) for (const dy of [-1, 0, 1]) need = Math.max(need, bins.get(key(outer[i + 1] + dy * H, a + da * 2 * Math.PI / A)) || 0);
+    if (need && r < need + 0.07 && need + 0.07 - r < most) { const k = (need + 0.07) / Math.max(r, 1e-6); outer[i] = x * k; outer[i + 2] = cz + z * k; }
+  }
+}
+// A garment's material: by its name, and leather apart (the apron is cloth or leather)
+const garmentKey = c => 'garment:' + c.name + (c.leather && c.name === 'delantal' ? ':leather' : '');
 // The layers' numbers into the skin's uniforms (skin.js says what each is)
 function setLayers(S, look) { layerUniforms(S, look.mh?.skin || {}); }
