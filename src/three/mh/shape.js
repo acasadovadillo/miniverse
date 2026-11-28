@@ -18,18 +18,31 @@ const FACE_RANGE = { cheek_volume: 1.3, head_fat: 1.4, eye_size: 1.4, eye_open: 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 
-// The years of a look (age slider 0..100 = 25..90)
-export const yearsOf = mh => 25 + clamp(num(mh?.macro?.age, 0), 0, 100) * 0.65;
+// The years of a look (age slider 0..100 = 25..90; a child, mh.kid, counts as 25: the young skin, no grey)
+export const yearsOf = mh => (mh?.kid ? 25 : 25 + clamp(num(mh?.macro?.age, 0), 0, 100) * 0.65);
+// A child (mh.kid, folk.js kidMh): MakeHuman's child shape (its 11-year-old) taken a little past itself, away from the
+// young adult, for the head and the limbs of a child of six or seven; then scaled to the game's child height, about 1.16 m
+// (the height slider: 6 % either way). Only the lean and heavy corners: no muscle, chest, height nor proportions
+const KID_W = 1.55;
+export const kidHeight = mh => (mh?.baby ? 5.8 : 11.6) * (1 + clamp(num(mh?.macro?.height) / 100, -1, 1) * 0.06);   // (decimetres)
+// (a baby, mh.baby too: the same taken much further, for a big head on a small body; only its face shows from the blanket)
+const BABY_W = 2.3;
 
 // What to blend, as [target, weight]: sex x age x muscle x weight corners, the origins, height, proportions and the face
 export function weightsFor(D, mh, sex) {
-  const m = mh?.macro || {}, out = [], S = sex === 'chico' ? 'male' : 'female';
-  const old = clamp((yearsOf(mh) - 25) / 65, 0, 1), ages = [['young', 1 - old], ['old', old]];
+  const m = mh?.macro || {}, out = [], S = sex === 'chico' ? 'male' : 'female', kid = !!mh?.kid;
+  const old = clamp((yearsOf(mh) - 25) / 65, 0, 1), ages = kid ? [['child', mh.baby ? BABY_W : KID_W], ['young', 1 - (mh.baby ? BABY_W : KID_W)]] : [['young', 1 - old], ['old', old]];
   const lv = v => { const x = clamp(num(v) / 100, -1, 1) * RANGE; return [['min', Math.max(0, -x)], ['average', 1 - Math.abs(x)], ['max', Math.max(0, x)]]; };
   let o = ORIGINS.map(k => Math.max(0, num(m[k], k === 'ca' ? 100 : 0)));
   const sum = o.reduce((a, b) => a + b, 0) || 1;
   o = o.map(x => x / sum);
-  for (const [age, wa] of ages) {
+  if (kid) {
+    for (const [age, wa] of ages) {
+      for (const [wt, ww] of lv(m.weight / RANGE)) if (ww > 1e-4) out.push([`universal-${S}-${age}-averagemuscle-${wt}weight`, wa * ww]);
+      ORIGINS.forEach((k, i) => { if (o[i] > 1e-4) out.push([`${ORIGIN_NAME[k]}-${S}-${age}`, wa * o[i]]); });
+    }
+  }
+  for (const [age, wa] of kid ? [] : ages) {
     if (wa <= 0) continue;
     for (const [mus, wm] of lv(m.muscle)) for (const [wt, ww] of lv(m.weight)) {
       const w = wa * wm * ww;

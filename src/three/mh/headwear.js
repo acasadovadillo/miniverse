@@ -69,6 +69,15 @@ export function hatFrame(D, v, fitted, kind, furDm = 0) {
   for (let i = 0; i < hair.length; i += 3) { const q = local(F, hair[i], hair[i + 1], hair[i + 2]); if (Math.abs(q[1]) < 0.15) hk = Math.max(hk, ell(F, q, 0)); }
   const mean = (F.rx + F.rz) / 2;
   F.room = room + Math.min(0.22, Math.max(0, (hk - 1) * mean) * 0.5, furDm * 0.5) + Math.min(0.1, furDm);
+  // (the helmet's nasal: the face's front down the middle, per 0.1 dm from under the eyes to the brim, its farthest z)
+  if (kind === 'casco') {
+    F.nose = [];
+    for (let y = eyeY - 0.45; y < eyeY + 0.75; y += 0.1) {
+      let z = -Infinity;
+      for (let i = 0; i < head.length; i += 3) if (Math.abs(head[i]) < 0.16 && Math.abs(head[i + 1] - y) < 0.06) z = Math.max(z, head[i + 2]);
+      if (z > -Infinity) F.nose.push([y, z]);
+    }
+  }
   return F;
 }
 // (into the brim's frame: x across, y up from the plane, z forward along it)
@@ -208,7 +217,8 @@ function woolCap(F) {
   B.blob(top, n[0].map(x => x * R), n[1].map(x => x * R * 0.92), n[2].map(x => x * R), 1, 9, 14, (th, ph) => 1 + 0.08 * Math.sin(th * 7 + ph * 5) * Math.sin(ph * 3 + th * 2), 0.06);
   return B.done('gorro', 'hat');
 }
-// The helmet: a smooth metal cap close round the skull, a raised rim at its edge and a ridge from front to back
+// The helmet: a smooth metal cap close round the skull, a raised rim at its edge and a ridge from front to back; a riveted
+// brow band over the rim and a nasal down over the bridge of the nose (a Norman one), standing off the face
 function helmet(F) {
   const B = new Build(), rx = F.rx + F.room + 0.05, rz = F.rz + F.room + 0.05, ry = F.ry + F.room + 0.06, mr = (rx + rz) / 2, rings = [], N = 10;
   for (let i = -1; i <= N; i++) {
@@ -220,6 +230,35 @@ function helmet(F) {
     rings.push(ring);
   }
   B.strip(rings);
+  // (the brow band: a flat strip round the rim, standing out of the cap, with its rivets)
+  const band = [];
+  for (const [d, h, ao] of [[0.02, -0.13, 0.8], [0.075, -0.13, 0.9], [0.085, -0.02, 1], [0.075, 0.11, 1], [0.02, 0.13, 0.85]]) {
+    const ring = [];
+    for (let j = 0; j < SEG * 2; j++) { const a = Math.PI * j / SEG, r = ellR(rx, rz, a) + d; ring.push(B.vert(world(F, [Math.sin(a) * r, h, F.cz + Math.cos(a) * r]), a * mr * M, h * M, 0, 255, ao)); }
+    band.push(ring);
+  }
+  B.strip(band);
+  for (let k = 0; k < 10; k++) {
+    const a = 2 * Math.PI * (k + 0.5) / 10, r = ellR(rx, rz, a) + 0.09, R = 0.028;
+    B.blob(world(F, [Math.sin(a) * r, -0.01, F.cz + Math.cos(a) * r]), [R, 0, 0], [0, R, 0], [0, 0, R], 1, 3, 6);
+  }
+  // (the nasal: from the band down to under the eyes, 2 cm wide and narrower at its foot, a ridge down its middle, 6 mm
+  // off the face wherever the face comes nearest)
+  const top = world(F, [0, 0.12, F.cz + rz + 0.06]), foot = F.eyeY - 0.42, pts = [];
+  const faceZ = y => { let z = -Infinity; for (const [py, pz] of F.nose || []) if (Math.abs(py - y) < 0.11) z = Math.max(z, pz); return z; };
+  for (let k = 0; k <= 8; k++) {
+    const y = top[1] + (foot - top[1]) * k / 8, lean = top[2] + 0.08 * k / 8;
+    pts.push([y, Math.max(lean, faceZ(y) + 0.06)]);
+  }
+  for (let k = 1; k < pts.length; k++) pts[k][1] = Math.max(pts[k][1], pts[k - 1][1] - 0.02);   // (no step back in: it runs down straight)
+  const nas = pts.map(([y, z], k) => {
+    const w = 0.1 - 0.025 * k / 8, t = 0.035, ring = [];
+    for (const [x, dz] of [[-w, 0], [-w * 0.55, t * 0.8], [0, t * 1.25], [w * 0.55, t * 0.8], [w, 0], [w * 0.5, -t * 0.4], [-w * 0.5, -t * 0.4]]) ring.push(B.vert([x, y, z + dz], x * M, y * M, 0, k === 8 ? 40 : 255, 1));
+    return ring;
+  });
+  B.strip(nas);
+  const capEnd = nas[nas.length - 1], c = B.vert([0, pts[8][0] - 0.01, pts[8][1] + 0.01], 0, 0, 0, 0, 1);
+  for (let j = 0; j < capEnd.length; j++) B.ix.push(capEnd[j], capEnd[(j + 1) % capEnd.length], c);
   return B.done('casco', 'hat');
 }
 export function hatFit(F) { return F.kind === 'sombrero' ? strawHat(F) : F.kind === 'casco' ? helmet(F) : woolCap(F); }

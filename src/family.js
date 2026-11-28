@@ -13,6 +13,7 @@ import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 import { nameColor, lineTime } from './talk.js';   // (a cycle, read only inside functions)
 import { t, tList, formatMessage } from './i18n.js';
+import { childMh } from './three/mh/folk.js';
 
 const WAIT = 7, GROW = 7, MAX = 2;   // días hasta que nace, días de bebé y cuántos hijos como mucho
 const NIGHT = [21, 7];               // de qué hora a qué hora duermen los niños
@@ -226,6 +227,8 @@ export class Family {
       const sex = Math.random() < 0.5 ? 'chico' : 'chica', used = new Set(this.v.kids.map(k => k.name));
       const name = NAMES[sex].find(n => !used.has(n)) || NAMES[sex][0];
       const kid = { id: `h${day}${Math.random().toString(36).slice(2, 6)}`, name, sex, look: childLook(e.looks[0] || {}, e.looks[1] || e.looks[0] || {}, sex), born: day, named: false };
+      // (its MakeHuman face, between its parents', kept in its look: the same child always; three/mh/folk.js)
+      kid.look.mh = childMh(e.looks[0] || {}, e.looks[1] || e.looks[0] || {});
       if (e.mother && e.father) kid.parents = [e.mother, e.father];   // (whose child it is: see isPartner in social.js)
       this.v.kids.push(kid);
       this.v.expecting = null;

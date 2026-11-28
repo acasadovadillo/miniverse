@@ -2808,7 +2808,7 @@ async function soloTests(game) {
     const folk = F.mhOfLook({ sex: 'chico', skin: '#8a5234', hair: '#8a8480', cloth: '#5a5a58', pants: '#3a3a3a', hairStyle: 'corto', outfit: 'larga' }, true);
     check(folk.preset.startsWith('af_m') && folk.macro.age >= 55, `a villager with grey hair and dark skin: ${folk.preset}, ${folk.macro.age}`);
     const K = new RealPerson(bruno, { kid: true, folk: true });
-    check(!K.mhWant && !K.mhb, 'a child keeps today\'s person'); K.dispose();
+    check(K.mhWant?.kid === 1 && !K.mhb, 'a child wears a child\'s (mh kids)'); K.dispose();
     const P = new RealPerson({ ...bruno, wear: { torso: { id: 'camisa', color: '#ffffff' }, espalda: { id: 'mochila', color: '#8a5a34' } } }, { folk: true, now: true }), B = P.mhb;
     check(B && B.parts.length >= 6 && B.low, `built: ${B?.parts.map(o => o.name)}`);
     console.log(`▶ mh game: Bruno built in ${B.built.toFixed(0)} ms, ${B.tris0} triangles near, ${B.tris1} in the middle, ${P.height.toFixed(2)} m, hips ${P.hipY.toFixed(2)} m`);
@@ -2862,13 +2862,58 @@ async function soloTests(game) {
     check(!N.mhb && !N.r.mesh.visible, 'a new look: nothing drawn while its body is made');
     let calls = 0, worst = 0;
     while (!N.mhb && calls < 400) { const t = performance.now(); I.buildNext([[N, 3]], false); worst = Math.max(worst, performance.now() - t); calls++; await frames(1); }
-    console.log(`▶ mh game: a new look made in ${calls} frames, the longest ${worst.toFixed(1)} ms`);
+    console.log(`▶ mh game: a new look made in ${calls} frames, the longest ${worst.toFixed(1)} ms (its longest step ${N.mhb?.shape.maxStep?.toFixed(1)} ms at ${N.mhb?.shape.maxAt})`);
     check(N.mhb && calls > 5 && worst < 40, `made over ${calls} frames, the longest ${worst.toFixed(1)} ms`);
     N.dispose();
     // (the portrait of a player with look.mh: drawn from the MakeHuman body, something in its middle)
     const { portrait3D } = await import('./three/portrait.js'), pic = portrait3D({ ...LOOK, mh: { preset: 'ca_f3', macro: { age: 20 } } });
     const px = pic.getContext('2d').getImageData(pic.width >> 1, pic.height >> 1, 1, 1).data;
     check(pic.width > 0 && px[3] > 0, `the portrait: ${pic.width} px, its middle ${[...px]}`);
+  });
+  await test('mh kids (english): the family\'s children wear a MakeHuman child\'s body, from their look and their parents\' (the same child always), dressed and with their hair, walking and lying as today, at three levels; a baby lies in its crib with one', async () => {
+    const F = await import('./three/mh/folk.js'), I = await import('./three/mh/ingame.js'), { childLook, clothesFor, dressed } = await import('./looks.js');
+    const { mhBaby, babyMh } = await import('./three/realperson.js');
+    if (!F.MH_ON) { const K = new RealPerson(LOOK, { kid: true }); check(!K.mhWant, 'without the switch, today\'s child'); K.dispose(); return; }
+    const t0 = performance.now();
+    while (!I.mhData() && performance.now() - t0 < 20000) await sleep(100);
+    check(I.mhData(), 'the pack arrives');
+    // (from the parents: half of each origin, a face between theirs and a child's; kept in the look, so always the same)
+    const mum = { ...LOOK, sex: 'chica', skin: '#f6c9a0', mh: { preset: 'ca_f2' } }, dad = { ...LOOK, sex: 'chico', skin: '#6a3c26', mh: { preset: 'af_m1' } };
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646, mh = F.childMh(mum, dad, rnd);
+    check(mh.kid === 1 && mh.macro.af === 50 && mh.macro.ca === 50 && mh.face.eye_size > 0 && mh.face.nose_length < 0 && !mh.macro.muscle && !mh.macro.age, `a newborn: ${JSON.stringify(mh.macro)}`);
+    const L = { ...childLook(mum, dad, 'chica', rnd), mh }, look = dressed(L, clothesFor(L));
+    check(JSON.stringify(F.kidMhOf(look)) === JSON.stringify(F.kidMhOf({ ...look })) && F.kidMhOf(look).face.eye_size === mh.face.eye_size, 'its own, kept');
+    const old = { sex: 'chico', skin: '#6a3c26', hair: '#2a1e1e', hairStyle: 'rizado', outfit: 'chaleco', cloth: '#4a9a4a', pants: '#4a3a2a' };
+    check(F.kidMhOf(old).kid === 1 && JSON.stringify(F.kidMhOf(old)) === JSON.stringify(F.kidMhOf({ ...old })) && F.kidMhOf(old).macro.af > 0, 'a child of before: from its look, always the same');
+    // (built: the clothes and the hair on it, a child's height and a child's head)
+    const K = new RealPerson(look, { kid: true, folk: true, now: true }), B = K.mhb, names = B?.parts.map(o => o.name) || [];
+    check(B && names.includes('garment:camisa') && names.some(n => n.startsWith('garment:pantalon')) && names.some(n => /^own(hair|shell):/.test(n)) && B.low, `parts: ${names}`);
+    console.log(`▶ mh kids: built in ${B.built.toFixed(0)} ms, ${B.tris0} triangles near, ${B.tris1} in the middle, ${K.height.toFixed(2)} m, hips ${K.hipY.toFixed(2)} m, eyes ${B.eyeY.toFixed(2)} m`);
+    check(K.height > 1.05 && K.height < 1.28 && K.hipY > 0.45 && K.hipY < 0.72, `${K.height.toFixed(2)} m, hips ${K.hipY.toFixed(2)}`);
+    check((K.height - B.eyeY) / K.height > 0.075, `a child's big head: ${((K.height - B.eyeY) / K.height).toFixed(3)} of its height over the eyes`);
+    for (const n of [0, 1, 2]) { K.mhLevel = n; check(B.near.visible === (n === 0) && B.low.visible === (n > 0) && !K.r.mesh.visible, `level ${n}`); }
+    K.mhLevel = 0;
+    // (walking: the feet on the ground; lying in its bed: as today's, along the bed)
+    const A = game.view3d.actors, m = { kind: 'person', root: new THREE.Group(), person: K, prev: null, speed: 1.4 };
+    m.root.add(K.root);
+    for (let i = 0; i < 20; i++) A.poseBones(m, { kid: true }, K, null, false, 0.05, null);
+    K.root.updateMatrixWorld(true);
+    let low = Infinity; const pos = B.body.geometry.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i += 7) { B.body.getVertexPosition(i, v); B.body.localToWorld(v); low = Math.min(low, v.y); }
+    check(low > -0.08 && low < 0.08, `walking, the lowest point of the body: ${low.toFixed(3)} m`);
+    m.speed = 0;
+    A.poseBones(m, { kid: true, lying: true }, K, null, true, 0.1, null);
+    check(K.legs.every(l => Math.abs(l.rotation.x) < 0.5), 'lying: the legs straight');
+    K.dispose();
+    // (a baby: its body made a few ms a frame, small, under the blanket)
+    check(babyMh(L), 'a baby wears one too');
+    const bb = mhBaby(L);
+    let calls = 0;
+    while (!bb.person.mhb && calls < 400) { I.buildNext([[bb.person, 2]], false); calls++; await frames(1); }
+    const BP = bb.person;
+    check(BP.mhb && BP.height > 0.45 && BP.height < 0.7 && BP.mhWant.baby === 1, `the baby: ${BP.height?.toFixed(2)} m, ${calls} frames`);
+    BP.dispose();
   });
   await test('mh wardrobe (english): every piece of the legs, head, hair, socks and underwear slots (and the linen shirt, lined boots, wolf coat, leather apron) is drawn on the MakeHuman body, on extreme bodies of both sexes, or hidden on purpose', async () => {
     const [{ loadMh }, { MhPerson }, { fromPreset, PRESETS }] = await mhMods(), HW = await import('./three/mh/headwear.js');
