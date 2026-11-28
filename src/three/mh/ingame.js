@@ -370,7 +370,10 @@ class MhShape {
     // plain tone of a very light skin read as a white mask)
     const t0n = U(this.skinMat).tone?.value || new THREE.Color('#c99c76'), lum = 0.2126 * t0n.r + 0.7152 * t0n.g + 0.0722 * t0n.b;
     const tone = t0n.clone().multiply(LOW_TONE).multiplyScalar(1 - 0.42 * Math.min(1, lum));   // (the lighter, the more)
-    const out = new Float32Array(nv * 4), push = new Float32Array(nv);
+    const out = new Float32Array(nv * 4), push = new Float32Array(nv), neckTop = this.J.neck.y + 0.25 * (this.J.head.y - this.J.neck.y);
+    // (the eye and the brows, softened into the skin: on this low head each vertex paints a wide triangle, and their full dark
+    // made two holes for eyes and a band for brows)
+    const eyeC = IRIS.clone().lerp(tone, 0.3);
     for (let i = 0; i < nv; i++) {
       if ((i & 63) === 0 && late()) yield;
       const x = pv[i * 3], y = pv[i * 3 + 1], z = pv[i * 3 + 2], b = B.near(x, y, z, 0.03);
@@ -382,7 +385,9 @@ class MhShape {
       const arm = isArm(i), hand = isHand(i);
       if (!f && !hand) for (let L = layers.length - 1; L >= 0 && !g; L--) {
         // (not under a garment's hem, nor a shirt between the legs)
-        if ((arm && layers[L].apron) || y < layers[L].minY - 0.01 || (layers[L].upper && y < this.J.body.y - 0.02 && !arm) || (layers[L].scarf && front(x, y, z))) continue;
+        // (nor the chin and the jaw: a collar's colour reached up to them, a beard of cloth that made the face from afar a
+        // dark mask; only a headscarf goes over the neck)
+        if ((arm && layers[L].apron) || y < layers[L].minY - 0.01 || (layers[L].upper && y < this.J.body.y - 0.02 && !arm) || (layers[L].scarf && front(x, y, z)) || (!layers[L].scarf && y > neckTop) || (layers[L].apron && nn[i * 3 + 2] < 0.35)) continue;   // (the apron: only what faces forward, never the thighs' sides)
         const q = layers[L].near(x, y, z, layers[L].apron ? 0.04 : arm ? 0.12 : b && shown[b.d] ? 0.06 : 0.08);   // (wide sleeves stand well off the arm)
         if (q && along(q) > -0.025) g = q;
       }   // (the low body may stand a little out of a garment)
@@ -392,9 +397,9 @@ class MhShape {
       const sk = !g && y < hipY && !arm ? skirt.get(Math.floor(y / SK)) : null;
       // (the eye itself, on the photo a white ball: dark, as an eye looks from metres away; a hole there is closed: eyePlugs)
       let eye = false;
-      for (const E of eyes) if (E.f.distanceTo(V.set(x, y, z)) < 0.013) eye = true;
-      if (eye) { c = IRIS; a = 0; }
-      else if (f) { c = f.d; a = 0; }
+      for (const E of eyes) if (E.f.distanceTo(V.set(x, y, z)) < 0.01) eye = true;
+      if (eye) { c = eyeC; a = 0; }
+      else if (f) { c = tone.clone().lerp(f.d, 0.6); a = 0; }
       else if (g) { c = g.d; a = 0; push[i] = out_(g, 0.04) + 0.004; }
       else if (sk && Math.hypot(x, z - this.J.body.z) < sk.r) { c = sk.c.clone().multiplyScalar(0.55); a = 0; }
       else if (bd) { c = bd.d; a = 0; push[i] = out_(bd, 0.012); }
