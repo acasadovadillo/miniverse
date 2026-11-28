@@ -2257,7 +2257,8 @@ async function soloTests(game) {
       const full = portraitMemory(); H.close(); await sleep(60); const left = portraitMemory();
       check(!f.person && $('ps-char-face').width === 1 && left.geometries < full.geometries && left.textures < full.textures, `left behind: ${JSON.stringify([full, left])}`);
       // Open and close many times: nothing piles up
-      for (let i = 0; i < 4; i++) { H.open('char'); await sleep(120); H.close(); } await sleep(150); check(portraitMemory().geometries <= left.geometries && portraitMemory().textures <= left.textures, `it piles up: ${JSON.stringify([left, portraitMemory()])}`);
+      H.open('char'); await sleep(120); H.close(); await sleep(60); const once = portraitMemory();   // (a texture shared by every MakeHuman body is uploaded once, the first time: from then on, nothing more)
+      for (let i = 0; i < 4; i++) { H.open('char'); await sleep(120); H.close(); } await sleep(150); check(portraitMemory().geometries <= once.geometries && portraitMemory().textures <= once.textures && once.textures <= left.textures + 1, `it piles up: ${JSON.stringify([left, once, portraitMemory()])}`);
       gm('creative'); H.open('char'); check(!$('ps-char-body').querySelector('.pc-need') && text().includes(t('gui.char.creative')), 'in creative'); H.close();
       gm('spectator'); H.open('char'); check(text().includes(t('gui.char.spectator')), 'a spectator'); H.close();
     } finally { if (H.isOpen) H.close(); gm(was); inv().equip.torso = torso; inv().changed(); game.combat.hunger = 20; }
@@ -10987,7 +10988,7 @@ async function soloTests(game) {
       const near = w().placedNear; w().placedNear = (...a) => near.apply(w(), a).filter(o => o.placed !== 'barber_chair');
       try { check(openBarber(game) && mode === 'barber' && !p().pose, 'the service needs the chair'); } finally { delete w().placedNear; }
       // Styles drawn the same: one choice, nothing to pay for
-      const L = { ...p().look, hairStyle: 'corto', hair: '#2a1e1e', beard: 'no' };
+      const L = { ...p().look, hairStyle: (await import('./three/mh/folk.js')).MH_ON && p().look.mh ? 'flequillo' : 'corto', hair: '#2a1e1e', beard: 'no' };   // (drawn as tazon: flequillo with the new hair, corto with the old)
       check(barberBill(L, { ...L, hairStyle: 'tazon' }).total === 0 && barberBill(L, { ...L, hairStyle: 'largo' }).total === PRICES.style, 'the price of styles drawn the same');
       const list = barberStyles('tazon').map(([v]) => v); check(list.includes('tazon') && !list.includes('corto') && new Set(list.map(realHair)).size === list.length, `the styles: ${list}`);
       check(barberBill({ ...L, beard: true }, { ...L, beard: 'completa' }).total === 0 && barberBill(L, L).total === 0, 'nothing changed, something charged');

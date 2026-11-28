@@ -171,7 +171,7 @@ export class RealPerson {
     if (mhFailed()) { this.r.mesh.visible = true; this.mhWant = null; return false; }   // (no pack: the stand-in shows)
     if (!mhData()) return false;
     try { this.mhb = new MhBody(this.look, this.mhWant, this.r); }
-    catch (err) { console.warn('Miniverse: no MakeHuman body', err); this.mhWant = null; return false; }
+    catch (err) { console.warn('Miniverse: no MakeHuman body', err); this.mhWant = null; this.r.mesh.visible = true; return false; }   // (the stand-in shows: never nobody)
     this.mhb.attach(this.r.root);
     this.mhb.near.traverse(o => { if (o.isMesh) o.receiveShadow = true; });
     this.hipY = this.mhb.hipY; this.height = this.grimeTall = this.mhb.height;

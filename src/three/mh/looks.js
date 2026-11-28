@@ -21,9 +21,11 @@ const FLEECE = '#d9cbae', WOLF = '#8c8276';
 const SKIRT_UNDER_TUNIC = 0.32;
 // (the socks' cloth goes down from the top of the body: down to 4 cm into a boot, and a lined one's, metres)
 const SOCKS_IN = [0.565, 0.54];
+// A piece's colour as '#rrggbb', or null (a colour of another kind, from an old or odd save, takes the default: never a broken body)
+export const hexOf = c => (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c : null);
 export function garmentsOf(look) {
   const W = look.wear || clothesFor(fullLook(look)), out = [];
-  const put = (name, it, o = {}) => { const c = it?.color || o.colour || '#8a7a6a'; out.push({ name, colour: c, colour2: o.colour2 || shade(c, 0.72), tear: it?.r || 0, leather: !!o.leather, fleece: !!o.fleece, from: o.from || 0, upto: o.upto || 0 }); };
+  const put = (name, it, o = {}) => { const c = hexOf(it?.color) || o.colour || '#8a7a6a'; out.push({ name, colour: c, colour2: o.colour2 || shade(c, 0.72), tear: it?.r || 0, leather: !!o.leather, fleece: !!o.fleece, from: o.from || 0, upto: o.upto || 0 }); };
   const torso = W.torso?.id, top = W.encima?.id, legs = W.piernas?.id, outer = W.outer?.id, feet = W.pies?.id, socks = W.calcetines?.id;
   // (under a tunic, only the trousers' legs: their seat is hidden and would cross the skirt. A coat is closed down to the knee
   // but parts as one walks: the whole trousers)
@@ -53,5 +55,5 @@ export function garmentsOf(look) {
   else if (outer === 'wolf_lined_coat') { put('abrigo', W.outer, { fleece: true, colour2: WOLF }); put('cuello_lobo', null, { colour: WOLF, colour2: WOLF, fleece: true }); }
   else if (outer) put('abrigo', W.outer);
   return out;
-  function skirt(it) { const c = it?.color || '#8a7a6a'; return { name: 'falda', colour: c, colour2: shade(c, 0.72), tear: it?.r || 0, leather: false, fleece: false }; }
+  function skirt(it) { const c = hexOf(it?.color) || '#8a7a6a'; return { name: 'falda', colour: c, colour2: shade(c, 0.72), tear: it?.r || 0, leather: false, fleece: false }; }
 }

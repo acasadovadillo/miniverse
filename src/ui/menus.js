@@ -740,7 +740,7 @@ export function initMenus(game) {
       mark('shave', mirror.act === 'shave', t('mirror.shave'));
       mark('tidy', mirror.act === 'tidy', t('mirror.tidy'));
       mark('grow', mirror.grow, t('mirror.grow'));
-      tabOf('pelo').hidden = !some && !male;   // (no beard to see to: no tab)
+      tabOf('pelo').hidden = mirror.retouch || (!some && !male);   // (no beard to see to: no tab; the retouch leaves the hair to the barber)
       if (tabOf('pelo').hidden && page === 'pelo') firstPage('cara');
     }
     paintRows();

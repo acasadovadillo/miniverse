@@ -7,6 +7,7 @@
 // not worn (they would be under it).
 import { clothesFor, fullLook } from '../../looks.js';
 import { joint } from './shape.js';
+import { hexOf } from './looks.js';
 
 const M = 0.1;   // decimetres to metres
 
@@ -14,7 +15,7 @@ const M = 0.1;   // decimetres to metres
 export function headwearOf(look) {
   const W = look.wear || clothesFor(fullLook(look)), h = W.cabeza?.id, a = W.pelo?.id, metal = h?.startsWith('casco_') ? h.slice(6) : null;
   const hat = h === 'sombrero' || h === 'gorro' ? h : metal ? 'casco' : null, scarf = h === 'hijab';
-  return { hat, hatColour: (metal && METAL[metal]) || W.cabeza?.color || (h === 'sombrero' ? '#e0c070' : '#c83a3a'), acc: hat || scarf ? null : ACC[a] ? a : null, accColour: W.pelo?.color || '#e86aa0', scarf };
+  return { hat, hatColour: (metal && METAL[metal]) || hexOf(W.cabeza?.color) || (h === 'sombrero' ? '#e0c070' : '#c83a3a'), acc: hat || scarf ? null : ACC[a] ? a : null, accColour: hexOf(W.pelo?.color) || '#e86aa0', scarf };
 }
 const ACC = { lazo: 1, diadema: 1, flor_pelo: 1, horquillas: 1, corona_flores: 1 };
 // (the armour's helmets, casco_<metal>: a metal cap of its metal's colour, its rim darker)

@@ -9,7 +9,7 @@ import { PRESETS, presetOf, presetsFor, fromPreset, defaultMh, samePlace, random
 import { LOOK_OPTIONS } from '../looks.js';
 import { SKIN_TONES, nearestTone, SCARS, TATTOOS, BLUSH_COLOURS, KOHL_COLOURS, TATTOO_COLOURS } from '../three/mh/skin.js';
 import { greyOf, HIGHLIGHT_COLOURS } from '../three/mh/hair.js';
-import { packMh, mhOfLook } from '../three/mh/folk.js';
+import { packMh } from '../three/mh/folk.js';
 
 export const NEW_PAGES = ['cuerpo', 'cabeza', 'ajuste', 'piel', 'cara', 'pelo'];
 // The shot of each page: the whole body, the head, or the face up close
@@ -33,10 +33,10 @@ export const FACE_SLIDERS = GROUPS.flatMap(g => FACE_IDS[g]);
 export const LIGHT_IDS = ['day', 'indoor', 'evening'];
 export const MOOD_IDS = ['neutral', 'smile', 'laugh', 'talk', 'surprise', 'angry', 'sad'];
 
-// The look's MakeHuman part, made whole (an old look gets the head and body the game gives it, folk.js mhOfLook; with no
-// MakeHuman people, the first head of its sex)
+// The look's MakeHuman part, made whole (a look without one gets the first head of its sex: a player's of before already has
+// its own by then, game.js)
 export function ensureMh(look) {
-  if (!look.mh || typeof look.mh !== 'object') { const m = mhOfLook(look, true); look.mh = m ? { ...m, macro: { ...m.macro }, face: { ...m.face } } : defaultMh(look); }
+  if (!look.mh || typeof look.mh !== 'object') look.mh = defaultMh(look);
   look.mh.macro ||= {};
   look.mh.face ||= {};
   look.mh.skin ||= {};
