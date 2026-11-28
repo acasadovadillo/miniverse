@@ -50,12 +50,13 @@ function grainTex() {
 // A garment's material: colour and second colour, leather or cloth
 // inside: how dark its inside is (an apron's back, between the legs, is in their shade)
 // fleece: the second colour is sheepskin's wool (the zamarra's collar, cuffs, hem and front), fluffy in relief
-export function clothMaterial({ leather = false, fleece = false, inside = 0.8 } = {}) {
+// straw: a coarser plait in stronger relief (the straw hat, P6); the same program as the cloth
+export function clothMaterial({ leather = false, fleece = false, inside = 0.8, straw = false } = {}) {
   const U = {
     c1: { value: new THREE.Color('#8a7a6a') }, c2: { value: new THREE.Color('#5a4a3a') }, tear: { value: 0 },
-    rep: { value: leather ? 60 : 210 }, bumpK: { value: leather ? 4.0 : 6.0 }, skin: { value: new THREE.Color('#c99d7b') }, fleece: { value: fleece ? 1 : 0 }, inside: { value: inside },
+    rep: { value: leather ? 60 : straw ? 95 : 210 }, bumpK: { value: leather ? 4.0 : straw ? 10.0 : 6.0 }, skin: { value: new THREE.Color('#c99d7b') }, fleece: { value: fleece ? 1 : 0 }, inside: { value: inside },
   };
-  const m = new THREE.MeshStandardMaterial({ roughness: leather ? 0.55 : 0.93, side: THREE.DoubleSide, bumpMap: leather ? grainTex() : weaveTex(), bumpScale: 1 });
+  const m = new THREE.MeshStandardMaterial({ roughness: leather ? 0.55 : straw ? 0.8 : 0.93, side: THREE.DoubleSide, bumpMap: leather ? grainTex() : weaveTex(), bumpScale: 1 });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 att; varying vec4 vAtt; varying vec2 vCloth;')
