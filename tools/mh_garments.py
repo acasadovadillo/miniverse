@@ -542,8 +542,8 @@ def wardrobe(body):
     cover(g, lambda i, p, r: (r == 'torso' and crotch - 0.5 < p[1] < waist - 0.2) or (r.startswith('leg') and ankle + 0.5 < p[1] < waist - 0.2))
     out['pantalon'] = g
     g = Garment('calzas')
-    legs(g, crotch - 0.25)
-    cover(g, lambda i, p, r: r.startswith('leg') and ankle + 0.5 < p[1] < crotch + 0.3)
+    legs(g, lerp(crotch, knee, 0.22))   # (from well under the tunic's hem, which starts at 0.45 of the thigh)
+    cover(g, lambda i, p, r: r.startswith('leg') and ankle + 0.5 < p[1] < lerp(crotch, knee, 0.22) - 0.25)
     out['calzas'] = g
 
     # --- apron (delantal): a front panel from the waist to below the knee, a band round the waist
