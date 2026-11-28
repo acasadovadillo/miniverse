@@ -220,7 +220,7 @@ export function hairFits(D, v, look) {
   const add = (kind, name, k) => {
     const s = style(H, name);
     if (!s) return;
-    const wk = kind === 'ownbeard' ? 0.5 + 0.5 * k : 1, fit = w => cardVerts(s, fitPoints(D, s, w, k), wk);
+    const wk = kind === 'ownbeard' ? 0.7 + 0.3 * k : 1, fit = w => cardVerts(s, fitPoints(D, s, w, k), wk);
     const f = { kind, name, s, k, v: fit(v), refit: fit, fp: null };
     f.fp = fitPoints(D, s, v, k);
     out.push(f);

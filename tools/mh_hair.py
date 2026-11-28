@@ -397,7 +397,7 @@ def bun_cards(ctx, centre, axis, R, n_rings, col, seed, grow=0.0):
     return cards
 
 
-def braid_cards(ctx, axis0, axis1, radius, col, seed, lobes_per_dm=2.6):
+def braid_cards(ctx, axis0, axis1, radius, col, seed, lobes_per_dm=2.1):
     """A three-strand braid along an axis: each strand a pair of crossed ribbons weaving left, back and right."""
     rng = np.random.default_rng(seed)
     out = []
@@ -420,9 +420,9 @@ def braid_cards(ctx, axis0, axis1, radius, col, seed, lobes_per_dm=2.6):
                     r = radius(f)
                     off = u * (math.sin(th) * r * 0.9) + v * (math.sin(2 * th) * r * 0.45)
                     P[which].append(A[i] + off)
-                    if which == 1:
-                        nr.append((v if cross == 0 else u).normalized() * (1 if cross == 0 else 1))
-            cards.append(Card(P[0], P[1], nr, radius(0.3) * 1.25, col, 0.97, float(rng.random()), l0, (0.9, 1.0, 0.6)))
+                    if which == 1:   # (lit as the lobe's outside: away from the braid's axis)
+                        nr.append(off.normalized() if off.length > 1e-6 else u)
+            cards.append(Card(P[0], P[1], nr, radius(0.3) * 1.6, col, 1.0, float(rng.random()), l0, (0.9, 1.0, 0.6)))
     return cards
 
 
@@ -572,7 +572,7 @@ class Styles:
         nseg = 10 if L > 2 else 8
         kinds = kinds or (('wavy', 'wavy', 'clump') if waves else ('dense', 'clump', 'clump'))
         cards = []
-        for li, (count, spacing, width, h0, col, ao) in enumerate([(counts[0], 0.11, 0.3, 0.02, kinds[0], 0.8), (counts[1], 0.12, 0.22, 0.02 + vol * 0.7, kinds[1], 0.92), (counts[2], 0.13, 0.16, 0.02 + vol * 1.4, kinds[2], 1.0)]):
+        for li, (count, spacing, width, h0, col, ao) in enumerate([(counts[0], 0.11, 0.32, 0.02, kinds[0], 0.9), (counts[1], 0.12, 0.24, 0.02 + vol * 0.7, kinds[1], 0.96), (counts[2], 0.13, 0.17, 0.02 + vol * 1.4, kinds[2], 1.0)]):
             roots = ctx.scalp_roots(count, lambda x, a, y: 0 if in_ear(B, x) else region_scalp()(x, a, y), spacing, seed + li * 1000)
             for ri, (x, n) in enumerate(roots):
                 c = cut(x, 0), cut(x, 1)
@@ -733,7 +733,7 @@ class Styles:
         def length(r, g):
             return (nearest_tie(r) - r).length * 1.8
 
-        layers = [(100, 0.1, 0.34, 0.012, 'dense', 0.8), (85, 0.11, 0.26, 0.035, 'clump', 0.92), (55, 0.14, 0.2, 0.055, 'clump', 1.0)]
+        layers = [(100, 0.1, 0.34, 0.012, 'dense', 0.9), (85, 0.11, 0.26, 0.035, 'clump', 0.96), (55, 0.14, 0.2, 0.055, 'clump', 1.0)]
         cards = fuzz_layer(ctx, seed + 7, 160) + scalp_layers(ctx, flow, length, lambda t, h0: h0, lambda t: 0.0, layers, seed, cut=cut, hug=1.0, nseg=7)
         for k, (T, d0) in enumerate(ties):
             if tail == 'tail':
@@ -741,13 +741,13 @@ class Styles:
                 rad = lambda f: 0.1 + 0.16 * sm(0, 0.15, f) - 0.14 * sm(0.5, 1, f)
                 a0 = tail_axis(ctx, T, d0, L0, lambda t: 0.2, 0.0)
                 a1 = tail_axis(ctx, T, d0, L1, lambda t: 0.2, 0.0)
-                cards += tail_cards(ctx, a0, a1, rad, 10, COL['clump'], 1.5, seed + 50 + k, nseg=10)
+                cards += tail_cards(ctx, a0, a1, rad, 16, COL['dense'], 1.4, seed + 50 + k, nseg=9, twist=0.25)
             elif tail == 'bun':
                 axis = (T - B.C).normalized()
                 cards += bun_cards(ctx, T, axis, 0.34, 6, COL['coarse'], seed + 60 + k, 0.4)
             elif tail == 'braid':
                 L0, L1 = 2.6, 3.2
-                rad = lambda f: 0.12 - 0.05 * sm(0.6, 1, f)
+                rad = lambda f: 0.15 - 0.06 * sm(0.6, 1, f)
                 a0 = tail_axis(ctx, T, d0, L0, lambda t: 0.14, 0.0)
                 a1 = tail_axis(ctx, T, d0, L1, lambda t: 0.14, 0.0)
                 cards += braid_cards(ctx, a0, a1, rad, COL['coarse'], seed + 70 + k)

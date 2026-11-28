@@ -122,6 +122,8 @@ if (bz > 0.0) {
   vec3 shade = mix(vec3(1.0), hairC / max(0.04, dot(hairC, vec3(0.33))) * 0.3 + 0.55, 0.7);
   diffuseColor.rgb *= mix(vec3(1.0), shade * 0.82, bz * 0.7);
   diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.6 + 0.3 * hn), smoothstep(1.0 - 0.7 * bz, 1.0 - 0.5 * bz, hn) * 0.55);
+  // (under a beard of cards (density 1): the skin is the beard's own colour, no skin shows between its cards)
+  diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.5 + 0.3 * hn), smoothstep(0.9, 1.0, bz) * 0.72);
 }`)
       // (the relief: the photos' lightness, the old one deeper, and the pores, strongest on the face's front)
       .replace('#include <bumpmap_pars_fragment>', `#ifdef USE_BUMPMAP
