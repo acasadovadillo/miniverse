@@ -1151,50 +1151,6 @@
   "check": "licence field",
   "sha256": "9f4a773e74ce"
  },
- "mpfb/system_assets/clothes/female_elegantsuit01/female_elegantsuit01.mhclo": {
-  "check": "header",
-  "sha256": "8ed657dbc494"
- },
- "mpfb/system_assets/clothes/female_elegantsuit01/female_elegantsuit01.obj": {
-  "check": "pack index",
-  "sha256": "3b46cef6d639"
- },
- "mpfb/system_assets/clothes/female_elegantsuit01/female_elegantsuit01_ao.png": {
-  "check": "pack index",
-  "sha256": "0f89546c63ab"
- },
- "mpfb/system_assets/clothes/female_elegantsuit01/female_elegantsuit01_diffuse.png": {
-  "check": "pack index",
-  "sha256": "ebe6f2afcbaa"
- },
- "mpfb/system_assets/clothes/male_casualsuit03/male_casualsuit03.mhclo": {
-  "check": "header",
-  "sha256": "ce796e4cc6ac"
- },
- "mpfb/system_assets/clothes/male_casualsuit03/male_casualsuit03.obj": {
-  "check": "pack index",
-  "sha256": "c55e02caa1f0"
- },
- "mpfb/system_assets/clothes/male_casualsuit03/male_casualsuit03_ao.png": {
-  "check": "pack index",
-  "sha256": "b29aebd42545"
- },
- "mpfb/system_assets/clothes/male_casualsuit03/male_casualsuit03_diffuse.png": {
-  "check": "pack index",
-  "sha256": "d9079ed2e52d"
- },
- "mpfb/system_assets/clothes/shoes03/shoes03.mhclo": {
-  "check": "header",
-  "sha256": "5a388e18e675"
- },
- "mpfb/system_assets/clothes/shoes03/shoes03.obj": {
-  "check": "pack index",
-  "sha256": "b03f46c0b5cd"
- },
- "mpfb/system_assets/clothes/shoes03/shoes03_diffuse.png": {
-  "check": "pack index",
-  "sha256": "fe8216fbd0c3"
- },
  "mpfb/system_assets/eyebrows/eyebrow001/eyebrow001.mhclo": {
   "check": "header",
   "sha256": "54c8892c2ba5"

@@ -1,7 +1,7 @@
 // The shape of a MakeHuman person, made once per look on the CPU (no morphs while drawing): the base mesh plus a linear
 // blend of targets, the way MakeHuman's documentation describes its "macro" and face modifiers (our own code, written
 // from that concept). Then the bound meshes are fitted on it and the arms are lowered from the base's A pose.
-import { target, proxy } from './data.js';
+import { target, proxy, garment } from './data.js';
 
 // The look's numbers (look.mh), all optional; sliders are integers -100..100 (age 0..100, 25 to 90 years)
 export const BODY_SLIDERS = ['height', 'weight', 'muscle', 'age', 'chest', 'prop'];
@@ -111,11 +111,12 @@ export function fit(D, v, name) {
 const ARM_DOWN = 0.52, ELBOW = 0.16, FORWARD = -0.06, BEND = -0.18;
 function rotZ(p, o, a) { const c = Math.cos(a), s = Math.sin(a), x = p[0] - o[0], y = p[1] - o[1]; return [o[0] + x * c - y * s, o[1] + x * s + y * c, p[2]]; }
 function rotX(p, o, a) { const c = Math.cos(a), s = Math.sin(a), y = p[1] - o[1], z = p[2] - o[2]; return [p[0], o[1] + y * c - z * s, o[2] + y * s + z * c]; }
-export function armPose(D, v) {
-  const out = {};
+// (a heavier or stronger body, or wide skirts, hold the arms a little out: spread 0..1)
+export function armPose(D, v, spread = 0) {
+  const out = {}, down = ARM_DOWN - 0.16 * Math.max(0, Math.min(1, spread));
   for (const side of ['l', 'r']) {
     const sh = joint(D, v, `joint-${side}-shoulder`), el = joint(D, v, `joint-${side}-elbow`), sg = side === 'l' ? -1 : 1;
-    const up = p => rotX(rotZ(p, sh, sg * ARM_DOWN), sh, FORWARD);
+    const up = p => rotX(rotZ(p, sh, sg * down), sh, FORWARD);
     out[side] = { up, low: p => up(rotX(rotZ(p, el, sg * ELBOW), el, BEND)) };
   }
   return out;
@@ -153,4 +154,25 @@ export function expressions(D, mh) {
     for (const a of acc.values()) { d[n * 3] = a[0]; d[n * 3 + 1] = a[1]; d[n * 3 + 2] = a[2]; n++; }
     return { id, idx, d };
   });
+}
+
+// A garment's vertices on the blended base: the point on its skin triangle (barycentric) plus its offset in that
+// triangle's own frame (its first edge, across it, its normal), so it follows and turns with the skin as the body changes
+export function fitGarment(D, v, name) {
+  const G = D.garments.get(name), d = garment(D, name);
+  if (!d) return null;
+  const n = G.nv, out = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = d.refs[i * 3] * 3, b = d.refs[i * 3 + 1] * 3, c = d.refs[i * 3 + 2] * 3;
+    const ux = v[b] - v[a], uy = v[b + 1] - v[a + 1], uz = v[b + 2] - v[a + 2], vx = v[c] - v[a], vy = v[c + 1] - v[a + 1], vz = v[c + 2] - v[a + 2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const ln = Math.hypot(nx, ny, nz) || 1, lu = Math.hypot(ux, uy, uz) || 1;
+    nx /= ln; ny /= ln; nz /= ln;
+    const ex = ux / lu, ey = uy / lu, ez = uz / lu, fx = ny * ez - nz * ey, fy = nz * ex - nx * ez, fz = nx * ey - ny * ex;
+    const o1 = d.off[i * 3], o2 = d.off[i * 3 + 1], o3 = d.off[i * 3 + 2], wa = d.w[i * 3], wb = d.w[i * 3 + 1], wc = d.w[i * 3 + 2];
+    out[i * 3] = wa * v[a] + wb * v[b] + wc * v[c] + ex * o1 + fx * o2 + nx * o3;
+    out[i * 3 + 1] = wa * v[a + 1] + wb * v[b + 1] + wc * v[c + 1] + ey * o1 + fy * o2 + ny * o3;
+    out[i * 3 + 2] = wa * v[a + 2] + wb * v[b + 2] + wc * v[c + 2] + ez * o1 + fz * o2 + nz * o3;
+  }
+  return out;
 }

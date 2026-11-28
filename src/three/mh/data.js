@@ -38,6 +38,7 @@ export function parsePack(buf) {
   D.body = { rmap: view('body.rmap', Uint16Array), uv: view('body.uv', Uint16Array), idx: view('body.idx', Uint16Array), arm: view('body.arm', Uint8Array), chest: view('body.chest', Uint8Array) };
   D.face = head.face;
   D.proxies = new Map(head.proxies.map(p => [p.name, p]));
+  D.garments = new Map((head.garments || []).map(g => [g.name, g]));
   return D;
 }
 
@@ -83,4 +84,21 @@ export function proxy(D, name) {
   p.data = { refs: D.view(k + 'refs', Uint16Array), w, off, uv, rmap: D.view(k + 'rmap', Uint16Array), idx: D.view(k + 'idx', Uint16Array),
     part: p.part ? D.view(k + 'part', Uint8Array) : null, del: p.del ? D.view(k + 'del', Uint16Array) : null };
   return p.data;
+}
+
+// A garment (P3, tools/mh_garments.py): per vertex a skin triangle (its three vertices), the barycentric point on it and
+// an offset along its normal; its render vertices (uv in metres), triangles, attributes (part, seam and border distance in
+// mm, occlusion) and the skin vertices it covers
+export function garment(D, name) {
+  const g = D.garments.get(name);
+  if (!g) return null;
+  if (g.data) return g.data;
+  const k = `g.${name}.`, w16 = D.view(k + 'w', Int16Array), o16 = D.view(k + 'off', Int16Array), uv16 = D.view(k + 'uv', Int16Array);
+  const w = new Float32Array(w16.length), off = new Float32Array(o16.length), uv = new Float32Array(uv16.length);
+  for (let i = 0; i < w.length; i++) w[i] = w16[i] / D.head.wq;
+  for (let i = 0; i < off.length; i++) off[i] = o16[i] * g.off;
+  for (let i = 0; i < uv.length; i++) uv[i] = uv16[i] / D.head.uvq;
+  g.data = { refs: D.view(k + 'refs', Uint16Array), w, off, uv, rmap: D.view(k + 'rmap', Uint16Array), idx: D.view(k + 'idx', Uint16Array),
+    att: D.view(k + 'att', Uint8Array), del: g.del ? D.view(k + 'del', Uint16Array) : null };
+  return g.data;
 }

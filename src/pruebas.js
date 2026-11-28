@@ -2707,6 +2707,33 @@ async function soloTests(game) {
     for (let i = 0; i < D.head.nbody; i++) { const d = Math.abs(a[i * 3] - b[i * 3]) + Math.abs(a[i * 3 + 1] - b[i * 3 + 1]) + Math.abs(a[i * 3 + 2] - b[i * 3 + 2]); if (d > 1e-4) { moved++; if (a[i * 3 + 1] < neck - 0.5) low++; } }
     check(moved > 100 && !low, `a face slider moves ${moved} vertices, ${low} under the neck`);
   });
+  await test('mh creator (english): the clothes (P3): every garment bound to the skin, the four outfits on extreme bodies, nothing undone, the skin under them not drawn', async () => {
+    const [{ loadMh }, { MhPerson }, { fromPreset, PRESETS }] = await mhMods(), { garmentsOf } = await import('./three/mh/looks.js');
+    const D = await loadMh(), names = [...D.garments.keys()];
+    check(['camisa', 'tunica', 'tunica_larga', 'chaleco', 'pantalon', 'calzas', 'delantal', 'cinturon', 'abrigo', 'botas'].every(n => names.includes(n)), `garments: ${names}`);
+    for (const g of D.garments.values()) check(g.ntri >= 100 && g.ntri <= 3000, `${g.name}: ${g.ntri} triangles`);
+    const bodies = { average: {}, thin: { weight: -100, muscle: -60 }, heavy: { weight: 100, muscle: -40 }, strong: { muscle: 100, weight: 30 }, tall: { height: 100 }, old: { age: 100 }, chest: { chest: 100, weight: 30 } };
+    for (const sex of ['chico', 'chica']) for (const outfit of ['delantal', 'tunica', 'chaleco', 'larga']) {
+      const p = PRESETS.find(x => x.sex === sex);
+      const naked = new MhPerson(D, { sex, hairStyle: 'calvo', outfit, mh: fromPreset(p), wear: {} }), skin0 = naked.root.getObjectByName('body').geometry.index.count;
+      naked.dispose();
+      for (const [label, macro] of Object.entries(bodies)) {
+        const mh = fromPreset(p); Object.assign(mh.macro, macro);
+        const look = { sex, hairStyle: 'calvo', outfit, cloth: '#8a3a2a', mh }, P = new MhPerson(D, look), worn = garmentsOf(look).map(c => c.name);
+        const meshes = P.root.children.filter(o => o.name.startsWith('garment:')), skin = P.root.getObjectByName('body').geometry.index.count;
+        check(meshes.length === worn.length && worn.length >= 3, `${sex} ${outfit} ${label}: ${meshes.length} of ${worn}`);
+        let bad = 0;
+        for (const m of meshes) { const q = m.geometry.attributes.position.array; for (let i = 0; i < q.length; i++) if (!Number.isFinite(q[i]) || Math.abs(q[i]) > 2.5) bad++; }
+        check(!bad && skin < skin0 * 0.8, `${sex} ${outfit} ${label}: ${bad} bad numbers, skin ${skin} of ${skin0}`);
+        P.dispose();
+      }
+    }
+    // (a piece's wear reaches its material: worn and torn)
+    const look = { sex: 'chico', hairStyle: 'calvo', mh: fromPreset(PRESETS[8]), wear: { torso: { id: 'tunica', color: '#6a7a3a', r: 2 }, piernas: { id: 'pantalon', color: '#4a3a2a', r: 1 }, pies: { id: 'botas', color: '#5a3a24' } } };
+    const P = new MhPerson(D, look);
+    check(P.mats['garment:tunica']?.userData.U.tear.value === 2 && P.mats['garment:calzas']?.userData.U.tear.value === 1, 'the tear of each piece');
+    P.dispose();
+  });
   await test('mh creator (english): look.mh is optional and small; an old look gets a head of its sex; the game\'s person ignores it', async () => {
     const [, , { presetOf }, { ensureMh, packMh, randomNew }] = await mhMods(), { SKIN_TONES, nearestTone } = await import('./three/mh/skin.js');
     check(nearestTone('#ffe0c4') === SKIN_TONES[0] && SKIN_TONES.indexOf(nearestTone('#4a2a1c')) >= 13 && SKIN_TONES.indexOf(nearestTone('#c98a5a')) >= 4, 'the old tones, to the nearest of the palette');

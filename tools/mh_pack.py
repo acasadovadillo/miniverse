@@ -30,6 +30,8 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+sys.path.insert(0, HERE)   # (our own garments module, next to this script)
+import mh_garments  # noqa: E402
 OUT = os.path.join(REPO, 'assets', 'mh')
 MPFB_USER = os.path.expanduser('~/Library/Application Support/Blender/4.5/extensions/.user/user_default/mpfb/data')
 MPFB_SYS = os.path.expanduser('~/Library/Application Support/Blender/4.5/extensions/user_default/mpfb/data')
@@ -117,17 +119,12 @@ PROXIES = [
     ('hair', 'hair/short04', 'short04'), ('hair', 'hair/bob01', 'bob01'), ('hair', 'hair/bob02', 'bob02'),
     ('hair', 'hair/long01', 'long01'), ('hair', 'hair/ponytail01', 'ponytail01'), ('hair', 'hair/braid01', 'braid01'),
     ('hair', 'hair/afro01', 'afro01'),
-    ('clothes', 'clothes/male_casualsuit03', 'male_casualsuit03'), ('clothes', 'clothes/female_elegantsuit01', 'female_elegantsuit01'),
-    ('clothes', 'clothes/shoes03', 'shoes03'),
 ]
 # The provisional clothes' two parts:
 # the trousers of the shirt-and-trousers suit and the skirt of the blouse-and-skirt one. Everything else is the upper part
 # the trousers of the shirt-and-trousers suit (denim: bluer than red) and the skirt of the blouse-and-skirt one (grey-green,
 # not light), told by the texel under each face. Everything else is the upper part
-LOWER = {
-    'male_casualsuit03': ('male_casualsuit03_diffuse.png', lambda r, g, b: b > r + 8),
-    'female_elegantsuit01': ('female_elegantsuit01_diffuse.png', lambda r, g, b: g >= r - 4 and 0.3 * r + 0.6 * g + 0.1 * b < 140),
-}
+LOWER = {}   # (P1's MakeHuman clothes are gone: P3's own garments have their parts from tools/mh_garments.py)
 
 # ---- Textures: (source under MPFB's user data, output name, longest side, format) ----
 TEXTURES = [
@@ -155,9 +152,6 @@ TEXTURES = [
     ('hair/ponytail01/ponytail01_diffuse.png', 'hair-ponytail01', 1024, 'split'),
     ('hair/braid01/braid01_diffuse.png', 'hair-braid01', 1024, 'split'),
     ('hair/afro01/afro_diffuse.png', 'hair-afro01', 1024, 'split'),
-    ('clothes/male_casualsuit03/male_casualsuit03_ao.png', 'cloth-male_casualsuit03.jpg', 512, 'jpeg'),
-    ('clothes/female_elegantsuit01/female_elegantsuit01_ao.png', 'cloth-female_elegantsuit01.jpg', 512, 'jpeg'),
-    ('clothes/shoes03/shoes03_diffuse.png', 'cloth-shoes03.jpg', 512, 'jpeg'),
 ]
 # The joints the runtime needs (the mean of each cube's vertices): the arm chain for the pose, the head and eyes to frame
 JOINTS = ['joint-ground', 'joint-pelvis', 'joint-neck', 'joint-head', 'joint-head-2', 'joint-l-eye', 'joint-r-eye', 'joint-mouth',
@@ -344,7 +338,13 @@ def build(args):
             die('binding and mesh differ: %s (%d, %d)' % (stem, len(binds), len(pv)))
         proxies.append({'kind': kind, 'folder': folder, 'name': stem, 'info': info, 'binds': binds, 'deleted': deleted, 'v': pv, 'vt': pvt, 'f': pf})
 
+    # (the clothes, made now: their skin is MakeHuman's helper surfaces, whose vertices must be kept)
+    W = L.rig_weights()
+    garments = mh_garments.build(base_v, base_f, base_g, W, N_BODY)
     keep = set(range(N_BODY))
+    for g in garments.values():
+        for b in g['binds']:
+            keep.update(b[0])
     for p in proxies:
         for refs, _, _ in p['binds']:
             keep.update(refs)
@@ -387,7 +387,6 @@ def build(args):
     head['body'] = {'nr': len(rmap), 'ntri': len(tris) // 3}
 
     # Arm weights for the standing pose (upper arm; forearm with hand and fingers), from the CC0 game-engine weights
-    W = L.rig_weights()
     up, low = [0.0] * NV, [0.0] * NV   # (every kept vertex: the clothes are bound to the helpers, which the rig weighs too)
     for side in ('l', 'r'):
         for names, acc in ((ARM_UP, up), (ARM_LOW, low)):
@@ -546,6 +545,24 @@ def build(args):
         scale = {k: [new[info[k][0]], new[info[k][1]], info[k][2]] for k in ('x_scale', 'y_scale', 'z_scale') if k in info}
         head['proxies'].append({'kind': p['kind'], 'name': p['name'], 'nv': len(binds), 'nr': len(prmap), 'ntri': len(ptri) // 3,
                                 'off': sc, 'scale': scale, 'del': len(dels), 'part': bool(lower)})
+
+    # The medieval clothes (P3), made by tools/mh_garments.py on the base mesh and bound to its skin: per vertex a skin
+    # triangle, the barycentric point on it and an offset along its normal
+    head['garments'] = []
+    for name, g in garments.items():
+        key = 'g.' + name
+        blob.add(key + '.refs', u16([new[r] for b in g['binds'] for r in b[0]]))
+        blob.add(key + '.w', i16([clamp16(w * W_Q) for b in g['binds'] for w in b[1]]))
+        m = max(max(abs(x) for x in b[2]) for b in g['binds']) or 1e-6
+        blob.add(key + '.off', i16([clamp16(x / (m / 32767.0)) for b in g['binds'] for x in b[2]]))   # (along the first edge, across, along the normal)
+        blob.add(key + '.rmap', u16([r[0] for r in g['rv']]))
+        blob.add(key + '.uv', i16([clamp16(x * UV_Q) for r in g['rv'] for x in (r[1], r[2])]))
+        blob.add(key + '.idx', u16([i for t in g['tri'] for i in t]))
+        # (part, distance to a seam and to the border in millimetres, ambient occlusion)
+        blob.add(key + '.att', bytes(x for r in g['rv'] for x in (r[3], min(255, int(r[4] * 1000)), min(255, int(r[5] * 1000)), int(r[6] * 255))))
+        if g['cover']:
+            blob.add(key + '.del', u16([new[i] for i in g['cover']]))
+        head['garments'].append({'name': name, 'nv': len(g['binds']), 'nr': len(g['rv']), 'ntri': len(g['tri']), 'off': m / 32767.0, 'del': len(g['cover'])})
 
     head['blobs'] = blob.index
     hj = json.dumps(head, separators=(',', ':'), sort_keys=True).encode('utf-8')

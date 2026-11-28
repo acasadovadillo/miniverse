@@ -7,8 +7,10 @@
 // still persona.js.
 import * as THREE from 'three';
 import { mhUrl, proxy } from './data.js';
-import { blend, fit, joint, armPose, poseInPlace, yearsOf, expressions } from './shape.js';
-import { hairOf, browsOf, lashesOf, clothesOf } from './looks.js';
+import { blend, fit, fitGarment, joint, armPose, poseInPlace, yearsOf, expressions } from './shape.js';
+import { garment } from './data.js';
+import { hairOf, browsOf, lashesOf, garmentsOf } from './looks.js';
+import { clothMaterial } from './cloth.js';
 import { skinLayers, layerUniforms } from './skin.js';
 
 const M = 0.1;   // MakeHuman's decimetres to metres
@@ -323,6 +325,36 @@ function faceMaps(D, v, rmap) {
 }
 const BEARD = { bigote: [1, 0, 0], perilla: [0, 1, 0], candado: [1, 1, 0], completa: [1, 1, 1], larga: [1, 1, 1] };
 
+// Cloth does not follow every bump of the skin: how far each garment vertex moved from where it sits on the base body is
+// averaged with its neighbours' (three passes), so muscles and ribs do not show through a loose shirt. Not the boots
+// nor the belt, which fit tight
+const restCloth = new Map(), clothNb = new Map();
+function looseCloth(D, name, v) {
+  if (name === 'botas' || name === 'cinturon') return v;
+  let rest = restCloth.get(name), nb = clothNb.get(name);
+  if (!rest) {
+    restCloth.set(name, (rest = fitGarment(D, D.pos, name)));
+    const d = garment(D, name), sets = Array.from({ length: rest.length / 3 }, () => new Set());
+    for (let t = 0; t < d.idx.length; t += 3) for (let k = 0; k < 3; k++) { const a = d.rmap[d.idx[t + k]], b = d.rmap[d.idx[t + (k + 1) % 3]]; if (a !== b) { sets[a].add(b); sets[b].add(a); } }
+    clothNb.set(name, (nb = sets.map(x => Uint32Array.from(x))));
+  }
+  let dv = new Float32Array(v.length);
+  for (let i = 0; i < v.length; i++) dv[i] = v[i] - rest[i];
+  for (let pass = 0; pass < 3; pass++) {
+    const next = new Float32Array(dv.length);
+    for (let i = 0; i < nb.length; i++) {
+      const n = nb[i];
+      let x = 0, y = 0, z = 0;
+      for (let k = 0; k < n.length; k++) { const j = n[k] * 3; x += dv[j]; y += dv[j + 1]; z += dv[j + 2]; }
+      const m = n.length || 1, s = n.length ? 0.6 : 0;
+      next[i * 3] = dv[i * 3] * (1 - s) + (x / m) * s; next[i * 3 + 1] = dv[i * 3 + 1] * (1 - s) + (y / m) * s; next[i * 3 + 2] = dv[i * 3 + 2] * (1 - s) + (z / m) * s;
+    }
+    dv = next;
+  }
+  for (let i = 0; i < v.length; i++) v[i] = rest[i] + dv[i];
+  return v;
+}
+
 // A built person: root (a Group, feet on y 0, facing +z), height, eyeY (for the camera), ms (how long it took), and the
 // expressions (EXPR ids) to set with setExpression, the eyes to turn with setGaze
 export class MhPerson {
@@ -335,7 +367,7 @@ export class MhPerson {
   }
   // The shape key: what needs the geometry made again (colours and the skin's layers only touch the materials)
   static shapeKey(look) {
-    return JSON.stringify([look.sex, look.mh?.macro || null, look.mh?.face || null, look.hairStyle, look.brows, look.outfit]);
+    return JSON.stringify([look.sex, look.mh?.macro || null, look.mh?.face || null, look.hairStyle, look.brows, look.outfit, look.wear ? Object.values(look.wear).map(w => w?.id).join() : null]);
   }
   build(look) {
     const t0 = performance.now(), D = this.D, sex = look.sex === 'chico' ? 'chico' : 'chica';
@@ -351,8 +383,12 @@ export class MhPerson {
     const parts = [['eyes', 'high-poly'], ['brows', browsOf(look)], ['lashes', lashesOf(look)], ['teeth', 'teeth_base'], ['tongue', 'tongue01']];
     const hair = hairOf(look);
     if (hair) parts.push(['hair', hair]);
-    for (const c of clothesOf(look)) parts.push(['cloth', c]);
     const fitted = parts.map(([kind, name]) => ({ kind, name, P: D.proxies.get(name), d: proxy(D, name), v: fit(D, v, name) })).filter(x => x.v);
+    // (the clothes: our own garments, bound to the skin's triangles)
+    for (const c of garmentsOf(look)) {
+      const d = garment(D, c.name);
+      if (d) fitted.push({ kind: 'garment', name: c.name, wear: c, P: D.garments.get(c.name), d, v: looseCloth(D, c.name, fitGarment(D, v, c.name)) });
+    }
     const facial = fitted.filter(f => ['brows', 'lashes', 'teeth', 'tongue'].includes(f.kind));
     for (const f of facial) f.morphs = [];
     const shift = (e, k) => { for (let n = 0; n < e.idx.length; n++) { const i = e.idx[n] * 3; v[i] += e.d[n * 3] * k; v[i + 1] += e.d[n * 3 + 1] * k; v[i + 2] += e.d[n * 3 + 2] * k; } };
@@ -363,7 +399,8 @@ export class MhPerson {
     }
     lap('fit');
     // Then the arms down: the body with its weights; each bound vertex with its three base vertices' weights
-    const pose = armPose(D, v), arm = D.body.arm;
+    const mc = look.mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1 : fitted.some(f => f.name === 'tunica') ? 0.4 : 0;
+    const pose = armPose(D, v, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140), arm = D.body.arm;
     const wU = i => arm[i * 2] / 255, wL = i => arm[i * 2 + 1] / 255;
     for (const f of fitted) {
       const { refs, w } = f.d, bw = (i, fn) => w[i * 3] * fn(refs[i * 3]) + w[i * 3 + 1] * fn(refs[i * 3 + 1]) + w[i * 3 + 2] * fn(refs[i * 3 + 2]);
@@ -374,7 +411,7 @@ export class MhPerson {
     // Feet on the ground: the lowest of the body and the boots
     let ground = Infinity;
     for (let i = 0; i < nb; i++) ground = Math.min(ground, v[i * 3 + 1]);
-    for (const f of fitted) if (f.kind === 'cloth') for (let i = 0; i < f.P.nv; i++) ground = Math.min(ground, f.v[i * 3 + 1]);
+    for (const f of fitted) if (f.kind === 'garment') for (let i = 0; i < f.P.nv; i++) ground = Math.min(ground, f.v[i * 3 + 1]);
     // (twice MakeHuman's range can make a giant: the person is kept under 1.95 m and 0.78 m across, door, bed and saddle)
     let top = -Infinity, wide = 0;
     for (let i = 0; i < nb; i++) { top = Math.max(top, v[i * 3 + 1]); wide = Math.max(wide, Math.abs(v[i * 3])); }
@@ -391,7 +428,8 @@ export class MhPerson {
     const hide = new Uint8Array(D.nv);
     for (const f of fitted) if (f.d.del) for (const i of f.d.del) hide[i] = 1;
     const bi = D.body.idx, rm = D.body.rmap, keep = [];
-    for (let t = 0; t < bi.length; t += 3) if (!hide[rm[bi[t]]] && !hide[rm[bi[t + 1]]] && !hide[rm[bi[t + 2]]]) keep.push(bi[t], bi[t + 1], bi[t + 2]);
+    // (a skin triangle goes when all of it is under cloth: the garments cover with a margin from their openings)
+    for (let t = 0; t < bi.length; t += 3) if (!(hide[rm[bi[t]]] && hide[rm[bi[t + 1]]] && hide[rm[bi[t + 2]]])) keep.push(bi[t], bi[t + 1], bi[t + 2]);
     const uv = new Float32Array(D.body.uv.length);
     for (let i = 0; i < uv.length; i++) uv[i] = D.body.uv[i] / 65535;
     const bodyGeo = geometry(v, D.nv, new Uint16Array(keep), rm, uv, ground);
@@ -425,14 +463,10 @@ export class MhPerson {
         const soft = new THREE.Mesh(g, this.mat('hairsoft:' + f.name, () => tinted(`hair-${f.name}.jpg`, { alpha: `hair-${f.name}.a.png`, blendEdges: true, edgeOnly: true, rough: 0.5 })));
         soft.renderOrder = 3; soft.name = 'hairsoft:' + f.name;
         this.root.add(soft);
-      } else if (f.d.part) {
-        // (upper and lower part, each its colour: two groups of the same geometry)
-        const up = [], lo = [], idx = f.d.idx, part = f.d.part;
-        for (let t = 0; t < idx.length; t += 3) (part[idx[t]] ? lo : up).push(idx[t], idx[t + 1], idx[t + 2]);
-        g.setIndex(new THREE.BufferAttribute(new Uint16Array([...up, ...lo]), 1));
-        g.addGroup(0, up.length, 0); g.addGroup(up.length, lo.length, 1);
-        mesh = new THREE.Mesh(g, [this.mat('cloth-up:' + f.name, () => tinted(`cloth-${f.name}.jpg`, { rough: 0.92, keep: 0.7 })), this.mat('cloth-lo:' + f.name, () => tinted(`cloth-${f.name}.jpg`, { rough: 0.92, keep: 0.7 }))]);
-      } else mesh = new THREE.Mesh(g, this.mat('cloth:' + f.name, () => tinted(`cloth-${f.name}.jpg`, { colour: '#5a3a24', rough: 0.7, keep: 0.6 })));
+      } else if (f.kind === 'garment') {
+        g.setAttribute('att', new THREE.BufferAttribute(f.d.att, 4, true));
+        mesh = new THREE.Mesh(g, this.mat('garment:' + f.name, () => clothMaterial({ leather: f.wear.leather })));
+      }
       mesh.name = f.kind + ':' + f.name;
       if (f.kind === 'brows' || f.kind === 'lashes') mesh.renderOrder = 1;
       this.root.add(mesh);
@@ -505,8 +539,10 @@ export class MhPerson {
     for (const [k, m] of Object.entries(this.mats)) {
       if (k.startsWith('hair:') || k.startsWith('hairsoft:')) m.userData.U.tint.value.copy(hairC);
       else if (k.startsWith('brows:')) m.userData.U.tint.value.copy(hairC).multiplyScalar(0.75);
-      else if (k.startsWith('cloth-up:')) m.userData.U.tint.value.set(look.cloth || '#3a5ab8');
-      else if (k.startsWith('cloth-lo:')) m.userData.U.tint.value.set(look.sex === 'chico' || look.outfit !== 'larga' ? look.pants || '#4a3a2a' : look.cloth || '#3a5ab8');
+    }
+    for (const c of garmentsOf(look)) {
+      const U = this.mats['garment:' + c.name]?.userData.U;
+      if (U) { U.c1.value.set(c.colour); U.c2.value.set(c.colour2); U.tear.value = c.tear; }
     }
   }
   mat(key, make) { return (this.mats[key] ||= make()); }
