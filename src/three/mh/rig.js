@@ -68,7 +68,7 @@ const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 // weights, and the joints with them. Leaves person.rig: the joints (decimetres, before the feet go to the ground), the
 // weights of each bound mesh and the low body (LOD1), fitted and posed too
 // (spread 0..1: a heavier or stronger body, or a wide skirt, holds the arms a little out, as person.js's arms down)
-export function restPose(person, D, v, fitted, sex, spread = 0) {
+export function* restPose(person, D, v, fitted, sex, spread = 0, late = () => false) {
   const J = {};
   const hl = joint(D, v, 'joint-l-upper-leg'), hr = joint(D, v, 'joint-r-upper-leg');
   J.body = new THREE.Vector3(0, (hl[1] + hr[1]) / 2, (hl[2] + hr[2]) / 2);
@@ -109,6 +109,7 @@ export function restPose(person, D, v, fitted, sex, spread = 0) {
   const lod = lodOf(sex), lodV = D.proxies.has(lod) ? fit(D, v, lod) : null;
   const parts = new Map();
   for (const f of fitted) {
+    if (late()) yield;
     if (!f.d) continue;   // (our hair and beards, hair.js: on the head, which does not move at rest; ingame.js puts them on the head bone)
     const s = partSkin(D, f.d, f.P.nv);
     parts.set(f.name, s);
@@ -121,7 +122,7 @@ export function restPose(person, D, v, fitted, sex, spread = 0) {
     lodPart = { name: lod, v: lodV, skin: s, d };
   }
   const bi = new Uint8Array(4), bw = new Float32Array(4);
-  for (let i = 0; i < D.nv; i++) { baseSkin(D, i, bi, bw, 0); move(v, i, bi, bw, 0); }
+  for (let i = 0; i < D.nv; i++) { baseSkin(D, i, bi, bw, 0); move(v, i, bi, bw, 0); if ((i & 2047) === 0 && late()) yield; }
   const jf = new Float32Array(BONES.length * 3);
   BONES.forEach((b, k) => { jf[k * 3] = P[b].x; jf[k * 3 + 1] = P[b].y; jf[k * 3 + 2] = P[b].z; });
   person.rig = { joints: jf, parts, lod: lodPart, squeeze: lodV ? [jf, lodV] : [jf] };

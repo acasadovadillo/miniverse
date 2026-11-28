@@ -2809,10 +2809,11 @@ async function soloTests(game) {
     P.root.updateMatrixWorld(true);
     const at = b => new THREE.Vector3().setFromMatrixPosition(b.matrixWorld), hand = at(P.hand), sh = at(P.arms[0]), hip = at(P.body);
     check(Math.abs(hand.x - sh.x) < 0.12 && hand.y < hip.y + 0.15 && hand.y > hip.y - 0.3, `the hand hangs by the side: ${hand.toArray().map(v => v.toFixed(2))}`);
-    // (three levels: near, middle, far; what hangs from the bones stays seen)
+    // (three levels: near, middle, far (the low body without its shadow); the ring person never drawn; what hangs from the
+    // bones stays seen)
     for (const n of [0, 1, 2]) {
       P.mhLevel = n;
-      check(B.near.visible === (n === 0) && B.low.visible === (n === 1) && P.r.mesh.visible === (n === 2) && P.bag.parent && (n !== 2 || P.lod === 1), `level ${n}`);
+      check(B.near.visible === (n === 0) && B.low.visible === (n > 0) && B.low.castShadow === (n === 1) && !P.r.mesh.visible && P.bag.parent && (n !== 2 || P.lod === 1), `level ${n}`);
     }
     P.mhLevel = 0;
     // (the backpack, the belt and the belly on this body: measured on it)
@@ -2848,6 +2849,14 @@ async function soloTests(game) {
     T.dispose(); G.dispose();
     const { barberBill: bill, PRICES: PR } = await import('./barber.js'), L2 = { ...LOOK, mh: { preset: 'ca_f1' }, hairStyle: 'mullet' };
     check(bill(L2, { ...L2, hairStyle: 'corto' }).total === 0 && bill(L2, { ...L2, hairStyle: 'tazon' }).total === PR.style, 'the barber, by our own styles');
+    // (a look never made is made a few ms a frame, never all at once: nothing is drawn meanwhile, then it is put on)
+    const fresh = { ...PEOPLE.lia.look, cloth: '#5a7a3c', hairStyle: 'trenza', beard: 'no' }, N = new RealPerson(fresh, { folk: true });
+    check(!N.mhb && !N.r.mesh.visible, 'a new look: nothing drawn while its body is made');
+    let calls = 0, worst = 0;
+    while (!N.mhb && calls < 400) { const t = performance.now(); I.buildNext([[N, 3]], false); worst = Math.max(worst, performance.now() - t); calls++; await frames(1); }
+    console.log(`▶ mh game: a new look made in ${calls} frames, the longest ${worst.toFixed(1)} ms`);
+    check(N.mhb && calls > 5 && worst < 40, `made over ${calls} frames, the longest ${worst.toFixed(1)} ms`);
+    N.dispose();
     // (the portrait of a player with look.mh: drawn from the MakeHuman body, something in its middle)
     const { portrait3D } = await import('./three/portrait.js'), pic = portrait3D({ ...LOOK, mh: { preset: 'ca_f3', macro: { age: 20 } } });
     const px = pic.getContext('2d').getImageData(pic.width >> 1, pic.height >> 1, 1, 1).data;

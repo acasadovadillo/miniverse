@@ -7,7 +7,7 @@
 // still persona.js.
 import * as THREE from 'three';
 import { mhUrl, proxy } from './data.js';
-import { blend, fit, fitGarment, joint, armPose, poseInPlace, yearsOf, expressions } from './shape.js';
+import { blend, blendSteps, fit, fitGarment, joint, armPose, poseInPlace, yearsOf, expressions } from './shape.js';
 import { garment } from './data.js';
 import { hairOf, browsOf, lashesOf, garmentsOf } from './looks.js';
 import { clothMaterial } from './cloth.js';
@@ -241,7 +241,7 @@ function normals(pos, nv, idx, rmap) {
     const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2];
     const vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
     const x = uy * vz - uz * vy, y = uz * vx - ux * vz, z = ux * vy - uy * vx;
-    for (const i of [a, b, c]) { n[i] += x; n[i + 1] += y; n[i + 2] += z; }
+    n[a] += x; n[a + 1] += y; n[a + 2] += z; n[b] += x; n[b + 1] += y; n[b + 2] += z; n[c] += x; n[c + 1] += y; n[c + 2] += z;   // (no array per triangle: a third of the time)
   }
   for (let i = 0; i < nv; i++) { const l = Math.hypot(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]) || 1; n[i * 3] /= l; n[i * 3 + 1] /= l; n[i * 3 + 2] /= l; }
   return n;
@@ -324,7 +324,9 @@ function scalp(D, hair, rmap, v) {
 //   zone:  the T of the face (shiny), the lips, the thin parts (ears, nose, lips: light goes through) and the face's front
 //   face:  where on the face (across, in head halves; up from the nose's tip, in decimetres; depth from the nose's tip),
 //          for the layers
-function faceMaps(D, v, rmap) {
+function faceMaps(D, v, rmap) { const it = faceMapsSteps(D, v, rmap); let r; while (!(r = it.next()).done); return r.value; }
+// (the same, giving way when late() says so)
+function* faceMapsSteps(D, v, rmap, late = () => false) {
   const e = joint(D, v, 'joint-l-eye'), nb = D.head.nbody;
   const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   const band = (x, lo, hi, soft) => ss(lo - soft, lo + soft, x) * (1 - ss(hi - soft, hi + soft, x));
@@ -332,6 +334,7 @@ function faceMaps(D, v, rmap) {
   const nose = tip(e[1] - 0.9, e[1] - 0.2), chin = tip(nose[1] - 1.3, nose[1] - 0.55), mouth = nose[1] - 0.27;
   const bz = new Float32Array(nb * 3), zn = new Float32Array(nb * 4), fc = new Float32Array(nb * 3);
   for (let i = 0; i < nb; i++) {
+    if ((i & 1023) === 0 && late()) yield;
     const sx = v[i * 3], x = Math.abs(sx), y = v[i * 3 + 1], z = v[i * 3 + 2], dz = z - chin[2];
     fc[i * 3] = sx / 0.7; fc[i * 3 + 1] = y - nose[1]; fc[i * 3 + 2] = z - nose[2];
     if (y > e[1] + 1.4 || y < chin[1] - 0.9 || x > 1.0 || dz < -2.2) continue;
@@ -388,28 +391,32 @@ function looseCloth(D, name, v) {
 export class MhPerson {
   // (opts.restPose: the game's pose in place of the arms down, src/three/mh/rig.js; it may leave this.rig.squeeze, arrays
   // of decimetres squeezed with the rest)
+  // (opts.expr: only these expressions, the game's few; opts.defer: not built here, the game runs steps() over frames)
   constructor(D, look, opts = {}) {
     this.D = D;
     this.opts = opts;
     this.root = new THREE.Group();
     this.mats = {};
-    this.expr = D.head.expr || [];
-    this.build(look);
+    this.expr = opts.expr ? opts.expr.filter(id => (D.head.expr || []).includes(id)) : D.head.expr || [];
+    if (!opts.defer) this.build(look);
   }
   // The shape key: what needs the geometry made again (colours and the skin's layers only touch the materials)
   static shapeKey(look) {
     return JSON.stringify([look.sex, look.mh?.macro || null, look.mh?.face || null, look.hairStyle, look.brows, look.outfit, look.wear ? Object.values(look.wear).map(w => w?.id).join() : null, hairKey(look)]);
   }
-  build(look) {
+  build(look) { const it = this.steps(look); while (!it.next().done); }
+  // The build, giving way (yield) when late() says so (the game's frames: ingame.js), at once otherwise
+  *steps(look, late = () => false) {
     const t0 = performance.now(), D = this.D, sex = look.sex === 'chico' ? 'chico' : 'chica';
     this.clear();
     const prof = this.prof = {}, lap = k => { prof[k] = performance.now(); };
-    const v = blend(D, look.mh, sex), nb = D.head.nbody;
+    const v = yield* blendSteps(D, look.mh, sex, late), nb = D.head.nbody;
     // (the expressions depend only on the origin: kept while it stays, and copied, since a giant is squeezed below)
     const m0 = look.mh?.macro || {}, exKey = [m0.af, m0.as, m0.ca].join();
-    if (this.exKey !== exKey) { this.exKey = exKey; this.ex0 = expressions(D, look.mh); this.exDense = this.ex0.map(e => dense(e, D.nv)); }
+    if (this.exKey !== exKey) { this.exKey = exKey; this.ex0 = expressions(D, look.mh, this.expr); this.exDense = this.ex0.map(e => dense(e, D.nv)); }
     const ex = this.ex0.map(e => ({ id: e.id, idx: e.idx, d: e.d.slice() }));
     lap('blend');
+    if (late()) yield;
     // The bound meshes first, on the base still in its A pose; those of the face also with each expression on
     const parts = [['eyes', 'high-poly'], ['brows', browsOf(look)], ['lashes', lashesOf(look)], ['teeth', 'teeth_base'], ['tongue', 'tongue01']];
     // (P4: our own hair and beard of cards, hair.js; MakeHuman's hair only if their pack did not load)
@@ -418,9 +425,11 @@ export class MhPerson {
     const fitted = parts.map(([kind, name]) => ({ kind, name, P: D.proxies.get(name), d: proxy(D, name), v: fit(D, v, name) })).filter(x => x.v);
     // (the clothes: our own garments, bound to the skin's triangles)
     for (const c of garmentsOf(look)) {
+      if (late()) yield;
       const d = garment(D, c.name);
       if (d) fitted.push({ kind: 'garment', name: c.name, wear: c, P: D.garments.get(c.name), d, v: looseCloth(D, c.name, fitGarment(D, v, c.name)) });
     }
+    if (late()) yield;
     fitted.push(...hairFits(D, v, look));
     const facial = fitted.filter(f => ['brows', 'lashes', 'teeth', 'tongue', 'ownbeard'].includes(f.kind));
     for (const f of facial) f.morphs = [];
@@ -429,11 +438,12 @@ export class MhPerson {
       shift(e, 1);
       for (const f of facial) { const w = f.refit ? f.refit(v) : fit(D, v, f.name); for (let i = 0; i < w.length; i++) w[i] -= f.v[i]; f.morphs.push(w); }
       shift(e, -1);
+      if (late()) yield;
     }
     lap('fit');
     // Then the arms down: the body with its weights; each bound vertex with its three base vertices' weights (in the game,
     // its own rest pose instead: rig.js)
-    if (this.opts.restPose) this.opts.restPose(this, D, v, fitted);
+    if (this.opts.restPose) { const r = this.opts.restPose(this, D, v, fitted, late); if (r?.next) yield* r; }
     else {
       const mc = look.mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1 : fitted.some(f => f.name === 'tunica') ? 0.4 : 0;
       const pose = armPose(D, v, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140), arm = D.body.arm;
@@ -446,6 +456,7 @@ export class MhPerson {
       poseInPlace(v, nb, wU, wL, pose);
     }
     lap('pose');
+    if (late()) yield;
     // Feet on the ground: the lowest of the body and the boots
     let ground = Infinity;
     for (let i = 0; i < nb; i++) ground = Math.min(ground, v[i * 3 + 1]);
@@ -469,26 +480,33 @@ export class MhPerson {
     const bi = D.body.idx, rm = D.body.rmap, keep = [];
     // (a skin triangle goes when all of it is under cloth: the garments cover with a margin from their openings)
     for (let t = 0; t < bi.length; t += 3) if (!(hide[rm[bi[t]]] && hide[rm[bi[t + 1]]] && hide[rm[bi[t + 2]]])) keep.push(bi[t], bi[t + 1], bi[t + 2]);
+    if (late()) yield;
     const uv = new Float32Array(D.body.uv.length);
     for (let i = 0; i < uv.length; i++) uv[i] = D.body.uv[i] / 65535;
+    if (late()) yield;
     const bodyGeo = geometry(v, D.nv, new Uint16Array(keep), rm, uv, ground);
     lap('geo');
-    const fm = faceMaps(D, v, rm);
+    if (late()) yield;
+    const fm = yield* faceMapsSteps(D, v, rm, late);
     lap('maps');
+    if (late()) yield;
     const own = fitted.find(f => f.kind === 'ownhair');
     bodyGeo.setAttribute('scalp', new THREE.BufferAttribute(D.hair ? scalpOf(own, D.nv, rm) : scalp(D, fitted.find(f => f.kind === 'hair'), rm, v), 1));
     lap('scalp');
+    if (late()) yield;
     bodyGeo.setAttribute('beardZone', new THREE.BufferAttribute(fm.beard, 3));
     bodyGeo.setAttribute('zone', new THREE.BufferAttribute(fm.zone, 4));
     bodyGeo.setAttribute('face', new THREE.BufferAttribute(fm.face, 3));
     morphs(bodyGeo, rm, squeezed ? ex.map(e => dense(e, D.nv)) : this.exDense);
     this.eyesF = fm.eyes;
     lap('body');
+    if (late()) yield;
     const body = new THREE.Mesh(bodyGeo, this.mat('skin:' + sex, () => skinMaterial(sex)));
     body.name = 'body';
     this.root.add(body);
     this.eyes = [];
     for (const f of fitted) {
+      if (late()) yield;
       if (f.s) { this.root.add(...hairMeshes(f, ground, (k, make) => this.mat(k, make))); continue; }
       const g = geometry(f.v, f.P.nv, f.d.idx, f.d.rmap, f.d.uv, ground);
       if (f.morphs) morphs(g, f.d.rmap, f.morphs);

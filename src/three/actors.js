@@ -17,8 +17,9 @@ import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, SEAT, 
 import { nearX } from '../world/planet.js';
 import { scaleOf } from '../herds.js';
 import { raceKey } from '../horsebreeds.js';
-import { RealPerson, realBaby, prebuildReal, prebuildBody, realReady, realStats } from './realperson.js';
-import { LEVEL_M, NEAR_MAX, buildNext } from './mh/ingame.js';
+import { RealPerson, realBaby, prebuildReal, prebuildBody, prebuildStandIn, wearsMh, realReady, realStats } from './realperson.js';
+import { LEVEL_M, NEAR_MAX, buildNext, requestShape, setUploader } from './mh/ingame.js';
+import { mhOfLook } from './mh/folk.js';
 import { armband } from './law3d.js';
 import { apagada } from '../opciones.js';
 import { smoothstep } from '../util.js';
@@ -200,7 +201,7 @@ export class Actors {
       // (el jugador y los demás jugadores, con la ropa que llevan: si se ponen o se quitan algo, se rehace su persona; si solo
       // cambia la mochila, no: se pone o se quita en la que hay, ver pose)
       const look = e === p ? game.appearance() : e.look;
-      if (m && (e === p || e.remote) && m.look !== look) { if (m.kind === 'person' && look && m.look && bodyKey(m.look) === bodyKey(look)) { m.look = look; m.nextLook = null; } else if (this.later(m, e, look)) { /* (the one there is stays meanwhile) */ } else { this.drop(e, m); m = null; } }
+      if (m && (e === p || e.remote) && m.look !== look) { if (m.kind === 'person' && look && m.look && bodyKey(m.look) === bodyKey(look)) { m.look = look; m.nextLook = null; } else if (this.mhKeep(m, e, look, e === p)) { /* (its new MakeHuman shape is being made: the one there is stays) */ } else if (this.later(m, e, look)) { /* (the one there is stays meanwhile) */ } else { this.drop(e, m); m = null; } }
       else if (m?.nextLook) m.nextLook = null;
       if (m?.kind === 'animal' && !this.sameAnimal(m, e)) { this.drop(e, m); m = null; }
       if (!m) {
@@ -228,7 +229,8 @@ export class Actors {
       }
     }
     for (const [e, m] of this.models) if (!seen.has(e)) this.drop(e, m);
-    if (this.mhWait.length) { buildNext(this.mhWait, covered()); this.mhWait = []; }
+    setUploader(this.view.renderer);
+    buildNext(this.mhWait, covered()); this.mhWait = [];   // (also the shapes asked for beforehand or for a new look: ingame.js runJobs)
     if (this.rushing > 0) this.rushing--;
     this.count();
     // En cuevas y mazmorras el jugador lleva un farol
@@ -363,7 +365,15 @@ export class Actors {
     }
     if (!this.warm.length) return;
     // (una que haya que hacer de verdad: las que ya están hechas no cuestan nada)
-    const one = () => { for (let it; (it = this.warm.shift());) { this.built.add(it[0]); try { if (prebuildReal(it[0], it[1])) { this.warm.unshift(it); return; } if (prebuildBody(it[0], it[1])) return; } catch (err) { /* (la hará al verla) */ } } };   // (a neighbour's MakeHuman body after its ring one, the next time: one each time)
+    // (a MakeHuman body, ?creador=nuevo: the stand-ins first; its shape is queued and made a few ms a frame, never its ring person.
+    // it[2]: a player's look)
+    const one = () => {
+      try { if (prebuildStandIn()) return; } catch (err) { /* (made when needed) */ }
+      for (let it; (it = this.warm.shift());) {
+        this.built.add(it[0]);
+        try { if (wearsMh(it[0], it[1], !it[2])) { prebuildBody(it[0], it[1], !it[2]); continue; } if (prebuildReal(it[0], it[1])) return; } catch (err) { /* (la hará al verla) */ }
+      }
+    };   // (a neighbour's MakeHuman body after its ring one, the next time: one each time)
     // (a oscuras, solo en un rato libre: mientras se espera a algo que no es este hilo; ver engine.js, coverSpare. Si no, cada
     // persona alargaba lo que se está a oscuras al entrar 0,3-0,4 s)
     if (covered()) { if (this.view.coverSpare?.() ?? true) one(); return; }
@@ -372,10 +382,19 @@ export class Actors {
     requestIdleCallback(dl => { this.warmIdle = false; if (dl.timeRemaining() > 40) one(); });
   }
 
+  // A player's (or another player's) new look while they wear a MakeHuman body (a haircut, other clothes, the hair grown):
+  // the body there is stays until the new shape is made, a few ms a frame (runJobs), with no stumble
+  mhKeep(m, e, look, mine) {
+    if (m.kind !== 'person' || !m.person?.mhb || !look) return false;
+    const mh = mhOfLook(look, false);
+    if (!mh || requestShape(look, mh, 0)) return false;
+    if (mine && this.rushing > 0) return false;   // (a hidden moment: at once)
+    return true;
+  }
   // A look to make in idle time, first in line (the player's grown hair: body.js growthTick; a swap that waits: later)
   warmUp(look) {
     for (const w of this.warm) if (w[0] === look) return;
-    this.warm.unshift([look, false]);
+    this.warm.unshift([look, false, true]);
     if (this.warm.length > 40) this.warm.length = 40;
   }
   // The player's next change shows at once (a hidden moment, a haircut, /body): for a couple of frames, later() does not wait
@@ -386,6 +405,7 @@ export class Actors {
   // for a game that never rests, after a while (out of sight or standing still; or anyway, later)
   later(m, e, look) {
     if (m.kind !== 'person' || !look || !m.look || calmKey(m.look) !== calmKey(look)) return false;
+    if (m.person?.mhb && wearsMh(look, false, false)) return false;   // (a MakeHuman body waits in mhKeep, for its shape only)
     if (this.rushing > 0 && m === this.player) return false;
     if (m.nextLook !== look) {
       m.nextLook = look; m.nextAt = this.time;
@@ -667,6 +687,8 @@ export class Actors {
   // parts with their own materials (the outline), as made with the person
   mhFresh(m, P) {
     P.mhFresh = false;
+    // (its programs compiled in parallel before it shows, as a new animal: engine.js gate. The player's, at once)
+    if (m !== this.player) this.view.gate?.(P.mhb.inner);
     m.kitShown = undefined; m.kitIds = undefined;
     if (m.carriedObj) { m.carriedKey = undefined; }
     if (m === this.player) { P.mhb.near.traverse(o => { if (o.isMesh) ownMesh(o, m, true); }); if (P.mhb.low) ownMesh(P.mhb.low, m, true); if (P.bag) P.bag.traverse(o => { if (o.isMesh) ownMesh(o, m, true); }); }

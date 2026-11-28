@@ -15,13 +15,26 @@ import { loadMh, proxy, garment } from './data.js';
 import { MhPerson, limitTextures } from './person.js';
 import { restPose, BONES, hasRig, baseSkin } from './rig.js';
 import { MH_ON } from './folk.js';
+import { injectGrime, grimeMaterial, writeGrime, clearGrime } from '../grime.js';
+
+// The surface overlay (grime.js) into a material of the person: put in before its own patch, which keeps the hook lines
+// (map and roughness); a program of its own (the creator's has none). Nothing is drawn while its uniforms are 0
+function withGrime(m, skin) {
+  if (m.userData.grime) return m;
+  const prev = m.onBeforeCompile, key = m.customProgramCacheKey;
+  m.onBeforeCompile = function (sh, r) { injectGrime(sh, this, { skin }); prev?.call(this, sh, r); };
+  m.customProgramCacheKey = function () { return (key ? key.call(this) : '') + '-grime'; };
+  m.userData.grime = true;
+  return m;
+}
 
 const M = 0.1;                 // decimetres to metres
 const TEX_SIDE = 1024;         // the game's textures (the creator's are 2048)
 // (the expressions kept in the game: the eyes closing and the mouth while talking)
 const KEEP = ['blink', 'jaw_open', 'smile', 'pucker'];
-// (parts the game does not draw: the cornea's shine and the tongue)
-const DROP = n => n === 'cornea' || n.startsWith('tongue');
+// (parts the game does not draw: the cornea's shine, the tongue and the beard's soft second pass, a draw of its own that
+// does not show from metres away; the hair's stays: without it the hair looks thin, even from a few metres)
+const DROP = n => n === 'cornea' || n.startsWith('tongue') || n.startsWith('ownbeardsoft');
 // What a part is, by its name (person.js): the clothes (P3's garments; the provisional MakeHuman ones), the hair and the
 // beard (P4's cards, cut and soft passes; MakeHuman's), the brows, the rest
 const kindOf = n => (/^(garment|cloth):/.test(n) ? 'cloth' : /^(own)?hair(soft)?:/.test(n) ? 'hair' : /^ownbeard(soft)?:/.test(n) ? 'beard' : n.split(':')[0]);
@@ -32,6 +45,7 @@ const KEEP_FREE = 16;              // shapes nobody wears kept for a while (a ne
                                    // village's, made beforehand: prebuildMh)
 
 let D = null, loading = false, failed = false;
+export const mhFailed = () => failed;
 // The pack, once it has arrived (the first call starts loading it): null meanwhile and without the switch
 export function mhData() {
   if (!MH_ON || failed) return null;
@@ -48,23 +62,67 @@ export function mhData() {
 const SHAPES = new Map();
 // (the whole look but the backpack, which hangs from the bones: its clothes and their wear, the hair's and the beard's growth)
 const shapeKey = (look, mh) => JSON.stringify([{ ...look, mh: undefined, wear: look.wear && { ...look.wear, espalda: undefined } }, mh]);
-export const shapeReady = (look, mh) => SHAPES.has(shapeKey(look, mh));
+export const shapeReady = (look, mh) => !!SHAPES.get(shapeKey(look, mh))?.ready;
 export const mhStats = () => { let free = 0; for (const s of SHAPES.values()) if (s.refs <= 0) free++; return { shapes: SHAPES.size, free }; };
 function trim() {
-  const free = [...SHAPES].filter(([, s]) => s.refs <= 0).sort((a, b) => a[1].used - b[1].used);
+  const free = [...SHAPES].filter(([, s]) => s.refs <= 0 && s.ready).sort((a, b) => a[1].used - b[1].used);
   for (let i = 0; i < free.length - KEEP_FREE; i++) { SHAPES.delete(free[i][0]); free[i][1].dispose(); }
 }
-// The shape of a look made beforehand, kept with nobody wearing it (actors.js prewarm, in idle time): true if it was made
-export function prebuildMh(look, mh) {
-  if (!D || !mh || SHAPES.has(shapeKey(look, mh))) return false;
-  const s = shapeFor(look, mh);
-  s.release();
-  return true;
-}
-function shapeFor(look, mh) {
+// ---- Making them without a stumble: a shape is made in steps (a generator), a few ms a frame (BUDGET_MS, more with the
+// screen dark), the most wanted first (prio: metres to the camera; the ones made beforehand, far behind)
+const BUDGET_MS = 4, DARK_MS = 40;
+let deadline = Infinity;
+const late = () => performance.now() > deadline;
+function shapeOf(look, mh) {
   const k = shapeKey(look, mh);
   let s = SHAPES.get(k);
-  if (!s) SHAPES.set(k, (s = new MhShape(look, mh)));
+  if (!s) { SHAPES.set(k, (s = new MhShape(look, mh))); trim(); }
+  return s;
+}
+// Asks for the shape of a look (prio: lower goes first): false while it is being made
+export function requestShape(look, mh, prio = 0) {
+  if (!D || !mh) return false;
+  const s = shapeOf(look, mh);
+  if (!s.ready) s.prio = Math.min(s.prio, prio);
+  return s.ready;
+}
+// The shape of a look made beforehand, kept with nobody wearing it (actors.js prewarm): queued, far behind the seen
+export const prebuildMh = (look, mh) => requestShape(look, mh, 1e6) === false && !!D && !!mh;
+// A few ms of making (actors.js, each frame): the pending shapes, most wanted first, until the time is up
+export function runJobs(dark = false) {
+  if (!D) return;
+  const t0 = performance.now(), end = t0 + (dark ? DARK_MS : BUDGET_MS);
+  while (performance.now() < end) {
+    let best = null;
+    for (const s of SHAPES.values()) if (!s.ready && (!best || s.prio < best.prio)) best = s;
+    if (!best) return;
+    deadline = end;
+    try { while (!best.step() && performance.now() < end); }
+    finally { deadline = Infinity; }
+  }
+}
+// The geometry sent to the graphics card while it is made, a piece a step (one tiny draw into a pixel off screen), so the
+// frame it first shows does not send it all at once. actors.js gives the renderer
+let UP = null;
+export function setUploader(renderer) {
+  if (UP || !renderer) return;
+  const target = new THREE.WebGLRenderTarget(1, 1), scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(), mat = new THREE.MeshBasicMaterial();
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+  mesh.frustumCulled = false; scene.add(mesh);
+  UP = g => {
+    const was = renderer.getRenderTarget();
+    // (without its morphs: they would make other programs to compile; their texture goes up when first drawn, small)
+    const mo = g.morphAttributes;
+    g.morphAttributes = {}; mesh.geometry = g;
+    renderer.setRenderTarget(target); renderer.render(scene, cam); renderer.setRenderTarget(was);
+    g.morphAttributes = mo; mesh.geometry = EMPTY_G;
+  };
+}
+const EMPTY_G = new THREE.BufferGeometry();
+// The shape, made now if it is not (the player at the start, behind the dark screen), with one more wearing it
+function shapeFor(look, mh) {
+  const s = shapeOf(look, mh);
+  if (!s.ready) { deadline = Infinity; while (!s.step()); }
   s.refs++; s.used = performance.now();
   return s;
 }
@@ -87,6 +145,7 @@ float dl = dot(dt, vec3(0.2126, 0.7152, 0.0722));
 diffuseColor.rgb = vLc.rgb * mix(vec3(1.0), mix(vec3(dl), dt, 0.35), vLc.a);`);
   };
   m.customProgramCacheKey = () => 'mh-low';
+  withGrime(m, 'vLc.a');
   LOW.set(key, m);
   return m;
 }
@@ -97,7 +156,7 @@ function smoothNormals(pos, idx) {
     const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
     const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
     const x = uy * vz - uz * vy, y = uz * vx - ux * vz, z = ux * vy - uy * vx;
-    for (const i of [a, b, c]) { n[i] += x; n[i + 1] += y; n[i + 2] += z; }
+    n[a] += x; n[a + 1] += y; n[a + 2] += z; n[b] += x; n[b + 1] += y; n[b + 2] += z; n[c] += x; n[c + 1] += y; n[c + 2] += z;
   }
   for (let i = 0; i < n.length; i += 3) { const l = Math.hypot(n[i], n[i + 1], n[i + 2]) || 1; n[i] /= l; n[i + 1] /= l; n[i + 2] /= l; }
   return n;
@@ -128,10 +187,25 @@ function spreadOf(look, mh, fitted) {
 // numbers of the ring skeleton, the same order for everybody: real/persona.js defs), the low body, the joints
 class MhShape {
   constructor(look, mh) {
-    const t0 = performance.now(), sex = (this.sex = look.sex === 'chico' ? 'chico' : 'chica');
-    this.refs = 0; this.used = 0;
-    // (an old look's beard: true, a full one)
-    const mp = (this.mp = new MhPerson(D, { ...look, mh, beard: look.beard === true ? 'completa' : look.beard }, { restPose: (p, d, v, f) => restPose(p, d, v, f, sex, spreadOf(look, mh, f)) }));
+    this.refs = 0; this.used = performance.now(); this.ready = false; this.prio = Infinity; this.ms = 0;
+    this.it = this.build(look, mh);
+  }
+  // One step of the making (true when it is done); the time it takes adds up in ms
+  step() {
+    const t = performance.now(), r = this.it.next(), d = performance.now() - t;
+    this.ms += d;
+    if (d > (this.maxStep || 0)) { this.maxStep = d; this.maxAt = `${Object.keys(this.mp?.prof || {}).pop() || '-'}/${this.stage || ''}`; }
+    if (r.done) { this.ready = true; this.it = null; }
+    return r.done;
+  }
+  *build(look, mh) {
+    const sex = (this.sex = look.sex === 'chico' ? 'chico' : 'chica');
+    // (an old look's beard: true, a full one; only the expressions the game moves)
+    const L = { ...look, mh, beard: look.beard === true ? 'completa' : look.beard };
+    const mp = (this.mp = new MhPerson(D, L, { defer: true, expr: KEEP, restPose: (p, d, v, f, lt) => restPose(p, d, v, f, sex, spreadOf(look, mh, f), lt) }));
+    this.stage = 'mp';
+    yield* mp.steps(L, late);
+    this.stage = 'parts';
     const rig = mp.rig, g0 = mp.ground;
     this.height = mp.height; this.eyeY = mp.eyeY;
     const J = (this.J = {});
@@ -154,6 +228,7 @@ class MhShape {
       const pname = o.name === 'body' ? null : o.name === 'eyes' ? 'high-poly' : o.name.slice(o.name.indexOf(':') + 1);
       const pd = pname && rig.parts.get(pname), rm = pname && (proxy(D, pname) || garment(D, pname))?.rmap;
       for (let i = 0; i < n; i++) {
+        if ((i & 2047) === 0 && late()) yield;
         if (o.name === 'body') baseSkin(D, D.body.rmap[i], si, sw, i);
         else if (pd && rm && rm.length === n) { const j = rm[i]; for (let k = 0; k < 4; k++) { si[i * 4 + k] = pd.idx[j * 4 + k]; sw[i * 4 + k] = pd.w[j * 4 + k]; } }
         else { si[i * 4] = BONES.indexOf('head'); sw[i * 4] = 1; }   // (a part not known: on the head)
@@ -163,30 +238,43 @@ class MhShape {
       g.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
       g.computeBoundingSphere();
       this.parts.push({ g, mat: o.material, name: o.name, order: o.renderOrder, shadow: o.castShadow });
+      if (late()) yield;
+    }
+    // (the two eyes, one draw when they are of one colour: each eye's mesh has both eyes' vertices, so only the triangles join)
+    const eyes = this.parts.filter(p => p.name === 'eyes');
+    if (eyes.length === 2 && !mh?.eye2) {
+      const a = eyes[0].g.index.array, b = eyes[1].g.index.array, ab = new Uint16Array(a.length + b.length);
+      ab.set(a); ab.set(b, a.length); eyes[0].g.setIndex(new THREE.BufferAttribute(ab, 1));
+      eyes[1].g.dispose(); this.parts.splice(this.parts.indexOf(eyes[1]), 1);
     }
     const body = this.parts.find(p => p.name === 'body');
     this.skinMat = body.mat;
     // (in the game the skin is seen from metres away: no pores' relief and no soft light at its edges, which cost most of
     // its drawing; the eyes and the teeth cast no shadow)
     Object.assign(body.mat, { bumpMap: null, sheen: 0, needsUpdate: true });
-    for (const p of this.parts) if (p.name === 'eyes' || p.name.startsWith('teeth')) p.shadow = false;
-    const tu = performance.now();
-    this.underClothes(body);
-    this.underMs = performance.now() - tu;
+    // (the surface overlay on the skin and the clothes)
+    this.grimeMats = [withGrime(body.mat, '1.0')];
+    for (const p of this.parts) if (kindOf(p.name) === 'cloth') for (const m of [].concat(p.mat)) this.grimeMats.push(withGrime(m, '0.0'));
+    // (only the body, the clothes and the hair cast a shadow: what else would cast one is too small to see in it)
+    for (const p of this.parts) if (!/^(body|garment|cloth|ownhair|hair):?/.test(p.name)) p.shadow = false;
+    this.stage = 'under';
+    yield* this.underClothes(body);
+    this.stage = 'low';
     // (how far in front of the waist bone the belly is: the pregnancy's belly goes there, realperson.js setBelly)
     const bp = body.g.attributes.position, ys = J.spine.y - 0.05;
     let front = J.spine.z + 0.1;
     for (let i = 0; i < bp.count; i++) if (Math.abs(bp.getY(i) - ys) < 0.03 && Math.abs(bp.getX(i)) < 0.05) front = Math.max(front, bp.getZ(i));
     this.bellyFront = front - J.spine.z;
     this.tris0 = this.parts.reduce((a, p) => a + p.g.index.count / 3, 0);
-    this.low = rig.lod ? this.lowGeometry(rig.lod, g0, toSkel, body) : null;
+    this.low = rig.lod ? yield* this.lowGeometry(rig.lod, g0, toSkel, body) : null;
     this.tris1 = this.low ? this.low.index.count / 3 : this.tris0;
-    this.ms = performance.now() - t0;
+    this.stage = 'upload';
+    if (UP) for (const g of new Set([this.low, ...this.parts.map(p => p.g)])) if (g) { if (late()) yield; UP(g); }
   }
   // The skin right under a garment (within 1.8 cm of one of its vertices) is not drawn either: moving, it would poke
   // through (the garment follows its own three base vertices, the skin its own weights), and it is fewer triangles. And
   // the garments 3 mm out, for the same reason
-  underClothes(body) {
+  *underClothes(body) {
     const G = grid(0.02);
     for (const p of this.parts) if (kindOf(p.name) === 'cloth') {
       const a = p.g.attributes.position, nr = p.g.attributes.normal;
@@ -200,7 +288,8 @@ class MhShape {
     // (never the hands and forearms: they hang by the hips, close to the trousers or the skirt, and are seen)
     const si = body.g.attributes.skinIndex, sw = body.g.attributes.skinWeight, arms = new Set(['handL', 'handR', 'foreL', 'foreR'].map(b => ORDER.indexOf(b)));
     const arm = i => { let w = 0; for (let k = 0; k < 4; k++) if (arms.has(si.array[i * 4 + k])) w += sw.array[i * 4 + k]; return w > 0.3; };
-    for (let i = 0; i < a.count; i++) near[i] = !arm(i) && G.near(a.getX(i), a.getY(i), a.getZ(i), 0.018) ? 1 : 0;
+    if (late()) yield;
+    for (let i = 0; i < a.count; i++) { near[i] = !arm(i) && G.near(a.getX(i), a.getY(i), a.getZ(i), 0.018) ? 1 : 0; if ((i & 511) === 0 && late()) yield; }
     for (let t = 0; t < idx.length; t += 3) if (!(near[idx[t]] && near[idx[t + 1]] && near[idx[t + 2]])) keep.push(idx[t], idx[t + 1], idx[t + 2]);
     if (keep.length < idx.length) body.g.setIndex(new THREE.BufferAttribute(new Uint16Array(keep), 1));
   }
@@ -209,7 +298,7 @@ class MhShape {
   // it), the nearest garment's colour, going out to it; inside a skirt (between the legs), the skirt's, darker; the hair
   // close over it (never on the face's front), the hair's. And the hair and the beard themselves, their cut cards with the
   // hair's colour, in the same mesh: a fringe and long hair keep their shape from afar
-  lowGeometry(lod, g0, toSkel, body) {
+  *lowGeometry(lod, g0, toSkel, body) {
     const d = lod.d, rm = d.rmap, n = rm.length, nv = lod.v.length / 3;
     const pv = new Float32Array(nv * 3);
     for (let i = 0; i < nv; i++) { pv[i * 3] = lod.v[i * 3] * M; pv[i * 3 + 1] = (lod.v[i * 3 + 1] - g0) * M; pv[i * 3 + 2] = lod.v[i * 3 + 2] * M; }
@@ -219,19 +308,21 @@ class MhShape {
     const bp = body.g.attributes.position, shown = new Uint8Array(bp.count), bi = body.g.index.array;
     for (let t = 0; t < bi.length; t++) shown[bi[t]] = 1;
     const B = grid(0.03), t0 = performance.now();
-    for (let i = 0; i < bp.count; i++) B.add(bp.getX(i), bp.getY(i), bp.getZ(i), i);
+    for (let i = 0; i < bp.count; i++) { B.add(bp.getX(i), bp.getY(i), bp.getZ(i), i); if ((i & 4095) === 0 && late()) yield; }
+    if (late()) yield;
     // (cells as big as the reach: each look is 27 cells)
     // (each garment its own grid, inside out as person.js dresses them: the outermost over a vertex is its colour)
     const layers = [], face = grid(0.01), hair = grid(0.05), beard = grid(0.015);
     // (the eyes: each one's centre and the front of its iris)
     const eyes = [];
-    for (const p of this.parts) if (p.name === 'eyes') {
-      const a = p.g.attributes.position, c = new THREE.Vector3(), box = new THREE.Box3(), ix = p.g.index.array;   // (each eye's mesh has both eyes' vertices, and only its own triangles)
-      for (let t = 0; t < ix.length; t++) box.expandByPoint(c.set(a.getX(ix[t]), a.getY(ix[t]), a.getZ(ix[t])));
+    for (const p of this.parts) if (p.name === 'eyes') for (const side of [1, -1]) {
+      const a = p.g.attributes.position, c = new THREE.Vector3(), box = new THREE.Box3(), ix = p.g.index.array;   // (each eye: the triangles on its side)
+      for (let t = 0; t < ix.length; t++) if (Math.sign(a.getX(ix[t])) === side) box.expandByPoint(c.set(a.getX(ix[t]), a.getY(ix[t]), a.getZ(ix[t])));
+      if (box.isEmpty() || eyes.some(E => Math.sign(E.c.x) === side)) continue;
       box.getCenter(c); eyes.push({ c, f: new THREE.Vector3(c.x, c.y, box.max.z) });
     }
     const ez = eyes.length ? eyes[0].c.z : 0;
-    const front = (x, y, z) => z > ez - 0.035 && y < this.eyeY + 0.055 && Math.abs(x) < 0.075;   // (the face: never hair)
+    const front = (x, y, z) => z > ez - 0.06 && y < this.eyeY + 0.055 && Math.abs(x) < 0.075;   // (the face, chin too: never hair)
     const U = m => m.userData.U || {};
     const tint = (m, k) => (U(m).tint?.value || U(m).hairC?.value || m.color || new THREE.Color('#777')).clone().multiplyScalar(k);
     // (a skirt: per 2 cm of height, how far out it goes from the middle; the legs inside it are hidden by it)
@@ -242,7 +333,7 @@ class MhShape {
       if (softPass(p.name)) continue;
       if (kind === 'hair' && !hairC) hairC = tint(mat, 0.8);
       if (kind !== 'cloth' && kind !== 'brows' && kind !== 'hair' && kind !== 'beard') continue;
-      const into = kind === 'cloth' ? (layers[layers.length] = Object.assign(grid(0.08), { apron: /delantal/.test(p.name) })) : kind === 'hair' ? hair : kind === 'beard' ? beard : face, seen = new Uint8Array(pos.count), att = p.g.attributes.att;
+      const into = kind === 'cloth' ? (layers[layers.length] = Object.assign(grid(0.08), { apron: /delantal/.test(p.name), upper: /:(camisa|chaleco)$/.test(p.name) })) : kind === 'hair' ? hair : kind === 'beard' ? beard : face, seen = new Uint8Array(pos.count), att = p.g.attributes.att;
       // (P3's garment: its two colours by the part of each vertex; MakeHuman's provisional one: by its groups)
       const two = att && U(mat).c1 ? [U(mat).c1.value.clone().multiplyScalar(0.75), U(mat).c2.value.clone().multiplyScalar(0.75)] : null;
       const wide = kind === 'cloth' && /:(tunica|tunica_larga|abrigo)$/.test(p.name);
@@ -255,24 +346,32 @@ class MhShape {
       };
       const colourOf = k => tint(Array.isArray(mat) ? mat[k] : mat, kind === 'brows' ? 0.55 : kind === 'beard' ? 0.7 : 0.85);
       if (p.g.groups.length) for (const gr of p.g.groups) { const c = colourOf(gr.materialIndex); for (let t = gr.start; t < gr.start + gr.count; t++) put(idx[t], c); }
-      else { const c = colourOf(0); for (let t = 0; t < idx.length; t++) put(idx[t], c); }
+      else { const c = colourOf(0); for (let t = 0; t < idx.length; t++) { put(idx[t], c); if ((t & 8191) === 0 && late()) yield; } }
+      if (kind === 'cloth') { const L = layers[layers.length - 1]; L.minY = Infinity; for (let i = 0; i < pos.count; i++) if (seen[i]) L.minY = Math.min(L.minY, pos.getY(i)); }
+      if (late()) yield;
     }
     // (below the hips only, and never the arms: a hand hangs by the skirt, outside it)
     const hipY = this.J.body.y + 0.05, armB = new Set(['handL', 'handR', 'foreL', 'foreR', 'armL', 'armR'].map(b => BONES.indexOf(b)));
     const isArm = i => { let w = 0; for (let k = 0; k < 4; k++) if (armB.has(lod.skin.idx[i * 4 + k])) w += lod.skin.w[i * 4 + k]; return w > 0.3; };
     const handB = new Set(['handL', 'handR'].map(b => BONES.indexOf(b)));
     const isHand = i => { let w = 0; for (let k = 0; k < 4; k++) if (handB.has(lod.skin.idx[i * 4 + k])) w += lod.skin.w[i * 4 + k]; return w > 0.5; };
-    const tone = (U(this.skinMat).tone?.value || new THREE.Color('#c99c76')).clone();
+    // (the skin's tone a little darker and warmer than the near skin's uniform: that one is lit through, and from afar the
+    // plain tone of a very light skin read as a white mask)
+    const t0n = U(this.skinMat).tone?.value || new THREE.Color('#c99c76'), lum = 0.2126 * t0n.r + 0.7152 * t0n.g + 0.0722 * t0n.b;
+    const tone = t0n.clone().multiply(LOW_TONE).multiplyScalar(1 - 0.42 * Math.min(1, lum));   // (the lighter, the more)
     const out = new Float32Array(nv * 4), push = new Float32Array(nv);
     for (let i = 0; i < nv; i++) {
+      if ((i & 63) === 0 && late()) yield;
       const x = pv[i * 3], y = pv[i * 3 + 1], z = pv[i * 3 + 2], b = B.near(x, y, z, 0.03);
-      let c = tone, a = 1;
+      // (the head and the neck: their plain tone, no photo; on this low head it read as a white mask on a pale skin)
+      let c = tone, a = y > this.eyeY - 0.32 ? 0 : 1;
       const f = y > this.eyeY + 0.01 ? face.near(x, y, z, 0.009) : null, along = p => (p.x - x) * nn[i * 3] + (p.y - y) * nn[i * 3 + 1] + (p.z - z) * nn[i * 3 + 2], out_ = (p, cap) => Math.max(0, Math.min(cap, along(p)));
       let g = null;
       // (a hand is never a garment's, nor an arm the apron's, which hangs by it; the apron only just over the body)
       const arm = isArm(i), hand = isHand(i);
       if (!f && !hand) for (let L = layers.length - 1; L >= 0 && !g; L--) {
-        if (arm && layers[L].apron) continue;
+        // (not under a garment's hem, nor a shirt between the legs)
+        if ((arm && layers[L].apron) || y < layers[L].minY - 0.01 || (layers[L].upper && y < this.J.body.y - 0.02 && !arm)) continue;
         const q = layers[L].near(x, y, z, layers[L].apron ? 0.04 : b && shown[b.d] ? 0.06 : 0.08);
         if (q && along(q) > -0.025) g = q;
       }   // (the low body may stand a little out of a garment)
@@ -295,12 +394,16 @@ class MhShape {
     const plugs = this.eyePlugs(tri, pv, eyes, rm, d.uv);
     // (of the hair's cards only those that stand off the head, a fringe, long hair, a tail: more than 2 cm out; the rest is
     // the colour painted on the head, as the beard)
-    const cards = this.parts.filter(p => kindOf(p.name) === 'hair' && !softPass(p.name) && p.name.startsWith('own')).map(p => {
+    if (late()) yield;
+    this.stage = 'cards';
+    const cards = [];
+    for (const p of this.parts) {
+      if (kindOf(p.name) !== 'hair' || softPass(p.name) || !p.name.startsWith('own')) continue;
       const a = p.g.attributes.position, ix = p.g.index.array, off = new Uint8Array(a.count), keep = [];
-      for (let i = 0; i < a.count; i++) off[i] = B.near(a.getX(i), a.getY(i), a.getZ(i), 0.022) ? 0 : 1;
+      for (let i = 0; i < a.count; i++) { off[i] = B.near(a.getX(i), a.getY(i), a.getZ(i), 0.022) ? 0 : 1; if ((i & 255) === 0 && late()) yield; }
       for (let t = 0; t < ix.length; t += 3) if (off[ix[t]] || off[ix[t + 1]] || off[ix[t + 2]]) keep.push(ix[t], ix[t + 1], ix[t + 2]);
-      return { p, keep };
-    }).filter(c => c.keep.length);
+      if (keep.length) cards.push({ p, keep });
+    }
     const nc = cards.reduce((k, c) => k + c.p.g.attributes.position.count, 0), np = plugs.pts.length, N = n + np + nc;
     const pos = new Float32Array(N * 3), nor = new Float32Array(N * 3), lc = new Float32Array(N * 4), uv = new Float32Array(N * 2);
     const si = new Uint8Array(N * 4), sw = new Float32Array(N * 4), head = Math.max(0, toSkel[BONES.indexOf('head')]);
@@ -397,13 +500,11 @@ export class MhBody {
     if (byName.skirt) byName.skirt.position.set(0, 0, 0);
     this.hipY = J.body.y; this.hipZ = J.body.z;
     this.kHip = J.body.y / (r.d?.cadera || J.body.y);
-    // Its own skeleton object on the same bones, with the inverses of MakeHuman's rest; and the ring mesh's, scaled to this
-    // height (at rest it is today's person, as tall as this one; moving, it turns about these joints)
+    // Its own skeleton object on the same bones, with the inverses of MakeHuman's rest. The ring person under it is a
+    // stand-in of its sex (realperson.js), never drawn: its bones and its walk are what is used
     const rest = bones.map(b => new THREE.Matrix4().makeTranslation(...restOf(b).negate().toArray()));
     this.skel = lazy(new THREE.Skeleton(bones, rest));
-    const k = this.height / (r.d?.alto || this.height), sc = new THREE.Matrix4().makeScale(k, k, k);
-    this.ringSkel = lazy(new THREE.Skeleton(bones, rest.map(m => m.clone().multiply(sc))));
-    r.mesh.bind(this.ringSkel, r.mesh.bindMatrix);
+    r.mesh.visible = false;
     // (the bones out of the ring mesh, into its root, in the same place: hiding that mesh must not hide what hangs from
     // them, the tool in the hand, the backpack, the tools on the body, the belly)
     r.root.add(byName.body);
@@ -419,7 +520,7 @@ export class MhBody {
     this.body = this.parts.find(p => p.name === 'body');
     this.low = null;
     if (S.low) {
-      const s = (this.low = new THREE.SkinnedMesh(S.low, lowMaterial(S.skinMat)));
+      const s = (this.low = new THREE.SkinnedMesh(S.low, (this.lowShared = lowMaterial(S.skinMat))));
       s.name = 'mh-low'; s.castShadow = s.receiveShadow = true;
       s.boundingSphere = S.low.boundingSphere.clone(); s.boundingSphere.radius += 0.25;
       s.bind(this.skel, IDENTITY);
@@ -430,27 +531,38 @@ export class MhBody {
     this.ms = performance.now() - t0;
     this.built = S.ms;
   }
-  // Into the person's root (with the ring mesh: lying down moves that root), drawn at the level asked
+  // Into the person's root (with the ring mesh: lying down moves that root), drawn at the level asked; inner holds both
+  // levels, for the engine's gate (engine.js: shown when their programs are compiled, which the game does in parallel)
   attach(parent) {
-    parent.add(this.near);
-    if (this.low) parent.add(this.low);
+    this.inner = new THREE.Group(); this.inner.name = 'mh-body';
+    this.inner.add(this.near);
+    if (this.low) this.inner.add(this.low);
+    parent.add(this.inner);
     this.setLevel(0);
   }
+  // (far, the low body too, without its shadow: under a hundred pixels it is the cheapest that keeps the look)
   setLevel(n) {
     if (n === this.level) return;
     this.level = n;
-    this.near.visible = n === 0 || (n === 1 && !this.low);
-    if (this.low) this.low.visible = n === 1;
-    this.r.mesh.visible = n === 2;
-    this.r.setLod(n === 2 ? 1 : 0);
-    this.skel.userData.dirty = this.ringSkel.userData.dirty = true;
+    this.near.visible = n === 0 || (n > 0 && !this.low);
+    if (this.low) { this.low.visible = n > 0; this.low.castShadow = n === 1; }
+    this.skel.userData.dirty = true;
   }
-  get tris() { return this.level === 2 ? this.r.trisL : this.level === 1 ? this.tris1 : this.tris0; }
+  get tris() { return this.level === 0 || !this.low ? this.tris0 : this.tris1; }
+  // What the world has left on the body (grime.js; s: body.surface()'s shape or null): on the near skin and clothes, the
+  // look's materials, and on the low body a material of its own while there is something (the low one is everybody's)
+  setGrime(s, on) {
+    const S = this.shape;
+    for (const m of S.grimeMats) on ? writeGrime(m, s, this.height) : clearGrime(m);
+    if (!this.low) return;
+    if (on && !this.lowOwn) { this.lowOwn = grimeMaterial(this.lowShared); this.low.material = this.lowOwn; }
+    if (this.lowOwn) { if (on) writeGrime(this.lowOwn, s, this.height); else { this.low.material = this.lowShared; this.lowOwn.dispose(); this.lowOwn = null; } }
+  }
   // After the persona's pose (real/persona.js writes the hips' height for its own legs): for these legs
   afterPose() {
     const b = this.r.bones.body;
     b.position.x *= this.kHip; b.position.y *= this.kHip; b.position.z += this.hipZ;
-    this.skel.userData.dirty = this.ringSkel.userData.dirty = true;
+    this.skel.userData.dirty = true;
   }
   // Blinking every few seconds and, while talking, the jaw and the lips (near only)
   face(dt, talking) {
@@ -468,30 +580,25 @@ export class MhBody {
     }
   }
   dispose() {
-    this.near.parent?.remove(this.near); this.low?.parent?.remove(this.low);
+    this.inner?.parent?.remove(this.inner);
+    this.lowOwn?.dispose();
+    this.skel.dispose();
     this.shape.release();
   }
 }
 // (the ring skeleton's order: body, spine, torso, neck, head, then clav, arm, fore, hand, leg, shin, foot, toe of the left
 // and of the right; skirt and braid after: real/persona.js defs)
 const ORDER = ['body', 'spine', 'torso', 'neck', 'head', ...['L', 'R'].flatMap(S => ['clav', 'arm', 'fore', 'hand', 'leg', 'shin', 'foot', 'toe'].map(b => b + S))];
+const LOW_TONE = new THREE.Color(1, 0.93, 0.88);
 const IDENTITY = new THREE.Matrix4(), V = new THREE.Vector3(), IRIS = new THREE.Color('#2e241c');
 // Where a bone is at rest, from the ground (its own and its parents' places: no turns at rest)
 function restOf(b) { const p = new THREE.Vector3(); for (let o = b; o?.isBone; o = o.parent) p.add(o.position); return p; }
 
-// ---- Who is made next: the nearest of those waiting (actors.js asks each frame), one at a time; a look made already
-// costs nothing and goes at once. With the screen dark (entering, a jump), several, up to BUSY_MS
-let lastBuild = -1e9;
-const GAP_MS = 120, BUSY_MS = 150;
+// ---- Who is made next (actors.js, each frame): those waiting ask for their shapes by distance, a few ms of making run,
+// and whoever has a shape ready puts it on (that costs about a millisecond)
 export function buildNext(waiting, dark = false) {
-  if (!D || !waiting.length) return;
-  waiting.sort((a, b) => a[1] - b[1]);
-  const t0 = performance.now();
-  for (const [P] of waiting) {
-    const cheap = shapeReady(P.look, P.mhWant);
-    if (!cheap && !dark && t0 - lastBuild < GAP_MS) continue;
-    if (!cheap && dark && performance.now() - t0 > BUSY_MS) break;
-    P.wearMh();
-    if (!cheap) { lastBuild = performance.now(); if (!dark) break; }
-  }
+  if (!D) return;
+  for (const [P, d] of waiting) requestShape(P.look, P.mhWant, d);
+  runJobs(dark);
+  for (const [P] of waiting) if (shapeReady(P.look, P.mhWant)) P.wearMh();
 }

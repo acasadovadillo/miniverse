@@ -9,7 +9,7 @@ import { KIT_MAT } from './kit3d.js';
 import { injectGrime, grimeMaterial, writeGrime, clearGrime, hasGrime } from './grime.js';
 import { apagada } from '../opciones.js';
 import { mhOfLook } from './mh/folk.js';
-import { mhData, shapeReady, MhBody, prebuildMh } from './mh/ingame.js';
+import { mhData, mhFailed, shapeReady, MhBody, prebuildMh } from './mh/ingame.js';
 // (se cargan con el juego, en este orden: base.js deja window.LOOK con sus ayudas, y pelo y persona solo se apuntan en
 // LOOK.parts; THREE lo usan dentro de sus funciones, así que basta con dárselo antes de construir a nadie. Así entran
 // también en la lista de archivos que index.html vuelve a pedir sin caché al cambiar de versión)
@@ -106,6 +106,13 @@ export function toReal(look, kid = false) {
   return out;
 }
 
+// The stand-in ring person of a MakeHuman body (three of each sex, for the idle posture's variety): only its bones and
+// its walk are used (three/mh/ingame.js)
+const STAND = { sex: 'chico', skin: '#c99c76', hair: '#3a2a20', eyes: '#3a2a1e', cloth: '#6a5a4a', pants: '#4a3a2a', hairStyle: 'corto', outfit: 'chaleco' };
+function standIn(look) {
+  const girl = look.sex === 'chica', R = toReal({ ...STAND, sex: girl ? 'chica' : 'chico', hairStyle: girl ? 'coleta' : 'corto' });
+  return { ...R, semilla: [11, 47, 83][hash(JSON.stringify(look)) % 3] };
+}
 const EMPTY_GEO = new THREE.BufferGeometry();   // (a kit mesh with nothing to show keeps this, never released)
 const BELT_Y = [0.02, 0.12];                     // (where the belt is measured, over the hip bone)
 // La mochila: el cuero (con su color por vértice, el de cada mochila) y la hebilla, compartidos por todas
@@ -118,7 +125,12 @@ export class RealPerson {
   // once: see wearMh)
   constructor(look, { kid = false, folk = false, now = false } = {}) {
     this.look = look; this.real = true; this.kid = kid;
-    const r = (this.r = persona().build(toReal(look, kid))), k = kid ? KID : 1;   // (la escala va en su raíz: cadera y estatura, por ella)
+    // (who will wear a MakeHuman body stands on a ring person of its sex that is never drawn, made once for everybody: its
+    // bones and its walk; making the ring person of each look, its canvas and its mesh, was a stumble of 100-250 ms. Until the
+    // body is on, nothing is drawn)
+    const mhw = kid ? null : mhOfLook(look, folk), stand = !!mhw && !mhFailed();
+    const r = (this.r = persona().build(stand ? standIn(look) : toReal(look, kid))), k = kid ? KID : 1;   // (la escala va en su raíz: cadera y estatura, por ella)
+    if (stand) r.mesh.visible = false;
     this.root = new THREE.Group();
     this.root.add(r.root);
     const b = r.bones;
@@ -135,7 +147,7 @@ export class RealPerson {
     this.shared = r.mesh.material; this.grimeMat = null; this.grimeOn = false; this.grimeTall = r.d?.alto || 1.7;
     // The new creator's body (plan CR P5, ?creador=nuevo: three/mh/ingame.js), on these same bones; until it is made (the
     // pack still on its way, or another one made this frame), today's person
-    this.mhb = null; this.mhWant = kid ? null : mhOfLook(look, folk); this.mhNow = now;
+    this.mhb = null; this.mhWant = mhw; this.mhNow = now;
     if (W.espalda) this.setBag(W.espalda);   // (la mochila, si la lleva puesta)
     r.root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     // El esqueleto solo se recalcula (y se sube a la gráfica) si algo ha cambiado: Three lo hace en cada fotograma con
@@ -155,7 +167,9 @@ export class RealPerson {
   // Puts the MakeHuman body on (false while it cannot be made yet: the pack on its way). Its hips, height and fits are its
   // own from then on; mhFresh tells actors.js to place the tools on the body again
   wearMh() {
-    if (this.mhb || !this.mhWant || !mhData()) return false;
+    if (this.mhb || !this.mhWant) return false;
+    if (mhFailed()) { this.r.mesh.visible = true; this.mhWant = null; return false; }   // (no pack: the stand-in shows)
+    if (!mhData()) return false;
     try { this.mhb = new MhBody(this.look, this.mhWant, this.r); }
     catch (err) { console.warn('Miniverse: no MakeHuman body', err); this.mhWant = null; return false; }
     this.mhb.attach(this.r.root);
@@ -208,6 +222,7 @@ export class RealPerson {
   // outline; a spectator's see-through one) just gets the values. Cheap enough to call every frame
   setGrime(s) {
     if (!GRIME) return;
+    if (this.mhb) { const on = hasGrime(s); if (on || this.grimeOn) this.mhb.setGrime(s, on); this.grimeOn = on; return; }   // (a MakeHuman body: ingame.js)
     const mesh = this.r.mesh, on = hasGrime(s);
     if (!on) {
       if (!this.grimeOn) return;
@@ -374,7 +389,15 @@ const BLANKET_BALL = new THREE.SphereGeometry(1, 20, 14), BLANKET = new Map();
 // Deja hecho el prototipo de una persona (persona.js prebuild), para que salga sin tirón cuando haga falta
 export const prebuildReal = (look, kid = false) => persona().prebuild(toReal(look, kid));
 // And its MakeHuman body (plan CR P5, ?creador=nuevo), for someone who is not a player: folk.js; false if made already
-export const prebuildBody = (look, kid = false) => !kid && mhData() !== null && prebuildMh(look, mhOfLook(look, true));
+export const prebuildBody = (look, kid = false, folk = true) => !kid && mhData() !== null && prebuildMh(look, mhOfLook(look, folk));
+// Will this look wear a MakeHuman body (then its ring person is not made: the stand-ins are)? And the stand-ins, made
+// beforehand one at a time (true if one was made now)
+export const wearsMh = (look, kid = false, folk = true) => !kid && !!mhOfLook(look, folk) && !mhFailed();
+export function prebuildStandIn() {
+  if (!mhOfLook({ sex: 'chico' }, true)) return false;
+  for (const sex of ['chico', 'chica']) for (let i = 0; i < 3; i++) { const L = { sex, i }; if (persona().prebuild({ ...standIn({ sex }), semilla: [11, 47, 83][i] })) return true; void L; }
+  return false;
+}
 // Is it made already (so putting it on screen costs nothing)?
 export const realReady = (look, kid = false) => persona().ready(toReal(look, kid));
 // Cuántos prototipos hay, cuántos sin usar y cuántos lienzos

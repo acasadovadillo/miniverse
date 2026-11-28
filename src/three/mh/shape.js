@@ -54,8 +54,16 @@ export function weightsFor(D, mh, sex) {
 
 // The blended base (decimetres): every kept vertex, helpers and joint cubes too
 export function blend(D, mh, sex) {
+  const it = blendSteps(D, mh, sex, () => false);
+  let r;
+  while (!(r = it.next()).done);
+  return r.value;
+}
+// The same, giving way (yield) between two targets when late() says so: the game makes people over several frames
+export function* blendSteps(D, mh, sex, late) {
   const v = D.pos.slice();
   for (const [name, w] of weightsFor(D, mh, sex)) {
+    if (late()) yield;
     const t = target(D, name);
     if (!t) continue;
     const { idx, d } = t;
@@ -133,12 +141,13 @@ export function poseInPlace(v, n, wUp, wLow, pose) {
 
 // The expressions of a look (blink, smile, the mouth's shapes…): each MakeHuman expression unit blended by the look's
 // origin, as offsets over the kept vertices (decimetres). They are drawn as morphs, so blinking or talking costs no build
-export function expressions(D, mh) {
+// (ids: only these, the game's few; the creator, all)
+export function expressions(D, mh, ids = D.head.expr || []) {
   const m = mh?.macro || {};
   let o = ORIGINS.map(k => Math.max(0, num(m[k], k === 'ca' ? 100 : 0)));
   const sum = o.reduce((a, b) => a + b, 0) || 1;
   o = o.map(x => x / sum);
-  return (D.head.expr || []).map(id => {
+  return ids.map(id => {
     const acc = new Map();
     ORIGINS.forEach((k, j) => {
       const t = o[j] > 1e-4 && target(D, `expr.${id}.${ORIGIN_NAME[k]}`);
