@@ -30,7 +30,8 @@ const BABY_W = 1.8;
 
 // What to blend, as [target, weight]: sex x age x muscle x weight corners, the origins, height, proportions and the face
 export function weightsFor(D, mh, sex) {
-  const m = mh?.macro || {}, out = [], S = sex === 'chico' ? 'male' : 'female', kid = !!mh?.kid;
+  // (a baby, either sex, on the boy's shape: they look the same, and the girl's, taken that far, swells through the shirt)
+  const m = mh?.macro || {}, out = [], S = sex === 'chico' || mh?.baby ? 'male' : 'female', kid = !!mh?.kid;
   const old = clamp((yearsOf(mh) - 25) / 65, 0, 1), ages = kid ? [['child', mh.baby ? BABY_W : KID_W], ['young', 1 - (mh.baby ? BABY_W : KID_W)]] : [['young', 1 - old], ['old', old]];
   const lv = v => { const x = clamp(num(v) / 100, -1, 1) * RANGE; return [['min', Math.max(0, -x)], ['average', 1 - Math.abs(x)], ['max', Math.max(0, x)]]; };
   let o = ORIGINS.map(k => Math.max(0, num(m[k], k === 'ca' ? 100 : 0)));

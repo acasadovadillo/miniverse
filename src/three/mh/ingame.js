@@ -265,7 +265,7 @@ class MhShape {
     // (only the body, the clothes, the hair and a hat cast a shadow: what else would cast one is too small to see in it)
     for (const p of this.parts) if (!/^(body|garment|cloth|ownhair|hair|hat):?/.test(p.name)) p.shadow = false;
     this.stage = 'under';
-    yield* this.underClothes(body);
+    yield* this.underClothes(body, mh?.baby ? 0.006 : 0.018);
     this.stage = 'low';
     // (how far in front of the waist bone the belly is: the pregnancy's belly goes there, realperson.js setBelly)
     const bp = body.g.attributes.position, ys = J.spine.y - 0.05;
@@ -281,7 +281,9 @@ class MhShape {
   // The skin right under a garment (within 1.8 cm of one of its vertices) is not drawn either: moving, it would poke
   // through (the garment follows its own three base vertices, the skin its own weights), and it is fewer triangles. And
   // the garments 3 mm out, for the same reason
-  *underClothes(body) {
+  // (reach: how close over the skin a garment hides it; a baby's, a third of a grown-up's size, a third: or its throat,
+  // shown in its shirt's slit, would go too)
+  *underClothes(body, reach = 0.018) {
     const G = grid(0.02);
     // (not the headscarf: round the face it lies close to the skin that shows, which must stay)
     for (const p of this.parts) if (kindOf(p.name) === 'cloth' && !/:hijab$/.test(p.name)) {
@@ -299,7 +301,7 @@ class MhShape {
     const si = body.g.attributes.skinIndex, sw = body.g.attributes.skinWeight, arms = new Set(['handL', 'handR', 'foreL', 'foreR'].map(b => ORDER.indexOf(b)));
     const arm = i => { let w = 0; for (let k = 0; k < 4; k++) if (arms.has(si.array[i * 4 + k])) w += sw.array[i * 4 + k]; return w > 0.3; };
     if (late()) yield;
-    for (let i = 0; i < a.count; i++) { near[i] = !arm(i) && G.near(a.getX(i), a.getY(i), a.getZ(i), 0.018) ? 1 : 0; if ((i & 511) === 0 && late()) yield; }
+    for (let i = 0; i < a.count; i++) { near[i] = !arm(i) && G.near(a.getX(i), a.getY(i), a.getZ(i), reach) ? 1 : 0; if ((i & 511) === 0 && late()) yield; }
     for (let t = 0; t < idx.length; t += 3) if (!(near[idx[t]] && near[idx[t + 1]] && near[idx[t + 2]])) keep.push(idx[t], idx[t + 1], idx[t + 2]);
     if (keep.length < idx.length) body.g.setIndex(new THREE.BufferAttribute(new Uint16Array(keep), 1));
   }

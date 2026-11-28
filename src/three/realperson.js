@@ -397,7 +397,8 @@ export function mhBaby(look) {
   body.add(person.root); body.rotation.x = -Math.PI / 2; body.position.set(0, 0.05, 0.26);   // (its toes under the blanket)
   root.add(body);
   const cloth = c => BLANKET.get(c) || BLANKET.set(c, new THREE.MeshStandardMaterial({ color: W.sobrio(c), roughness: 0.95 })).get(c);
-  for (const [c, p, sc] of [['#f4e6c8', [0, 0.065, 0.08], [0.12, 0.08, 0.23]], ['#e88aa8', [0, 0.075, 0.15], [0.125, 0.07, 0.15]]]) {
+  // (a little higher than the ring baby's: the MakeHuman baby's hands, by its hips, would show through it)
+  for (const [c, p, sc] of [['#f4e6c8', [0, 0.065, 0.08], [0.125, 0.09, 0.23]], ['#e88aa8', [0, 0.075, 0.15], [0.13, 0.078, 0.15]]]) {
     const m = new THREE.Mesh(BLANKET_BALL, cloth(c)); m.position.set(...p); m.scale.set(...sc); m.castShadow = m.receiveShadow = true; root.add(m);
   }
   return { root, person };

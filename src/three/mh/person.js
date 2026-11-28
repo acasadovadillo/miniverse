@@ -16,6 +16,7 @@ import { hairFits, hairKey, hairMeshes, scalpOf, hairColour, stubbleOf, shellMes
 import { headwearOf, hatFrame, pressHair, capFur, hatFit, surfaceOf, accFit, HAT_COLOUR2, ACC_COLOUR2 } from './headwear.js';
 
 const M = 0.1;   // MakeHuman's decimetres to metres
+const BABY_THROAT = 0.7, BABY_MOUTH = 0.25;   // (decimetres below the neck's joint and the mouth's: see the skin under the clothes)
 
 // ---- Textures: one copy each, shared by every person ----
 const texCache = new Map();
@@ -446,7 +447,8 @@ export class MhPerson {
     lap('blend');
     if (late()) yield;
     // The bound meshes first, on the base still in its A pose; those of the face also with each expression on
-    const parts = [['eyes', 'high-poly'], ['brows', browsOf(look)], ['lashes', lashesOf(look)], ['teeth', 'teeth_base'], ['tongue', 'tongue01']];
+    // (a baby has no teeth, and its tongue, in its small mouth, would show through the chin)
+    const parts = [['eyes', 'high-poly'], ['brows', browsOf(look)], ['lashes', lashesOf(look)], ...(look.mh?.baby ? [] : [['teeth', 'teeth_base'], ['tongue', 'tongue01']])];
     // (P4: our own hair and beard of cards, hair.js; MakeHuman's hair only if their pack did not load)
     const hair = D.hair ? null : hairOf(look);
     if (hair) parts.push(['hair', hair]);
@@ -516,6 +518,12 @@ export class MhPerson {
     // The skin under the clothes is not drawn (no poking through, fewer triangles)
     const hide = new Uint8Array(D.nv);
     for (const f of fitted) if (f.d?.del) for (const i of f.d.del) hide[i] = 1;
+    // (but a baby's throat and the top of its chest stay, from under the chin (below the mouth's inside) down: its short
+    // neck under the big head would leave the shirt's slit open to what is behind. ingame.js keeps it too)
+    if (look.mh?.baby) {
+      const [, ny, nz] = joint(D, v, 'joint-neck'), my = joint(D, v, 'joint-mouth')[1] - BABY_MOUTH;
+      for (let i = 0; i < D.nv; i++) if (hide[i] && v[i * 3 + 1] > ny - BABY_THROAT && v[i * 3 + 1] < my && v[i * 3 + 2] > nz) hide[i] = 0;
+    }
     const bi = D.body.idx, rm = D.body.rmap, keep = [];
     // (a skin triangle goes when all of it is under cloth: the garments cover with a margin from their openings)
     for (let t = 0; t < bi.length; t += 3) if (!(hide[rm[bi[t]]] && hide[rm[bi[t + 1]]] && hide[rm[bi[t + 2]]])) keep.push(bi[t], bi[t + 1], bi[t + 2]);
