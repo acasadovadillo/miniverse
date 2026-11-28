@@ -583,8 +583,9 @@ def build(args):
         blob.add(key + '.rmap', u16([r[0] for r in g['rv']]))
         blob.add(key + '.uv', i16([clamp16(x * UV_Q) for r in g['rv'] for x in (r[1], r[2])]))
         blob.add(key + '.idx', u16([i for t in g['tri'] for i in t]))
-        # (part, distance to a seam and to the border in millimetres, ambient occlusion)
-        blob.add(key + '.att', bytes(x for r in g['rv'] for x in (r[3], min(255, int(r[4] * 1000)), min(255, int(r[5] * 1000)), int(r[6] * 255))))
+        # (part (0 to 255: a fraction, so a border can fall between vertices), distance to a seam and to the border in millimetres,
+        # ambient occlusion)
+        blob.add(key + '.att', bytes(x for r in g['rv'] for x in (int(round(255 * max(0.0, min(1.0, r[3])))), min(255, int(r[4] * 1000)), min(255, int(r[5] * 1000)), int(r[6] * 255))))
         if g['cover']:
             blob.add(key + '.del', u16([new[i] for i in g['cover']]))
         head['garments'].append({'name': name, 'nv': len(g['binds']), 'nr': len(g['rv']), 'ntri': len(g['tri']), 'off': m / 32767.0, 'del': len(g['cover'])})

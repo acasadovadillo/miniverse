@@ -17,6 +17,11 @@ import math
 M = 0.1   # decimetres (MakeHuman's units) to metres
 
 
+def smooth(e0, e1, x):
+    t = max(0.0, min(1.0, (x - e0) / (e1 - e0)))
+    return t * t * (3 - 2 * t)
+
+
 def lerp(a, b, t):
     return a + (b - a) * t
 
@@ -233,9 +238,10 @@ class Garment:
         self.region = []   # per bound vertex: the skin regions it may bind to, and the surface ('tights' or 'skirt')
         self.cover = set() # skin vertices it covers
 
-    def loft(self, L, regions, part_of=None, seams=(), u_scale=None, open_front=None, cap_end=False, slit=None):
+    def loft(self, L, regions, part_of=None, seams=(), u_scale=None, open_front=None, cap_end=False, slit=None, open_top=False):
         """Adds a loft as a ring mesh. seams: angles (radians) with a seam down them. open_front: half width (radians) of a
-        front opening (a vest), none if None. part_of(k, j) -> part."""
+        front opening (a vest), none if None. part_of(k, j) -> part. open_top: its first ring is sewn on to something (a
+        yoke): no hem there."""
         nseg, nr = L.nseg, len(L.rings)
         base = len(self.v)
         for k in range(nr):
@@ -254,7 +260,7 @@ class Garment:
             for j in range(nseg + 1):
                 a = 2 * math.pi * j / nseg
                 seam = min([abs(math.atan2(math.sin(a - s), math.cos(a - s))) * mean_r * M for s in seams] + [9.0])
-                edge = min(abs(alongs[k] - alongs[0]), abs(alongs[-1] - alongs[k])) * M
+                edge = (abs(alongs[-1] - alongs[k]) if open_top else min(abs(alongs[k] - alongs[0]), abs(alongs[-1] - alongs[k]))) * M
                 if open_front is not None:
                     da = abs(math.atan2(math.sin(a), math.cos(a))) - open_front
                     edge = min(edge, max(0.0, da) * mean_r * M)
@@ -295,44 +301,86 @@ class Garment:
         if votes < 0:
             self.tri[t0:] = [(a, c, b) for a, b, c in self.tri[t0:]]
 
-    def patch(self, body, verts_of, tris, top, ease, regions, seams=(), slit=None, collar=0.12):
+    def patch(self, body, verts_of, tris, top, ease, regions, seams=(), slit=None, collar=0.12, cut=None, arm_cut=None, slit_z=0.0):
         """A garment piece that is the skin's own helper surface pushed out by ease (the yoke over the shoulders: it falls
         from the collar to the shoulder as the body does). tris: helper triangles to take; vertices above top come down to it
-        (a round neckline); slit: (depth, half angle) of a slit at the front of the neck; collar: the band of part 1."""
+        (a round neckline); slit: (depth, half angle) of a slit at the front of the neck; collar: the band of part 1; ease: a
+        number or per helper vertex. Its borders are cut clean, not along the triangles' teeth: level at y = cut, across each
+        arm by arm_cut {side: (point, axis)} (kept towards the shoulder), and down the slit's two sides."""
         v = body.v
+        ease_of = ease if callable(ease) else (lambda i: ease)
         used = sorted({i for t in tris for i in t})
         nrm = {i: [0.0, 0.0, 0.0] for i in used}
-        for a, b, c in tris:
-            n = cross(sub(v[b], v[a]), sub(v[c], v[a]))
-            for i in (a, b, c):
+        for a_, b_, c_ in tris:
+            n = cross(sub(v[b_], v[a_]), sub(v[c_], v[a_]))
+            for i in (a_, b_, c_):
                 nrm[i][0] += n[0]; nrm[i][1] += n[1]; nrm[i][2] += n[2]
-        idx = {}
         mean_r = sum(math.hypot(v[i][0], v[i][2]) for i in used) / len(used)
+        pos = {}
         for i in used:
             n = norm(tuple(nrm[i]))
-            p = add(v[i], mul(n, ease))
+            p = add(v[i], mul(n, ease_of(i)))
             if p[1] > top:   # (the neckline: a level ring round the neck)
                 p = (p[0], top, p[2])
-            idx[i] = len(self.v)
+            pos[i] = p
+        # (the planes each triangle is cut by: (origin, normal), the side kept is where the normal points)
+        def planes_of(t):
+            pts = [pos[i] for i in t]
+            c = mul(add(add(pts[0], pts[1]), pts[2]), 1 / 3)
+            out_ = []
+            if cut is not None:
+                out_.append(('cut', (0.0, cut, 0.0), (0.0, 1.0, 0.0)))
+            if arm_cut and any(body.region[i].startswith('arm') for i in t):
+                side = next(body.region[i][-1] for i in t if body.region[i].startswith('arm'))
+                o, ax = arm_cut[side]
+                out_.append(('arm' + side, o, mul(ax, -1.0)))
+            if slit and c[2] > slit_z and top - c[1] < slit[0]:   # (its sides: planes through the body's axis at slit_z)
+                sg = 1.0 if c[0] >= 0 else -1.0
+                out_.append(('slit%d' % sg, (0.0, 0.0, slit_z), (sg * math.cos(slit[1]), 0.0, -math.sin(slit[1]))))
+            return out_
+        verts = {}   # (key) -> render vertex
+        name_of = lambda key: key[0] if isinstance(key[0], str) else ''
+        def vert(key, p, border):
+            if key in verts:
+                return verts[key]
             self.v.append(p)
             self.region.append((regions, 'tights'))
-        base = len(self.rv)
-        for i in used:
-            p = self.v[idx[i]]
             a = math.atan2(p[0], p[2])
             seam = min([abs(math.atan2(math.sin(a - s_), math.cos(a - s_))) * mean_r * M for s_ in seams] + [9.0])
-            edge = (top - p[1]) * M
+            edge = 0.0 if border else (top - p[1]) * M
+            if border and name_of(key).startswith('cut'):
+                edge = (top - p[1]) * M   # (the lower border is sewn on to the loft below: no hem there)
             # (u: across, the front and the back apart at the side seams, where the cloth is cut anyway)
             u = p[0] * M if p[2] >= 0.1 else 1.0 - p[0] * M
-            self.rv.append([idx[i], u, (top - p[1]) * M, 1 if top - p[1] < collar else 0, seam, edge, 1.0])
-        rid = {i: base + k for k, i in enumerate(used)}
+            verts[key] = len(self.rv)
+            # (the collar's band: its part as a fraction, linear in the height, so its border is a level line between the vertices
+            # and not the triangles' teeth)
+            part = max(0.0, min(1.0, 0.5 + (collar - (top - p[1])) * 2.5)) if collar > 0 else 0
+            self.rv.append([len(self.v) - 1, u, (top - p[1]) * M, part, seam, edge, 1.0])
+            return verts[key]
         t0 = len(self.tri)
-        for a, b, c in tris:
-            if slit:
-                pts = [self.v[idx[i]] for i in (a, b, c)]
-                if all(abs(math.atan2(q[0], q[2])) < slit[1] and q[2] > 0 and top - q[1] < slit[0] for q in pts):
-                    continue
-            self.tri.append((rid[a], rid[b], rid[c]))
+        for t in tris:
+            # (a polygon of (key, position, on a border), clipped plane by plane)
+            poly = [((i,), pos[i], False) for i in t]
+            for name, o, n in planes_of(t):
+                d = [dot(sub(q[1], o), n) for q in poly]
+                nxt = []
+                for k in range(len(poly)):
+                    q0, q1, d0, d1 = poly[k], poly[(k + 1) % len(poly)], d[k], d[(k + 1) % len(poly)]
+                    if d0 >= 0:
+                        nxt.append(q0)
+                    if (d0 >= 0) != (d1 >= 0):
+                        f = d0 / (d0 - d1)
+                        key = (name,) + tuple(sorted((q0[0], q1[0]), key=repr))
+                        nxt.append((key, lerp3(q0[1], q1[1], f), True))
+                poly = nxt
+                if len(poly) < 3:
+                    break
+            if len(poly) < 3:
+                continue
+            ids = [vert(q[0], q[1], q[2]) for q in poly]
+            for k in range(1, len(ids) - 1):
+                self.tri.append((ids[0], ids[k], ids[k + 1]))
         # (facing out: the helper's triangles already do; check one against the outward direction from the body's axis)
         if self.tri[t0:]:
             a, b, c = (self.v[self.rv[i][0]] for i in self.tri[t0])
@@ -350,13 +398,22 @@ class Garment:
                 a, b = self.rv[t[i]][0], self.rv[t[(i + 1) % 3]][0]
                 nb.setdefault(a, set()).add(b)
                 nb.setdefault(b, set()).add(a)
+        # (along the surface's normal only: at a border the neighbours all lie to one side, which is not a hollow)
+        vn = {}
+        for t in self.tri:
+            a_, b_, c_ = (self.v[self.rv[i][0]] for i in t)
+            n = cross(sub(b_, a_), sub(c_, a_))
+            for i in t:
+                q = vn.setdefault(self.rv[i][0], [0.0, 0.0, 0.0])
+                q[0] += n[0]; q[1] += n[1]; q[2] += n[2]
         occ = {}
         for i, ns in nb.items():
             c = [sum(self.v[j][k] for j in ns) / len(ns) for k in range(3)]
             d = sub(self.v[i], c)
-            occ[i] = math.sqrt(dot(d, d))
+            n = norm(tuple(vn.get(i, (0.0, 0.0, 1.0)))) if any(vn.get(i, (0, 0, 0))) else (0.0, 0.0, 0.0)
+            occ[i] = abs(dot(d, n))
         for r in self.rv:
-            r[6] = max(0.55, 1.0 - occ.get(r[0], 0.0) * 1.6)
+            r[6] = max(0.5, 1.0 - occ.get(r[0], 0.0) * 2.4)
 
 
 # ---------- Binding to the skin ----------
@@ -476,7 +533,7 @@ def wardrobe(body):
     UP = (0.0, 1.0, 0.0)
     out = {}
 
-    def torso_loft(name, top, hem, ease, nseg=28, flare=0.0, fold_amp=0.0, rings=None, band=0.12, blouse=0.0):
+    def torso_loft(name, top, hem, ease, nseg=28, flare=0.0, fold_amp=0.0, rings=None, band=0.12, blouse=0.0, join=None):
         """A loft down the body: torso slices to the crotch, then round both legs (a skirt), widening below the hips. Over
         the shoulders the rings are close and thin, so the cloth slopes from the neck to the shoulder as it does; with blouse,
         the cloth puffs a little over the belt and gathers under it; the skirt hangs in folds that wander and widen down."""
@@ -525,6 +582,16 @@ def wardrobe(body):
                     radii[j] += amp * f + gather * (0.5 + 0.5 * math.sin(14 * a + 2.1))
             L.add_ring(c, e1, e2, UP, radii, top - y, {'surface': 'skirt' if y < crotch - 0.3 else 'tights'})
         smooth_radii(L)
+        # (sewn on to a yoke: the first ring is the yoke's lower border, a hair inside it; the difference is carried down and
+        # fades over 20 cm, so the cloth goes on from the yoke without a crease)
+        if join:
+            c0 = L.rings[0][0]
+            shift = [None if r is None else r - 0.004 - L.rings[0][4][j] for j, r in enumerate(join(c0, 2 * math.pi * j / nseg) for j in range(nseg))]
+            for c, e1, e2, axis, radii, along, meta in L.rings:
+                w = smooth(0.0, 2.0, along)
+                for j in range(nseg):
+                    if shift[j] is not None:
+                        radii[j] += shift[j] * (1.0 - w)
         return L
 
     def limb_loft(name, a, b, c, t0, t1, ease, ids, nseg=14, rings=12, flare=0.0, cuff=0.0, band=0.14, crease=0.0, bunch=0.0):
@@ -606,32 +673,89 @@ def wardrobe(body):
                 out_.append(t)
         return out_
 
+    YOKE_CUT = sh_y - 0.8      # (where the body of a garment is sewn on to its yoke: the yoke goes on 4 mm under it, over it)
+    YOKE_BOTTOM = YOKE_CUT - 0.2
+
+    def arm_cut(d):
+        """Across each arm, d along it from the shoulder: where the yoke's shoulder cap ends."""
+        out_ = {}
+        for side in ('l', 'r'):
+            sh, el = J['%s-shoulder' % side], J['%s-elbow' % side]
+            ax = norm(sub(el, sh))
+            out_[side] = (add(sh, mul(ax, d)), ax)
+        return out_
+
+    def border_of(g, t0, y):
+        """The yoke's lower border (its edges level at y, from triangle t0 on) as a function: from a ring's centre, at an
+        angle round it (0 to the front, pi/2 to +x), how far the border is (None where there is none: an open front)."""
+        segs = []
+        for t in g.tri[t0:]:
+            for k in range(3):
+                pa, pb = g.v[g.rv[t[k]][0]], g.v[g.rv[t[(k + 1) % 3]][0]]
+                if abs(pa[1] - y) < 1e-6 and abs(pb[1] - y) < 1e-6:
+                    segs.append(((pa[0], pa[2]), (pb[0], pb[2])))
+        def f(c, a):
+            ox, oz, dx, dz = c[0], c[2], math.sin(a), math.cos(a)
+            best = None
+            for (ax_, az), (bx, bz) in segs:
+                ex, ez = bx - ax_, bz - az
+                den = dx * ez - dz * ex
+                if abs(den) < 1e-12:
+                    continue
+                t = ((ax_ - ox) * ez - (az - oz) * ex) / den
+                u = ((ax_ - ox) * dz - (az - oz) * dx) / den
+                if t > 0 and -1e-6 <= u <= 1 + 1e-6 and (best is None or t > best):
+                    best = t
+            return best
+        return f
+
+
+    def yoke_ease_of(full, low_body, low_arm=None, arm=1.0):
+        """The yoke's ease per helper vertex: full over the shoulders, down to low_body at its lower border, where the body
+        of the garment is sewn on (a hair over it), and to low_arm where the sleeve goes in under its shoulder cap."""
+        low_arm = low_body if low_arm is None else low_arm
+        def f(i):
+            p, r = v[i], body.region[i]
+            k = smooth(YOKE_CUT, sh_y - 0.46, p[1])
+            if r.startswith('arm'):
+                sh = J['%s-shoulder' % r[-1]]
+                ka = smooth(arm * 0.75, arm * 0.45, math.dist(p, sh))
+                return lerp(low_arm, lerp(low_body, full, k), ka)
+            return lerp(low_body, full, k)
+        return f
+
     # --- shirt (camisa): neck to the hips, long sleeves with cuffs, a collar band
     def shirt(name, hem, ease, sleeve_ease, collar=True, fold=0.0, flare=0.0, extra_rings=None, blouse=0.0, yoke_ease=0.15, nseg=28):
+        yoke_ease_fn = yoke_ease_of
         g = Garment(name)
         top = neck - 0.04   # (a round neck at the base of the neck, with a short slit in front)
         # (the yoke: the shoulders and the neckline, following the body; the rest lofted from under it, overlapping it)
-        g.patch(body, v, yoke_tris(top, sh_y - 0.62), top, yoke_ease, {'torso', 'head', 'arm_l', 'arm_r'}, seams=SIDES, slit=(0.6, 0.13), collar=0.0)
-        L = torso_loft(name, sh_y - 0.5, hem, ease, nseg=nseg, flare=flare, fold_amp=fold, rings=extra_rings, blouse=blouse)
-        g.loft(L, {'torso', 'leg_l', 'leg_r', 'head'}, seams=SIDES)
+        t0 = len(g.tri)
+        g.patch(body, v, yoke_tris(top, YOKE_BOTTOM), top, yoke_ease_fn(yoke_ease, ease + 0.005, sleeve_ease + 0.005), {'torso', 'head', 'arm_l', 'arm_r'}, seams=SIDES, slit=(0.6, 0.13), collar=0.0, cut=YOKE_CUT - 0.04, arm_cut=arm_cut(0.75))
+        # (the body sewn on to the yoke's lower border)
+        L = torso_loft(name, YOKE_CUT, hem, ease, nseg=nseg, flare=flare, fold_amp=fold, rings=extra_rings, blouse=blouse, join=border_of(g, t0, YOKE_CUT - 0.04))
+        g.loft(L, {'torso', 'leg_l', 'leg_r', 'head'}, seams=SIDES, open_top=True)
         sleeves(g, sleeve_ease)
         # (the skin of the slit at the neck stays: it shows through it)
         slit_skin = lambda p: p[1] > top - 0.62 and p[2] > 0 and abs(math.atan2(p[0], p[2])) < 0.2
-        cover(g, lambda i, p, r: (r == 'torso' and hem + 0.25 < p[1] < top - 0.12 and not slit_skin(p)) or (r.startswith('leg') and hem + 0.25 < p[1] < top - 0.25)
+        cover(g, lambda i, p, r: (r == 'torso' and hem + 0.25 < p[1] < top - 0.07 and not slit_skin(p)) or (r.startswith('leg') and hem + 0.25 < p[1] < top - 0.25)
               or (r.startswith('arm') and arm_t(i, r[-1]) < 0.9))
         return g
 
     out['camisa'] = shirt('camisa', waist - 1.6, 0.08, 0.1, fold=0.05, blouse=0.05)
     out['tunica'] = shirt('tunica', lerp(crotch, knee, 0.45), 0.09, 0.11, fold=0.2, flare=0.35, blouse=0.09)
-    out['tunica_larga'] = shirt('tunica_larga', ankle + 0.25, 0.1, 0.11, fold=0.3, flare=1.35, blouse=0.09, nseg=24)
+    out['tunica_larga'] = shirt('tunica_larga', ankle + 0.25, 0.1, 0.11, fold=0.3, flare=1.35, blouse=0.09, nseg=22)
 
     # --- waistcoat (chaleco): over the shirt, no sleeves, open at the front
     g = Garment('chaleco')
     top = neck - 0.12
     # (over the shirt's yoke, open down the front)
-    g.patch(body, v, yoke_tris(top, sh_y - 0.62, arm=0.55), top, 0.22, {'torso', 'head', 'arm_l', 'arm_r'}, seams=SIDES, slit=(9.0, 0.2), collar=0.0)
-    L = torso_loft('chaleco', sh_y - 0.5, waist - 1.2, 0.24, nseg=28)
-    g.loft(L, {'torso', 'head'}, seams=SIDES, open_front=0.2)
+    # (its front edges in line with the rings' open front, which is cut round the ring's centre)
+    zc = section(body, torso_ids, (0.0, 0.0, 0.0), UP, sh_y - 0.7, 0.12, 8, 0.0)[0][2]
+    t0 = len(g.tri)
+    g.patch(body, v, yoke_tris(top, YOKE_BOTTOM, arm=0.55), top, yoke_ease_of(0.25, 0.245, 0.25), {'torso', 'head', 'arm_l', 'arm_r'}, seams=SIDES, slit=(9.0, 0.2), collar=0.0, cut=YOKE_CUT - 0.04, arm_cut=arm_cut(0.38), slit_z=zc)
+    L = torso_loft('chaleco', YOKE_CUT, waist - 1.2, 0.24, nseg=28, join=border_of(g, t0, YOKE_CUT - 0.04))
+    g.loft(L, {'torso', 'head'}, seams=SIDES, open_front=0.2, open_top=True)
     cover(g, lambda i, p, r: False)
     out['chaleco'] = g
 
@@ -691,10 +815,11 @@ def wardrobe(body):
     # --- wool coat (abrigo): over everything, to the knee, long sleeves
     g = Garment('abrigo')
     top = neck + 0.05
-    g.patch(body, v, yoke_tris(top, sh_y - 0.62), top, 0.3, {'torso', 'head', 'arm_l', 'arm_r'}, seams=SIDES, collar=0.25)
-    L = torso_loft('abrigo', sh_y - 0.5, knee - 0.3, 0.32, flare=0.6, fold_amp=0.22)
-    # (closed, its front edge a band of the second colour down the middle, and its collar)
-    g.loft(L, {'torso', 'leg_l', 'leg_r', 'head'}, part_of=lambda k, j: 1 if j in (0, 1) else 0, seams=SIDES)
+    t0 = len(g.tri)
+    g.patch(body, v, yoke_tris(top, YOKE_BOTTOM), top, yoke_ease_of(0.34, 0.325, 0.225), {'torso', 'head', 'arm_l', 'arm_r'}, seams=SIDES, collar=0.25, cut=YOKE_CUT - 0.04, arm_cut=arm_cut(0.75))
+    L = torso_loft('abrigo', YOKE_CUT, knee - 0.3, 0.32, nseg=26, flare=0.6, fold_amp=0.22, join=border_of(g, t0, YOKE_CUT - 0.04))
+    # (closed; the second colour on its collar and cuffs)
+    g.loft(L, {'torso', 'leg_l', 'leg_r', 'head'}, seams=SIDES, open_top=True)
     sleeves(g, 0.22, t1=0.95, flare=0.18)
     cover(g, lambda i, p, r: False)
     out['abrigo'] = g
@@ -702,10 +827,11 @@ def wardrobe(body):
     # --- sheepskin jacket (zamarra): to the hips, the fleece showing at the collar, the cuffs, the hem and the front edge
     g = Garment('zamarra')
     top = neck + 0.02
-    g.patch(body, v, yoke_tris(top, sh_y - 0.62), top, 0.3, {'torso', 'head', 'arm_l', 'arm_r'}, seams=SIDES, collar=0.3)
-    L = torso_loft('zamarra', sh_y - 0.5, waist - 0.9, 0.3, fold_amp=0.06, flare=0.1)
+    t0 = len(g.tri)
+    g.patch(body, v, yoke_tris(top, YOKE_BOTTOM), top, yoke_ease_of(0.32, 0.305, 0.255), {'torso', 'head', 'arm_l', 'arm_r'}, seams=SIDES, collar=0.3, cut=YOKE_CUT - 0.04, arm_cut=arm_cut(0.75))
+    L = torso_loft('zamarra', YOKE_CUT, waist - 0.9, 0.3, fold_amp=0.06, flare=0.1, join=border_of(g, t0, YOKE_CUT - 0.04))
     n = len(L.rings)
-    g.loft(L, {'torso', 'leg_l', 'leg_r', 'head'}, part_of=lambda k, j, n=n: 1 if k >= n - 2 else 0, seams=SIDES)
+    g.loft(L, {'torso', 'leg_l', 'leg_r', 'head'}, part_of=lambda k, j, n=n: 1 if k >= n - 2 else 0, seams=SIDES, open_top=True)
     sleeves(g, 0.25, t1=0.93, flare=0.14)
     cover(g, lambda i, p, r: False)
     out['zamarra'] = g

@@ -508,7 +508,7 @@ export class MhPerson {
         this.root.add(soft);
       } else if (f.kind === 'garment') {
         g.setAttribute('att', new THREE.BufferAttribute(f.d.att, 4, true));
-        mesh = new THREE.Mesh(g, this.mat('garment:' + f.name, () => clothMaterial({ leather: f.wear.leather, fleece: f.wear.fleece })));
+        mesh = new THREE.Mesh(g, this.mat('garment:' + f.name, () => clothMaterial({ leather: f.wear.leather, fleece: f.wear.fleece, inside: f.name === 'delantal' ? 0.22 : 0.8 })));
       }
       mesh.name = f.kind + ':' + f.name;
       if (f.kind === 'brows' || f.kind === 'lashes') mesh.renderOrder = 1;
