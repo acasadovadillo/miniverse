@@ -12,7 +12,7 @@ import { garment } from './data.js';
 import { hairOf, browsOf, lashesOf, garmentsOf } from './looks.js';
 import { clothMaterial } from './cloth.js';
 import { skinLayers, layerUniforms } from './skin.js';
-import { hairFits, hairKey, hairMeshes, scalpOf, hairColour, stubbleOf } from './hair.js';
+import { hairFits, hairKey, hairMeshes, scalpOf, hairColour, stubbleOf, shellMeshes, shellOnly } from './hair.js';
 
 const M = 0.1;   // MakeHuman's decimetres to metres
 
@@ -476,7 +476,7 @@ export class MhPerson {
     const fm = faceMaps(D, v, rm);
     lap('maps');
     const own = fitted.find(f => f.kind === 'ownhair');
-    bodyGeo.setAttribute('scalp', new THREE.BufferAttribute(D.hair ? scalpOf(own, D.nv, rm) : scalp(D, fitted.find(f => f.kind === 'hair'), rm, v), 1));
+    bodyGeo.setAttribute('scalp', new THREE.BufferAttribute(D.hair ? scalpOf(own || shellOnly(D, look), D.nv, rm) : scalp(D, fitted.find(f => f.kind === 'hair'), rm, v), 1));
     lap('scalp');
     bodyGeo.setAttribute('beardZone', new THREE.BufferAttribute(fm.beard, 3));
     bodyGeo.setAttribute('zone', new THREE.BufferAttribute(fm.zone, 4));
@@ -487,6 +487,7 @@ export class MhPerson {
     const body = new THREE.Mesh(bodyGeo, this.mat('skin:' + sex, () => skinMaterial(sex)));
     body.name = 'body';
     this.root.add(body);
+    for (const sh of shellMeshes(bodyGeo, look, (k, make) => this.mat(k, make))) this.root.add(sh);   // (P4: the fur of the beards and the short hair)
     this.eyes = [];
     for (const f of fitted) {
       if (f.s) { this.root.add(...hairMeshes(f, ground, (k, make) => this.mat(k, make))); continue; }

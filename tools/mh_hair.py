@@ -376,26 +376,20 @@ def tail_cards(ctx, axis0, axis1, radius, n_around, col, width_k, seed, ao=(0.55
 
 
 def bun_cards(ctx, centre, axis, R, n_rings, col, seed, grow=0.0):
-    """A bun: rings of cards coiled round a ball at centre (its axis out of the head), the outer ones smaller."""
-    rng = np.random.default_rng(seed)
+    """A bun: a twisted rope of hair coiled on itself, from its outer turn at the head to the middle on top (the rings of
+    cards of before read as a striped disc). The rope is a tail (tail_cards) along the spiral, strongly twisted."""
     u, v = frame_of(axis)
-    cards = []
-    for k in range(n_rings):
-        lat = -0.9 + 1.8 * k / max(1, n_rings - 1)          # from the head to the bun's top
-        rr = R * math.cos(lat * 1.2)
-        h = R * math.sin(lat) * 0.85
-        for arc in range(2):
-            ph0 = arc * math.pi + rng.random() * 0.6
-            pts0, pts1, nr = [], [], []
-            n = 6
-            for i in range(n + 1):
-                an = ph0 + math.pi * 1.15 * i / n
-                for lst, g in ((pts0, 0.0), (pts1, grow)):
-                    r2 = rr * (1 + 0.18 * g)
-                    lst.append(centre + axis * (h + R * 0.45) + (u * math.cos(an) + v * math.sin(an)) * r2)
-                nr.append((u * math.cos(an) + v * math.sin(an) + axis * math.sin(lat)).normalized())
-            cards.append(Card(pts0, pts1, nr, R * 0.62, col, 0.75 + 0.25 * k / n_rings, float(rng.random()), math.pi * rr, (1.0, 1.0, 1.0)))
-    return cards
+    turns = 2.2
+
+    def spiral(g):
+        pts = []
+        for i in range(61):
+            t = i / 60
+            an = 2 * math.pi * turns * t
+            rad = R * (1 + 0.15 * g) * (1 - 0.62 * t)
+            pts.append(centre + axis * (R * (0.18 + 0.5 * math.sin(t * math.pi * 0.5))) + (u * math.cos(an) + v * math.sin(an)) * rad)
+        return pts
+    return tail_cards(ctx, spiral(0.0), spiral(grow), lambda f: R * 0.36 * (1 - 0.35 * f), 6, col, 1.3, seed, ao=(0.7, 1.0), twist=2 * math.pi * turns * 1.6, nseg=30)
 
 
 def braid_cards(ctx, axis0, axis1, radius, col, seed, lobes_per_dm=2.1):

@@ -2761,9 +2761,15 @@ async function soloTests(game) {
     check(['bigote', 'perilla', 'candado', 'completa', 'larga'].every(b => styles['beard_' + b]), 'the five beards');
     const look = { ...LOOK, sex: 'chico', hairStyle: 'largo', beard: 'completa' }, box = o => new THREE.Box3().setFromBufferAttribute(o.geometry.attributes.position);
     ensureMh(look);
-    const P = new MhPerson(D, look), hair = P.root.getObjectByName('ownhair:largo'), beard = P.root.getObjectByName('ownbeard:beard_completa');
+    const P = new MhPerson(D, look), hair = P.root.getObjectByName('ownhair:largo'), beard = P.root.getObjectByName(H.SHELLS ? 'ownshell:beard' : 'ownbeard:beard_completa');
     check(hair && beard && P.root.getObjectByName('ownhairsoft:largo') && !P.root.children.some(o => /^hair(soft)?:/.test(o.name)), `our meshes, not MakeHuman's: ${P.root.children.map(o => o.name)}`);
     check(beard.morphTargetInfluences?.length === P.expr.length, 'the beard follows the face\'s expressions');
+    // (shells: the afro is fur alone, the short hair has fur at its sides, a woman has no sideburns; ?capas=0 the cards of before)
+    if (H.SHELLS) {
+      const afro = new MhPerson(D, { ...look, sex: 'chica', hairStyle: 'afro', beard: 'no' }), sh = afro.root.getObjectByName('ownshell:hair');
+      check(sh && !afro.root.getObjectByName('ownhair:afro') && sh.geometry.index.count / 3 < 40000, `the afro's shells: ${sh?.geometry.index.count / 3} triangles`);
+      afro.dispose();
+    }
     console.log(`▶ mh hair: ${P.tris} triangles with long hair and a full beard, built in ${P.ms.toFixed(1)} ms`);
     // (a wider head: the hair goes out with it; grown: longer)
     const wide = new MhPerson(D, { ...look, mh: { ...look.mh, face: { ...look.mh.face, head_width: 100 } } }), grown = new MhPerson(D, { ...look, hairGrow: 3 });
