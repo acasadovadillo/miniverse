@@ -10,6 +10,7 @@ import { tintMats } from './tints.js';
 import { photoBases } from './textures.js';
 import * as THREE from 'three';
 import { Outline } from './outline.js';
+import { AimDot } from '../ui/aimdot.js';
 import { CAM, PITCH, DIST, LOOK } from '../camera.js';
 import { setViewAngle } from '../iso.js';
 import { CENTER } from '../world/village.js';
@@ -49,6 +50,7 @@ import { TONE_MAPPING, CURVA, lightAt, toneOut } from './look.js';
 import { preloadPhotos, photosSettled } from './photos.js';
 import { trackVram, vramLost } from './vram.js';
 import { lightRoom, areaVersion, LIGHT_BOXES } from '../structure.js';
+const OUTLINE = apagada('contorno');   // (?contorno=0: the yellow outline of before, in place of the white dot)
 
 const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
 const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
@@ -609,7 +611,7 @@ export class View3D {
     if (this.prepare()) { this.renderer.setClearColor('#000000'); this.renderer.clear(); return; }
     this.draw();
     this.drawn++;
-    if (!this.outliner.warm) this.outliner.prewarm();   // (its programs, before the first thing is aimed at)
+    if (OUTLINE && !this.outliner.warm) this.outliner.prewarm();   // (its programs, before the first thing is aimed at)
     if (!this.kitWarm) { this.kitWarm = true; prewarmKit(this.renderer, this.camera, this.scene); prewarmSite(this.renderer, this.camera, this.scene); }   // (and the tools on the body's: kit3d.js)
     for (const [s, v] of this.caves) if (s !== scene && s !== this.lastCave) { v.dispose(); this.caves.delete(s); }
     this.stats(dt);
@@ -774,12 +776,17 @@ export class View3D {
     this.camera.layers.enableAll(); this.camera.layers.disable(1);
     this.drawOutline();
   }
-  // El borde amarillo de lo que se apunta con el cursor (game.highlight). Not a mark on the ground (tracks.js): its tag
-  // says it, and what the click would take there keeps its own outline
+  // What is aimed at with the cursor (game.highlight), marked: a white dot in its middle (ui/aimdot.js; the key and what it
+  // does go to its right, ui/prompts.js), or with ?contorno=0 the yellow outline of before. Not a mark on the ground
+  // (tracks.js): its tag says it, and what the click would take there keeps its own mark
   drawOutline() {
     const g = this.game, h = g?.highlight, a = g && this.shown === g.scene && ((h && h.track === undefined ? h : null) || this.gatherAim(g));
-    if (a) this.outliner.draw(this.renderer, this.camera, a, g.scene, g.player, g.time);
+    if (OUTLINE) { if (a) this.outliner.draw(this.renderer, this.camera, a, g.scene, g.player, g.time); return; }
+    (this.dot ||= new AimDot()).show(a && g.player ? this.outliner.point(a, g.scene, g.player) : null, this.camera);
+    this.dotFor = this.dot.at ? a : null;
   }
+  // The dot's place on the screen ([x, y] CSS pixels) while it is on a, else null (ui/prompts.js)
+  dotAt(a) { return a && a === this.dotFor ? this.dot.at : null; }
   // What the tool in hand goes for (gather.js target) when it is a tree, a rock or a bush drawn by nature3d.js: outlined
   // like the rest, with its own instances (fx.js no longer puts a ring at its feet). Null otherwise
   gatherAim(g) {

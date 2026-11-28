@@ -3,6 +3,7 @@
 // right. The cursor still aims; with Settings.v.prompts 'cursor' (or for what is as wide as the water, or lies on the
 // ground under a label of its own, a print) they go beside it. What is not aimed at (get up, get off, the oars) goes at the
 // bottom, in the middle.
+// With the white dot (ui/aimdot.js, engine.js dotAt) they go just to its right instead.
 // The place holds: what does not move keeps the point it had when it was first aimed at (a door has two boxes, its gap and its
 // leaf), and another thing takes it only after HOLD_MS, so a cursor on the line between two does not shake it.
 //
@@ -21,6 +22,7 @@ const RIGHT = 14, OVER = 0.3;       // px to the right of the point; m over the 
 const TALL = 1.7, TALL_1P = 1.2;    // m over its foot, at most (a tree is taller: by its trunk). In first person, lower: in sight
 const WIDE = 1.2;                   // m (half): from here on, what is aimed at is ground or water, not a thing
 const HOLD_MS = 80, CURSOR = 18;
+const DOT_DX = 7, DOT_DY = 14;     // px from the white dot to the corner of the rows: the key 13 px right of it (its margin is 6), its row (28) level with it
 
 export class Prompts {
   constructor(game) {
@@ -82,6 +84,13 @@ export class Prompts {
     const x = b ? b.x : e.x, y = b ? b.y : e.y;
     if (id !== this.id && !(this.shown && this.id !== undefined && T - (this.wait ||= T) < HOLD_MS)) { this.id = id; this.wait = 0; this.fresh = true; }
     else if (id === this.id) this.wait = 0;
+    // (with the white dot on it, ui/aimdot.js: the key just to its right, its first row level with the dot)
+    const dot = aim && view.dotAt?.(a);
+    if (dot) {
+      if (this.fresh) { this.fresh = false; if (this.shown) hud.promptFade(); }
+      at[0] = dot[0] + DOT_DX; at[1] = dot[1] - DOT_DY;
+      return at;
+    }
     if (this.fresh || (e && id === this.id)) {   // (what can move is followed)
       const gy = b?.abs ? 0 : view.groundY?.(g.scene, x, y) || 0, foot = (b ? b.y0 : 0) + gy, top = (b ? b.y1 : view.personHeight?.(e, 1.5) ?? 1.5) + gy;
       this.p.x = x; this.p.y = y; this.p.h = Math.min(top + OVER, foot + (CAM.first ? TALL_1P : TALL));

@@ -1929,7 +1929,7 @@ async function soloTests(game) {
       hud.prompt(''); check(!el.classList.contains('show'), '\'\' shows it');
     } finally { hud.prompt(null); }
   });
-  await test('prompt anchor (english): aiming at a gate puts the prompt within 40 px of the gate\'s projected point; the setting puts it at the cursor', async () => {
+  await test('prompt anchor (english): aiming at a gate puts the white dot on it and the prompt just to the right of the dot; the setting puts it at the cursor', async () => {
     const was = game.mouse, v = new THREE.Vector3(), px = (x, y, h) => { v.set(x, game.view3d.groundY(w(), x, y) + h, y).project(game.view3d.camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight]; };
     await goTo(game, 62.5, 42);
     const [tx, ty] = freeTile(game, [[62, 40], [63, 40], [61, 40], [62, 39]]);
@@ -1938,8 +1938,9 @@ async function soloTests(game) {
       w().place(tx, ty, 'puerta_valla'); game.player.x = tx + 0.5; game.player.y = ty + 2; game.player.vx = game.player.vy = 0;
       for (let i = 0; i < 12; i++) { const m = px(tx + 0.5, ty + 0.5, 0.6); game.mouse = { x: m[0], y: m[1], in: true }; draw(); await sleep(60); }
       check(game.highlight?.kind === 'door', `aimed at: ${game.highlight?.kind}`);
-      const b = game.highlight.box, p = px(tx + 0.5, ty + 0.5, Math.min(b.y1 + 0.3, 1.7)), q = at();
-      check(Math.hypot(q[0] - p[0] - 14, q[1] - p[1]) < 40, `at ${q.map(Math.round)}, the gate at ${p.map(Math.round)}`);
+      const d = game.view3d.dotAt?.(game.highlight), p = px(tx + 0.5, ty + 0.5, 0.6), q = at();
+      check(d && Math.hypot(d[0] - p[0], d[1] - p[1]) < 60, `the dot at ${d?.map(Math.round)}, the gate at ${p.map(Math.round)}`);
+      check(d && Math.hypot(q[0] - d[0] - 7, q[1] - d[1]) < 6, `the rows at ${q.map(Math.round)}, the dot at ${d?.map(Math.round)}`);
       // The cursor elsewhere on the gate: it does not move with it
       const m = px(tx + 0.3, ty + 0.5, 0.4); game.mouse = { x: m[0], y: m[1], in: true }; draw(); draw();
       if (game.highlight?.kind === 'door') check(Math.hypot(at()[0] - q[0], at()[1] - q[1]) < 12, `it follows the cursor: ${at().map(Math.round)}`);

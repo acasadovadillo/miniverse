@@ -1,3 +1,5 @@
+// (Since 2026-11-29 only with ?contorno=0: a white dot marks what is aimed at, ui/aimdot.js and point below. The shapes still
+// give the aim test, hit)
 // El borde amarillo de lo que se apunta con el cursor. Se dibuja después de todo, sobre el canal de plantilla: primero la
 // forma de la cosa (solo marca la plantilla) y luego esa misma forma engordada unos píxeles, de amarillo, solo fuera de lo
 // marcado. Sale la silueta, del mismo grosor a cualquier distancia.
@@ -127,7 +129,9 @@ function swayOf(mat) {
 }
 const BOX = new THREE.BoxGeometry(1, 1, 1), ME = new THREE.Matrix4(), MI = new THREE.Matrix4(), X = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3();
 const EU = new THREE.Euler(), QU = new THREE.Quaternion();
-const RAY = new THREE.Raycaster(), HITS = [], BB = new THREE.Box3();
+const RAY = new THREE.Raycaster(), HITS = [], BB = new THREE.Box3(), BB2 = new THREE.Box3(), PV = new THREE.Vector3();
+// The white dot (ui/aimdot.js): at most this far over the foot of what is aimed at (a tree, by its trunk; a person, at the chest)
+const POINT_UP = 1.3, POINT_WIDE = 1.2;
 
 export class Outline {
   constructor(view) {
@@ -365,6 +369,32 @@ export class Outline {
     X.set(b.ux * b.hx * 2, 0, b.uy * b.hx * 2); Z.set(b.vx * b.hy * 2, 0, b.vy * b.hy * 2); Y.set(0, b.y1 - b.y0, 0);
     ME.makeBasis(X, Y, Z).setPosition(nearX(b.x, me.x), g + (b.y0 + b.y1) / 2, b.y);
     this.add(BOX, ME);
+  }
+  // Where the white dot goes (engine.js drawOutline): the middle of the shapes of a, no higher than POINT_UP over their
+  // foot, as [x, height, y] where the view draws it; null if there is nothing to put it on
+  point(a, scene, me) {
+    // (someone or an animal: where its model stands now, the middle of its aim box (an animal's, its body, ahead of its feet),
+    // at 60 % of its height: the chest, the back. A skinned mesh's own box is that of its rest pose, not where it is drawn)
+    const actor = a.e && this.view.actors.models.get(a.e), b = a.box;
+    if (actor && b) {
+      actor.root.updateMatrixWorld(true);
+      actor.root.getWorldPosition(PV);
+      return [PV.x + (b.x - a.e.x || 0), PV.y + Math.min(b.y0 + (b.y1 - b.y0) * 0.6, b.y0 + POINT_UP), PV.z + (b.y - a.e.y || 0)];
+    }
+    if (this.collect(a, scene, me)) {
+      BB.makeEmpty();
+      for (const [geo, m, src, part] of this.list) {
+        if (!geo.boundingBox) geo.computeBoundingBox();
+        if (part) for (const i of part[0]) { src.getMatrixAt(i, MI); BB.union(BB2.copy(geo.boundingBox).applyMatrix4(ME.multiplyMatrices(m, MI))); }
+        else BB.union(BB2.copy(geo.boundingBox).applyMatrix4(m));
+      }
+      this.list.length = 0;
+      if (!BB.isEmpty()) return [(BB.min.x + BB.max.x) / 2, Math.min((BB.min.y + BB.max.y) / 2, BB.min.y + POINT_UP), (BB.min.z + BB.max.z) / 2];
+    }
+    this.list.length = 0;
+    if (!b || b.hx > POINT_WIDE || b.hy > POINT_WIDE) return null;   // (ground or water, not a thing: prompts.js WIDE)
+    const g = b.abs ? 0 : this.view.groundY(scene, b.x, b.y);
+    return [nearX(b.x, me.x), g + Math.min((b.y0 + b.y1) / 2, b.y0 + POINT_UP), b.y];
   }
   draw(renderer, camera, a, scene, me, t) {
     if (!a || !me) return;
