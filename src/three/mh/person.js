@@ -131,7 +131,7 @@ diffuseColor.rgb = layers(diffuseColor.rgb, dl);
 // (the scalp under the hair: the roots' shade of the hair's colour, fading softly at the hairline, made of fine dots there)
 float sn = fract(sin(dot(floor(vMapUv * vec2(3200.0, 1300.0)), vec2(12.9898, 78.233))) * 43758.5453);
 float sk = smoothstep(0.05, 0.85, vScalp) * mix(0.55 + 0.45 * sn, 1.0, smoothstep(0.5, 0.95, vScalp));
-diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.42 + 0.35 * dl), sk * 0.88);
+diffuseColor.rgb = mix(diffuseColor.rgb, hairC * (0.5 + 0.45 * dl) * (0.8 + 0.4 * sn), sk * 0.7);   // (P4 polish: a lighter paint, short hair, not a dark slab)
 // (the stubble (P4: the beard itself is of cards, hair.js): per zone, moustache, chin and jaw, how dense; the skin a little
 // shadowed and the cut hairs as fine dots of the hair's colour)
 float bz = clamp(max(max(vBeard.x * beard.x, vBeard.y * beard.y), vBeard.z * beard.z), 0.0, 1.0);
