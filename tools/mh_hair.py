@@ -141,7 +141,7 @@ class Body:
 
 # The lowest the hair grows, by the angle round the head (degrees from the front), in decimetres over the eyes: a
 # forehead about 7 cm over the eyes, the temples a little back, sideburns in front of the ears, over the ears, the nape
-HAIRLINE = [(0, 0.74), (18, 0.72), (32, 0.62), (44, 0.46), (54, 0.26), (60, -0.12), (70, -0.32), (76, -0.3), (82, 0.12),
+HAIRLINE = [(0, 0.74), (18, 0.72), (32, 0.62), (44, 0.46), (54, 0.26), (60, 0.04), (68, -0.12), (75, -0.12), (82, 0.12),
             (96, 0.3), (108, 0.18), (116, -0.3), (135, -0.62), (160, -0.82), (180, -0.86)]
 
 
@@ -212,7 +212,7 @@ class Ctx:
             out.append((x, n_))
         return out
 
-    def walk(self, x0, n0, flow, L, height, grav, hug=1.0, cut=None, ds=0.03, collide=True):
+    def walk(self, x0, n0, flow, L, height, grav, hug=1.0, cut=None, ds=0.03, collide=True, shield=True):
         """A strand from x0 (on the skin, normal n0): its points every ds until L or cut. flow(x, t) is where the style
         combs it, grav(t) how much it hangs, height(t) how far over the skin it stays."""
         B = self.B
@@ -246,6 +246,9 @@ class Ctx:
                     # is free and hangs)
                     elif hug >= 0.6 and loc[1] - B.ye > hairline(B.head_angle(loc)) - 0.08:
                         x = x - n * ((sd - h) * hug)
+            # (nothing hangs in front of the face: a strand that would, slides round it to the side)
+            if shield and abs(x[0]) < 0.6 and x[2] > B.C[2] + 0.25 and B.ye - 1.6 < x[1] < B.ye + 0.62:
+                x[0] = 0.6 if x[0] >= 0 else -0.6
             s += step
             pts.append(x.copy())
             if cut and cut(x, s):
@@ -293,13 +296,13 @@ def outward(B, x, centre=None):
 
 
 def strand_card(ctx, root, nrm, flow, L0, L1, height, grav, width, col, ao, seed, hug=1.0, cut0=None, cut1=None, nseg=None,
-                post=None, taper=(0.75, 1.0, 0.35)):
+                post=None, taper=(0.75, 1.0, 0.35), shield=True):
     """One card, cut (L0, cut0) and grown (L1, cut1), walked with the same flow; post(points, along, grown) bends it (waves,
     curls) after resampling."""
     rng = np.random.default_rng(seed)
     rand = float(rng.random())
-    a = ctx.walk(root, nrm, flow, L0, height, grav, hug, cut0) if L0 > 0.005 else [root + nrm * height(0)]
-    b = ctx.walk(root, nrm, flow, L1, height, grav, hug, cut1)
+    a = ctx.walk(root, nrm, flow, L0, height, grav, hug, cut0, shield=shield) if L0 > 0.005 else [root + nrm * height(0)]
+    b = ctx.walk(root, nrm, flow, L1, height, grav, hug, cut1, shield=shield)
     n = nseg or nseg_for(L1)
     p0, l0 = resample(a, n)
     p1, l1 = resample(b, n)
@@ -307,7 +310,9 @@ def strand_card(ctx, root, nrm, flow, L0, L1, height, grav, width, col, ao, seed
         p0 = post(p0, l0, rand)
         p1 = post(p1, l1, rand)
     nr = [outward(ctx.B, p) for p in p1]
-    return Card(p0, p1, nr, width * (0.8 + 0.4 * rng.random()), col, ao, rand, l0, taper)
+    # (a strand cut short, at the temples or round the ears, is a narrow card: never a slab wider than it is long)
+    w = min(width * (0.8 + 0.4 * rng.random()), max(0.06, 0.9 * max(l0, 0.6 * l1)))
+    return Card(p0, p1, nr, w, col, ao, rand, l0, taper)
 
 
 # ---------------------------------------------------------------- shapes that hang: tails, buns, braids
@@ -452,7 +457,9 @@ def scalp_layers(ctx, flow, length, height, grav, layers, seed, cut=None, hug=1.
 
 
 def hairline_wisps(ctx, flow, L0, L1, n, seed, height=0.012, grav=lambda t: 0.0, region=None, col='fine'):
-    """Fine short cards along the hairline, so its edge melts into the skin."""
+    """Fine short cards along the hairline. Tried and left out (2026-11-28): lying on the forehead they read as dark specks;
+    the scalp's soft paint and the cards' faded roots make the edge instead."""
+    return []
     B = ctx.B
     reg = region or (lambda x, a, y: max(0.0, 1 - abs(y - hairline(a) - wobble(x) - 0.03) / 0.06))
     roots = ctx.scalp_roots(n, lambda x, a, y: 0 if in_ear(B, x) else reg(x, a, y), 0.05, seed)
@@ -824,7 +831,7 @@ class Styles:
             for ri, (x, n) in enumerate(roots):
                 grav = (lambda t: sm(0.2, 0.6, t)) if long_ else (lambda t: 0.3 * t)
                 cards.append(strand_card(ctx, x, n, (lambda r: (lambda p, t: flow(p, t, r)))(x), L0, L1, lambda t, h0=h0: h0 + (0.05 if long_ else 0.015) * t,
-                                         grav, width * (1.5 if long_ else 1.0), COL[col], ao, seed + li * 100 + ri, 0.8, nseg=5 if long_ else 2, taper=(0.7, 1.0, 0.45)))
+                                         grav, width * (1.5 if long_ else 1.0), COL[col], ao, seed + li * 100 + ri, 0.8, nseg=5 if long_ else 2, taper=(0.7, 1.0, 0.45), shield=False))
         return cards
 
 
