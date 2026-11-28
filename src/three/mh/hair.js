@@ -172,33 +172,45 @@ function hairMaterial(soft) {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHk = hk; vHDir = normalize((modelViewMatrix * vec4(hdir, 0.0)).xyz);');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
 uniform vec3 hairC, greyC, hlC; uniform float greyK, hlK, rootK, specK; varying vec3 vHDir; varying vec4 vHk;
-float hairSpec = 1.0, hairShift = 0.0;`)
+float hairSpec = 1.0, hairShift = 0.0, hairRound = 0.0;`)
       .replace('#include <map_fragment>', `
 vec4 s4 = texture2D(map, vMapUv);
 float along = vHk.x, crand = vHk.y, ao = vHk.z, occ = vHk.w;
 float colN = floor(vMapUv.x * 8.0), ul = fract(vMapUv.x * 8.0);
 float sid = floor(ul * 44.0) + floor(crand * 61.0) * 45.0 + colN * 7.0;
 float h1 = fract(sin(sid * 12.9898) * 43758.5453), h2 = fract(sin(sid * 78.233 + 3.1) * 43758.5453);
-// (each strand ends a little before or after the card's tip; the root end fades into the skin)
-float a = s4.a * (1.0 - smoothstep(0.86 + 0.12 * h2, 1.0, along)) * smoothstep(0.0, 0.07, along);
+// (each strand ends somewhere in the card's last third, most near the tip: the ends feather out instead of stopping in a
+// row; the root end fades into the skin)
+float tipE = 1.0 - 0.34 * h2 * h2;
+float a = s4.a * (1.0 - smoothstep(tipE - 0.14, tipE, along)) * smoothstep(0.0, 0.07, along);
 // (far off the texture's small mips are fainter: their alpha is raised as they get smaller, so hair and beards do not
 // thin out into holes with distance)
 vec2 tdx = dFdx(vMapUv * vec2(1024.0, 512.0)), tdy = dFdy(vMapUv * vec2(1024.0, 512.0));
 a *= 1.0 + 0.24 * max(0.0, 0.5 * log2(max(dot(tdx, tdx), dot(tdy, tdy))));
-vec3 hc = hairC * (0.55 + 0.6 * s4.r) * (0.88 + 0.24 * h1);
-hc *= mix(rootK, 1.0, smoothstep(0.0, 0.12, along)) * mix(1.0, 1.08, smoothstep(0.6, 1.0, along));
+// (the inner layers (their cards a little shaded, ao under 0.95) are nearly solid: under the locks on top they are the
+// hair's mass, so no gap between the outer cards shows the scalp, the neck or the sky)
+a = min(1.0, a * (1.0 + 1.3 * smoothstep(0.95, 0.88, ao)));
+// (between the strands not grey but a deeper shade of the same colour: light hair goes golden or rose in its shadows, so
+// blond and pink read as a mass of hair, not as pale stripes on dark ones)
+float hLum = dot(hairC, vec3(0.2126, 0.7152, 0.0722));
+vec3 deep = mix(hairC * 0.5, hairC * hairC * 0.9, smoothstep(0.04, 0.4, hLum));
+vec3 hc = mix(deep, hairC * 1.1, mix(smoothstep(0.15, 0.95, s4.r), 0.3 + 0.7 * s4.r, smoothstep(0.15, 0.45, hLum))) * (0.9 + 0.2 * h1);   // (light hair: softer strands)
+hc *= mix(rootK, 1.0, smoothstep(0.0, 0.2, along)) * mix(1.0, 1.08, smoothstep(0.6, 1.0, along));
+// (a card is a lock, round: its normal turns across it, so neighbouring cards do not shade as flat sheets)
+hairRound = (ul - 0.5) * 1.1;
 float hs = fract(sin((floor(ul * 6.0) + floor(crand * 11.0) * 7.0 + colN * 3.0) * 45.164 + 7.0) * 43758.5453);
 hc = mix(hc, hlC * (0.6 + 0.55 * s4.r), float(hs < hlK) * 0.85 * smoothstep(0.04, 0.3, along));
 // (grey hairs one by one up close; far off, where a strand is under a pixel, their share as an even mix: no salt and pepper)
 float gk = mix(float(h2 < greyK), greyK, smoothstep(0.35, 1.0, fwidth(ul * 44.0)));
 hc = mix(hc, greyC * (0.5 + 0.6 * s4.r) * (0.86 + 0.28 * h1), gk * 0.94);
 // (the shadow at the roots: under the rest of the hair, close to the skin, it is darker)
-float shade = ao * mix(colN == 7.0 ? 1.0 : 0.6, 1.0, smoothstep(0.0, 1.0, occ));   // (the short fuzz lies on the skin: it is not under anything)
+float shade = ao * ao * mix(colN == 7.0 ? 1.0 : 0.6, 1.0, smoothstep(0.0, 1.0, occ));   // (the short fuzz lies on the skin: it is not under anything)
+shade *= 0.8 + 0.2 * sin(3.14159 * ul);   // (a lock's sides are under its neighbours)
 diffuseColor.rgb *= hc * shade;
 diffuseColor.a *= a;
 // (the highlight: each strand's a little higher or lower, only on the strands, less in the shade; curls in small points)
-hairShift = (h1 - 0.5) * 0.18;
-hairSpec = (colN == 4.0 ? 0.35 : 1.0) * (0.35 + 0.65 * s4.r) * shade;
+hairShift = (h1 - 0.5) * 0.08 + (crand - 0.5) * 0.14;   // (mostly per lock: the band of light runs across the hair, broken lock by lock)
+hairSpec = (colN == 4.0 ? 0.35 : 1.0) * (0.55 + 0.45 * s4.r) * shade;
 ${soft ? 'if (diffuseColor.a > 0.46 || diffuseColor.a < 0.03) discard;' : ''}`)
       // (cut out at a fixed threshold; what it leaves, the soft pass blends. A threshold changing from pixel to pixel (a
       // dither) was tried in the polish: it left grain at 1x, with no frames to average it over)
@@ -206,6 +218,7 @@ ${soft ? 'if (diffuseColor.a > 0.46 || diffuseColor.a < 0.03) discard;' : ''}`)
       // (the normal is the hair's way out, whichever side of the card is seen)
       .replace('#include <normal_fragment_begin>', `float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
 vec3 normal = normalize(vNormal);
+normal = normalize(normal + normalize(cross(normalize(vHDir), normal)) * hairRound);
 vec3 nonPerturbedNormal = normal;`)
       .replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment
         .replace('vec3 irradiance = dotNL * directLight.color;', `float dotNLw = saturate((dot(geometryNormal, directLight.direction) + 0.55) / 1.55);
@@ -215,14 +228,14 @@ vec3 nonPerturbedNormal = normal;`)
         .replace('reflectedLight.directSpecular += irradiance * BRDF_GGX( directLight.direction, geometryViewDir, geometryNormal, material );', `{
 		vec3 Th = normalize(vHDir), Hh = normalize(directLight.direction + geometryViewDir);
 		float t1 = dot(normalize(Th + geometryNormal * (hairShift - 0.1)), Hh), t2 = dot(normalize(Th + geometryNormal * (hairShift + 0.16)), Hh);
-		float s1 = pow(max(0.0, 1.0 - t1 * t1), 140.0), s2 = pow(max(0.0, 1.0 - t2 * t2), 30.0);
+		float s1 = pow(max(0.0, 1.0 - t1 * t1), 48.0), s2 = pow(max(0.0, 1.0 - t2 * t2), 12.0);   // (pelo5: broader, so the sheen reads as one band over the mass)
 		float vis = saturate(dot(geometryNormal, directLight.direction) * 1.6 + 0.35);
-		reflectedLight.directSpecular += directLight.color * vis * specK * hairSpec * (0.09 * s1 + 0.2 * s2 * min(material.diffuseColor * 3.0, vec3(1.0)));
+		reflectedLight.directSpecular += directLight.color * vis * specK * hairSpec * (0.1 * s1 + 0.16 * s2 * min(material.diffuseColor * 3.0, vec3(1.0)));
 	}`));
     // (the cut pass is opaque where it draws: a see-through canvas (the creator's) would show its partial alpha as white)
     if (!soft) sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', '#include <dithering_fragment>\ngl_FragColor.a = 1.0;');
   };
-  m.customProgramCacheKey = () => 'mh-hair3' + (soft ? 's' : 'c');
+  m.customProgramCacheKey = () => 'mh-hair4' + (soft ? 's' : 'c');
   m.userData.U = U;
   return m;
 }
@@ -255,7 +268,7 @@ export function furOf(look) {
 // A style drawn by shells alone (no cards fitted): its scalp mask is still the style's (scalpOf)
 export function shellOnly(D, look) {
   const hs = hairStyleOf(look);
-  return D.hair && SHELLS && SHELL_HAIR[hs]?.only ? { s: style(D.hair, hs), female: look.sex !== 'chico' } : null;
+  return D.hair && SHELLS && SHELL_HAIR[hs]?.only ? { s: style(D.hair, hs), female: look.sex !== 'chico', k: growOf(look) } : null;
 }
 // The key of what the hair needs made again (person.js shapeKey adds it)
 export const hairKey = look => [hairStyleOf(look), look.hairGrow | 0, look.sex === 'chico' ? [look.beard, look.beardGrow | 0] : 0].join();
@@ -290,12 +303,17 @@ export function hairMeshes(f, ground, mat) {
 // Where the hair grows, per render vertex of the body (0..1), for the skin's scalp paint: the style's own mask, soft at
 // the hairline. A beard has none (its stubble is the skin's beard layer)
 export function scalpOf(f, nv, rmap) {
-  const s = new Float32Array(nv), out = new Float32Array(rmap.length);
-  if (f?.s.mi) for (let i = 0; i < f.s.mi.length; i++) s[f.s.mi[i]] = f.s.mw[i] / 255;
+  const s = new Float32Array(nv), out = new Float32Array(rmap.length), pk = f ? paintOf(f.s.name, f.k || 0) : 1;
+  if (f?.s.mi) for (let i = 0; i < f.s.mi.length; i++) s[f.s.mi[i]] = f.s.mw[i] / 255 * pk;
   if (f?.female && f.s.ms) for (const i of f.s.ms) s[i] = 0;
   for (let r = 0; r < rmap.length; r++) out[r] = s[rmap[r]];
   return out;
 }
+
+// How much of the scalp's paint a style keeps (0..1): a shaved head shows its skin between the hairs, less as it grows
+// (the pack's own mask is already lighter for it). The shells undo it for their density (shellMesh wMul)
+const paintOf = (name, k) => (name === 'rapado' ? 0.95 + 0.05 * k : 1);
+const growOf = look => Math.max(0, Math.min(3, look.hairGrow | 0)) / 3;
 
 // The colours of a person's hair, beard and brows (no new geometry)
 export function hairColour(mats, look) {
@@ -308,7 +326,7 @@ export function hairColour(mats, look) {
     } else if (k.startsWith('ownhair:') || k.startsWith('ownbeard:')) {
       U.hairC.value.copy(c); U.greyK.value = k.startsWith('ownbeard') ? Math.min(1, grey * 1.15) : grey;
       U.hlK.value = k.startsWith('ownbeard') ? 0 : hl * 0.55; U.hlC.value.copy(hlc);
-      U.rootK.value = k.startsWith('ownbeard') ? 0.9 : 0.85;
+      U.rootK.value = k.startsWith('ownbeard') ? 0.9 : 0.62;
     } else if (k.startsWith('skin:')) {
       U.hairC.value.copy(c).lerp(new THREE.Color('#bdb8b0'), grey * 0.8);   // (the scalp's and the stubble's paint greys too)
     } else if (k.startsWith('brows:')) {
@@ -330,14 +348,14 @@ export const stubbleOf = look => beardOf(look).stubble;
 export const SHELLS = (() => { try { return new URLSearchParams(location.search).get('capas') !== '0'; } catch { return true; } })();
 // Per hairstyle: layers, length (metres, cut and grown), how many hairs, how thick, which way they lean
 const SHELL_HAIR = {
-  rapado: { n: 6, L: [0.003, 0.012], den: 0.9, r: 0.36, lean: 0.4 }, calvo: { n: 5, L: [0.005, 0.011], den: 0.85, r: 0.36, lean: 0.8 },
+  rapado: { n: 6, L: [0.003, 0.012], den: 0.95, r: 0.38, lean: 0.4, only: true, far: 0.4, fine: 1.7 }, calvo: { n: 5, L: [0.005, 0.011], den: 0.85, r: 0.36, lean: 0.8 },
   corto: { n: 5, L: [0.006, 0.012], den: 0.9, r: 0.38, lean: 0.9 }, tupe: { n: 5, L: [0.006, 0.012], den: 0.9, r: 0.38, lean: 0.9 },
   pinchos: { n: 5, L: [0.006, 0.012], den: 0.9, r: 0.38, lean: 0.7 }, afro: { n: 8, L: [0.042, 0.052], den: 1, r: 0.55, lean: 0.05, only: true, puff: 1 },
   rizado: { n: 6, L: [0.012, 0.016], den: 1, r: 0.48, lean: 0.3 },
 };
 const SHELL_BEARD = { n: 6, den: 1, r: 0.42, lean: 1.1 };
 function furMaterial() {
-  const U = { hairC: { value: new THREE.Color('#4a2c1c') }, greyC: { value: new THREE.Color('#d6d2ca') }, greyK: { value: 0 }, furR: { value: 0.4 } };
+  const U = { hairC: { value: new THREE.Color('#4a2c1c') }, greyC: { value: new THREE.Color('#d6d2ca') }, greyK: { value: 0 }, furR: { value: 0.4 }, furFar: { value: 1 }, furS: { value: 1 } };
   const m = new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0, side: THREE.FrontSide });
   m.userData.env = 0.05;
   m.onBeforeCompile = sh => {
@@ -345,11 +363,11 @@ function furMaterial() {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 fur; varying vec3 vFur; varying vec2 vFuv;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFur = fur; vFuv = uv;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-uniform vec3 hairC, greyC; uniform float greyK, furR; varying vec3 vFur; varying vec2 vFuv;
+uniform vec3 hairC, greyC; uniform float greyK, furR, furFar, furS; varying vec3 vFur; varying vec2 vFuv;
 vec3 hash3(vec2 p) { vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); q += dot(q, q.yxz + 33.33); return fract((q.xxy + q.yzz) * q.zyx); }`)
       .replace('#include <map_fragment>', `
 // (vFur: x how far out this copy is (0..1), y how dense the hair is here, z the hair's own length scale here)
-vec2 fu = vFuv * vec2(2600.0, 1050.0);
+vec2 fu = vFuv * vec2(2600.0, 1050.0) * furS;   // (furS: finer and more hairs, a shaved head's)
 vec2 cell = floor(fu), side = sign(fract(fu) - 0.5);
 float far = smoothstep(0.7, 1.8, length(fwidth(fu)));
 float best = 9.0, hid = 0.0;
@@ -363,18 +381,21 @@ for (int j = 0; j <= 1; j++) for (int i = 0; i <= 1; i++) {
   float dd = dot(d, d);
   if (dd < best) { best = dd; hid = h.z / max(vFur.y, 0.001); }
 }
-float len = mix(0.55, 1.0, fract(hid * 7.13));
+// (vFur.z: shorter towards the edge of the zone, so a beard's or a hairline's border thins out into stubble, not a cut line)
+float len = mix(0.55, 1.0, fract(hid * 7.13)) * vFur.z;
 // (far off, the hairs merge into tufts of their own length, three cells across: the visible copy changes from tuft to tuft,
 // so the mass keeps its light and shade instead of becoming a smooth mask)
 vec3 tuft = hash3(floor(fu * 0.33) + 17.0);
-float r = mix(furR * (1.0 - 0.7 * vFur.x / len), 0.9, far);
-if (vFur.x > mix(len, mix(0.4, 1.0, tuft.x), far) || best > r * r) discard;
+float r = mix(furR * (0.55 + 0.45 * vFur.z) * (1.0 - 0.7 * vFur.x / len), 0.9, far);   // (finer hairs at the edge too)
+if (vFur.x > mix(len, mix(0.4, 1.0, tuft.x) * vFur.z, far) || best > r * r) discard;
+// (far off, a shaved head keeps only part of its tufts: the skin's paint shows between them, no dark helmet)
+if (tuft.z > mix(1.0, furFar, far)) discard;
 vec3 fc = hairC * mix(0.38, 1.05, vFur.x) * mix(0.75 + 0.5 * fract(hid * 13.1), 0.85 + 0.3 * tuft.y, far);
 fc = mix(fc, greyC * mix(0.55, 1.0, vFur.x), step(fract(hid * 3.7), greyK) * (1.0 - far) + greyK * far);
 diffuseColor.rgb *= fc;`)
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\ngl_FragColor.a = 1.0;');
   };
-  m.customProgramCacheKey = () => 'mh-fur2';
+  m.customProgramCacheKey = () => 'mh-fur3';
   m.userData.U = U;
   return m;
 }
@@ -385,25 +406,54 @@ export function shellMeshes(bodyGeo, look, mat, cap = null) {
   if (!SHELLS) return [];
   const out = [], hs = hairStyleOf(look), bd = beardOf(look), grow = Math.max(0, Math.min(3, look.hairGrow | 0)) / 3;
   const H = SHELL_HAIR[hs];
-  if (H) out.push(shellMesh(bodyGeo, 'hair', bodyGeo.attributes.scalp, null, H.n, H.L[0] + (H.L[1] - H.L[0]) * grow, H.den, H.r, H.lean, [0, -0.6, -0.8], false, mat, cap));
+  if (H) out.push(shellMesh(bodyGeo, 'hair', bodyGeo.attributes.scalp, null, H.n, H.L[0] + (H.L[1] - H.L[0]) * grow, H.den, H.r, H.lean, [0, -0.6, -0.8], false, mat, cap, 1 / paintOf(hs, grow), H.far ?? 1, H.fine ?? 1));
   if (bd.shape) {
     const z = ZONES[bd.shape], L = bd.shape === 'larga' ? 0.014 : 0.004 + 0.011 * bd.k;
     out.push(shellMesh(bodyGeo, 'beard', bodyGeo.attributes.beardZone, z, SHELL_BEARD.n, L, SHELL_BEARD.den, SHELL_BEARD.r, SHELL_BEARD.lean, [0, -1, 0.15], true, mat));
   }
   return out.filter(Boolean);
 }
-function shellMesh(bg, kind, wAttr, zones, n, L, den, r, lean, fall, withMorphs, mat, cap = null) {
+// The zone's weights spread over the skin a few edges each way (an average with the neighbours, the seams' twin vertices
+// as one): the source masks change in a few millimetres, and a cut that sharp shows as a jagged line of hairs. Spread
+// outwards, the hairs thin and shorten over a centimetre or two past it
+function blurWeights(w, idx, pos, iters) {
+  const nv = w.length, weld = new Int32Array(nv), keys = new Map();
+  for (let i = 0; i < nv; i++) {
+    const k = `${Math.round(pos.getX(i) * 4000)},${Math.round(pos.getY(i) * 4000)},${Math.round(pos.getZ(i) * 4000)}`;
+    let g = keys.get(k);
+    if (g === undefined) keys.set(k, (g = i));
+    weld[i] = g;
+  }
+  // (only the triangles near the zone: those with any weight, and their neighbours as the weights spread)
+  const sum = new Float32Array(nv), cnt = new Float32Array(nv);
+  let cur = new Float32Array(nv);
+  for (let i = 0; i < nv; i++) cur[weld[i]] = Math.max(cur[weld[i]], w[i]);
+  for (let it = 0; it < iters; it++) {
+    sum.fill(0); cnt.fill(0);
+    for (let t = 0; t < idx.length; t += 3) {
+      const a = weld[idx[t]], b = weld[idx[t + 1]], c = weld[idx[t + 2]], wa = cur[a], wb = cur[b], wc = cur[c];
+      if (wa + wb + wc === 0) continue;
+      sum[a] += wb + wc; sum[b] += wa + wc; sum[c] += wa + wb; cnt[a] += 2; cnt[b] += 2; cnt[c] += 2;
+    }
+    const next = new Float32Array(nv);
+    for (let i = 0; i < nv; i++) if (cnt[i]) next[i] = 0.5 * cur[i] + 0.5 * sum[i] / cnt[i];
+    cur = next;
+  }
+  for (let i = 0; i < nv; i++) w[i] = Math.max(w[i], cur[weld[i]]);   // (only outwards: inside, a narrow moustache stays full)
+}
+function shellMesh(bg, kind, wAttr, zones, n, L, den, r, lean, fall, withMorphs, mat, cap = null, wMul = 1, far = 1, fine = 1) {
   if (!wAttr) return null;
   const pos = bg.attributes.position, nor = bg.attributes.normal, uv = bg.attributes.uv, idx = bg.index.array, nv = pos.count;
   const w = new Float32Array(nv);
   for (let i = 0; i < nv; i++) {
-    if (!zones) w[i] = wAttr.getX(i);
+    if (!zones) w[i] = Math.min(1, wAttr.getX(i) * wMul);
     else w[i] = Math.max(wAttr.getX(i) * zones[0], wAttr.getY(i) * zones[1], wAttr.getZ(i) * zones[2]);
   }
+  blurWeights(w, idx, pos, 2);
   const tri = [], map = new Int32Array(nv).fill(-1), sel = [];
   for (let t = 0; t < idx.length; t += 3) {
     const a = idx[t], b = idx[t + 1], c = idx[t + 2];
-    if (Math.max(w[a], w[b], w[c]) < 0.05) continue;
+    if (Math.max(w[a], w[b], w[c]) < 0.12) continue;
     for (const k of [a, b, c]) if (map[k] < 0) { map[k] = sel.length; sel.push(k); }
     tri.push(map[a], map[b], map[c]);
   }
@@ -421,7 +471,9 @@ function shellMesh(bg, kind, wAttr, zones, n, L, den, r, lean, fall, withMorphs,
       P[o] = pos.getX(i) + nn.x * off + d.x * sl; P[o + 1] = pos.getY(i) + nn.y * off + d.y * sl; P[o + 2] = pos.getZ(i) + nn.z * off + d.z * sl;
       N[o] = nn.x; N[o + 1] = nn.y; N[o + 2] = nn.z;
       UVs[(l * m + k) * 2] = uv.getX(i); UVs[(l * m + k) * 2 + 1] = uv.getY(i);
-      F[o] = h; F[o + 1] = Math.min(1, w[i] * 1.1) * den; F[o + 2] = 1;
+      // (density and length both fall towards the zone's edge: sparser and shorter hairs, a border that fades)
+      const e = Math.min(1, Math.max(0, (w[i] - 0.08) / 0.7));
+      F[o] = h; F[o + 1] = Math.min(1, w[i] * 1.1) * den; F[o + 2] = 0.3 + 0.7 * e * e * (3 - 2 * e);
     }
   }
   if (cap) cap(P);
@@ -445,7 +497,7 @@ function shellMesh(bg, kind, wAttr, zones, n, L, den, r, lean, fall, withMorphs,
   }
   g.computeBoundingSphere();
   const mesh = new THREE.Mesh(g, mat(`ownshell:${kind}`, furMaterial));
-  mesh.material.userData.U.furR.value = r;
+  mesh.material.userData.U.furR.value = r; mesh.material.userData.U.furFar.value = far; mesh.material.userData.U.furS.value = fine;
   mesh.name = `ownshell:${kind}`;
   mesh.castShadow = false; mesh.receiveShadow = false;   // (no shadow lookups: eight layers of them cost most)
   return mesh;

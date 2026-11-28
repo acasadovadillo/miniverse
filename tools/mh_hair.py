@@ -93,6 +93,7 @@ class Body:
         self.top = P[:, 1].max()
         band = P[np.abs(P[:, 1] - (self.ye + 0.3)) < 0.06]
         self.zb, self.zf = band[:, 2].min(), band[:, 2].max()
+        self.hw = np.abs(band[:, 0]).max()   # (the head's half width over the eyes)
         self.C = Vector((0.0, self.ye + 0.28, (self.zb + self.zf) / 2))
         # The triangles hair may touch and be bound to: head, neck, shoulders and the upper body, not the arms
         okv = (arm[:, 0] + arm[:, 1] < 110)
@@ -296,8 +297,23 @@ def outward(B, x, centre=None):
     return n.lerp(r, sm(0.1, 0.5, d)).normalized()
 
 
+def relax(B, pts, iters=3, lift=0.012):
+    """A strand's points eased into a smooth curve (the root stays): the walk's pushes out of the head and the face's shield
+    leave kinks that a flat card shows as a zigzag. Each point that the easing pulled under the skin goes back out."""
+    if len(pts) < 4:
+        return pts
+    p = [q.copy() for q in pts]
+    for _ in range(iters):
+        p = [p[0]] + [p[i] * 0.5 + (p[i - 1] + p[i + 1]) * 0.25 for i in range(1, len(p) - 1)] + [p[-1] * 0.6 + (p[-2] * 2 - p[-3]) * 0.4]
+        for i in range(1, len(p)):
+            loc, n, _ = B.nearest(p[i], 0.5)
+            if loc is not None and (p[i] - loc).dot(n) < lift:
+                p[i] = loc + n * lift
+    return p
+
+
 def strand_card(ctx, root, nrm, flow, L0, L1, height, grav, width, col, ao, seed, hug=1.0, cut0=None, cut1=None, nseg=None,
-                post=None, taper=(0.75, 1.0, 0.35), shield=True):
+                post=None, taper=(0.75, 1.0, 0.35), shield=True, smooth=False):
     """One card, cut (L0, cut0) and grown (L1, cut1), walked with the same flow; post(points, along, grown) bends it (waves,
     curls) after resampling."""
     rng = np.random.default_rng(seed)
@@ -307,6 +323,20 @@ def strand_card(ctx, root, nrm, flow, L0, L1, height, grav, width, col, ao, seed
     n = nseg or nseg_for(L1)
     p0, l0 = resample(a, n)
     p1, l1 = resample(b, n)
+    if smooth:
+        # (pelo5: long hair falls close round the neck, not fanned out over the shoulders: below the jaw no point goes further
+        # out to the side than the head's width and a little; then eased smooth)
+        B = ctx.B
+        def narrow(pts):
+            out = []
+            for q in pts:
+                lim = B.hw + 0.08
+                k = sm(B.ye - 0.7, B.ye - 1.1, q[1])
+                if k > 0 and abs(q[0]) > lim:
+                    q = q.copy(); q[0] = math.copysign(abs(q[0]) + (lim - abs(q[0])) * k, q[0])
+                out.append(q)
+            return out
+        p0, p1 = relax(B, narrow(p0)), relax(B, narrow(p1))
     if post:
         p0 = post(p0, l0, rand)
         p1 = post(p1, l1, rand)
@@ -569,19 +599,31 @@ class Styles:
                     ph = s * 2 * math.pi / 0.4 + rand * 6.28
                     out.append(q + w * (k * math.sin(ph)) + n * (k * 0.7 * math.cos(ph)))
                 else:
-                    out.append(q + w * (k * math.sin(s * 2 * math.pi / 0.95 + rand * 6.28)) + n * (0.4 * k * math.cos(s * 2 * math.pi / 0.95 + rand * 6.28)))
+                    # (a wave long enough for the card's points to follow it: at 0.95 dm, with a point every 0.45 dm, it was a zigzag)
+                    # (and mostly in and out of the hair, not sideways: a flat card bent sideways reads as a zigzag ribbon)
+                    out.append(q + w * (0.35 * k * math.sin(s * 2 * math.pi / 1.6 + rand * 6.28)) + n * (0.9 * k * math.cos(s * 2 * math.pi / 1.6 + rand * 6.28)))
             return out
         grav = lambda t: sm(0.03, 0.2, t)
-        nseg = (8 if waves or curl else 7) if L > 2 else 7
+        # (pelo5: more points along long hair, so it curves round the head and the shoulders instead of bending in facets)
+        nseg = (10 if waves else 9) if L > 2 else 7   # (within the 5000 triangles of a style)
         kinds = kinds or (('wavy', 'wavy', 'clump') if waves else ('dense', 'clump', 'clump'))
+        # (pelo5: the inner layer wider and nearly solid (hair.js), the outer locks a little wider and fewer: the same area
+        # of cards as before, so the same cost, with no gaps between them)
+        layers = [(counts[0], 0.1, 0.36, 0.02, kinds[0], 0.9), (counts[1], 0.085, 0.17, 0.02 + vol * 0.7, kinds[1], 0.96),
+                  (int(counts[2] * 0.75), 0.09, 0.15, 0.02 + vol * 1.4, kinds[2], 1.0)]
+        if L > 2:
+            layers[0] = (int(counts[0] * 0.85),) + layers[0][1:]
         cards = []
-        for li, (count, spacing, width, h0, col, ao) in enumerate([(counts[0], 0.1, 0.3, 0.02, kinds[0], 0.9), (counts[1], 0.085, 0.17, 0.02 + vol * 0.7, kinds[1], 0.96), (counts[2], 0.08, 0.12, 0.02 + vol * 1.4, kinds[2], 1.0)]):
+        for li, (count, spacing, width, h0, col, ao) in enumerate(layers):
             roots = ctx.scalp_roots(count, lambda x, a, y: 0 if in_ear(B, x) else region_scalp()(x, a, y), spacing, seed + li * 1000)
             for ri, (x, n) in enumerate(roots):
                 c = cut(x, 0), cut(x, 1)
-                cards.append(strand_card(ctx, x, n, (lambda r: (lambda p, t: flow(p, t, r)))(x), length(x, 0), length(x, 1),
+                # (pelo5: every lock a little longer or shorter, the outer ones more: the ends are layered and feathered, not
+                # one straight row of tips)
+                jit = 1.0 + (0.05 if li == 0 else 0.13) * (2 * float(np.random.default_rng(seed + li * 1000 + ri + 77).random()) - 1)
+                cards.append(strand_card(ctx, x, n, (lambda r: (lambda p, t: flow(p, t, r)))(x), length(x, 0) * jit, length(x, 1) * jit,
                                          lambda t, h0=h0: height(t, h0), grav, width, COL[col], ao, seed + li * 1000 + ri, 1.0, c[0], c[1], nseg=nseg, post=post,
-                                         taper=(0.8, 1.0, 0.75) if li == 0 else (0.75, 1.0, 0.35)))
+                                         taper=(0.8, 1.0, 0.75) if li == 0 else (0.75, 1.0, 0.35), smooth=L > 2))
         cards += hairline_wisps(ctx, lambda p, t, r: flow(p, t, r), 0.1, 0.18, 40, seed + 90, col='curly' if curl else 'fine')
         return cards
 
@@ -589,7 +631,7 @@ class Styles:
         return self.long_(ctx, 0.0, 3.4, None, 0.0, 201)
 
     def ondas(self, ctx):
-        return self.long_(ctx, 0.28, 3.6, None, 0.065, 301, counts=(90, 100, 100))
+        return self.long_(ctx, 0.28, 3.6, None, 0.065, 301, counts=(90, 98, 100))
 
     def melena(self, ctx):
         return self.long_(ctx, 0.0, 2.2, self.ye - 1.72, 0.0, 401)
@@ -884,9 +926,10 @@ def strand_texture():
     # (dense, coarse) are opaque in their middle with a dark undercoat between strands, the others only their strands)
     spec = {
         'dense': dict(n=900, w=(0.35, 0.6), a=(0.3, 0.7), wave=(1, 2.0), clumps=(7, 0.3), spread=0.26, gap=0.12, body=0.9),
-        'clump': dict(n=620, w=(0.35, 0.6), a=(0.35, 0.8), wave=(1, 2.5), clumps=(7, 0.55), spread=0.24, gap=0.25, body=0.0),
+        # (pelo5: clumps that part less and a thin body under them, so a card of them is a lock, not separate strings)
+        'clump': dict(n=700, w=(0.35, 0.6), a=(0.35, 0.8), wave=(1, 2.5), clumps=(7, 0.38), spread=0.25, gap=0.14, body=0.4),
         'fine': dict(n=160, w=(0.3, 0.5), a=(0.3, 0.65), wave=(2, 4.0), clumps=(0, 0), spread=0.26, gap=0.4, body=0.0),
-        'wavy': dict(n=640, w=(0.35, 0.6), a=(0.4, 0.8), wave=(4, 8.0), clumps=(6, 0.45), spread=0.24, gap=0.15, body=0.0),
+        'wavy': dict(n=640, w=(0.35, 0.6), a=(0.4, 0.8), wave=(4, 8.0), clumps=(6, 0.45), spread=0.24, gap=0.15, body=0.35),
         'curly': dict(n=520, w=(0.4, 0.7), a=(0.45, 0.85), wave=(14, 9.0), clumps=(8, 0.5), spread=0.24, gap=0.2, body=0.45),
         'beard': dict(n=520, w=(0.4, 0.7), a=(0.45, 0.85), wave=(5, 4.0), clumps=(6, 0.35), spread=0.26, gap=0.3, body=0.0),
         'coarse': dict(n=700, w=(0.4, 0.7), a=(0.45, 0.85), wave=(2, 3.0), clumps=(5, 0.3), spread=0.27, gap=0.1, body=0.85),
@@ -904,9 +947,11 @@ def strand_texture():
             strands.append((rng.random(), x0, k))
         strands.sort()
         for d, x0, k in strands:
-            cyc = S['wave'][0] * (rng.choice([1, 1, 2]) if name not in ('curly', 'fuzz', 'beard') else 1)
+            cyc = S['wave'][0] * (rng.choice([1, 1, 2]) if name not in ('curly', 'fuzz', 'beard', 'wavy') else 1)
             amp = S['wave'][1] * rng.uniform(0.5, 1.2)
             ph = rng.uniform(0, 2 * math.pi)
+            if name == 'wavy':   # (pelo5: waves in step, a whole lock bending together: different phases crossed into a net)
+                ph = 1.3 + rng.normal() * 0.35
             x = x0 + amp * np.sin(2 * math.pi * cyc * v / H + ph)
             if centres is not None:
                 c = centres[np.argmin(np.abs(centres - x0))]
