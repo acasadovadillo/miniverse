@@ -98,9 +98,9 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // scavengers at night, and the fox of the night news is a roll as before)
 // Plan R5-4 (sites, crew and house plans, src/works.js): cuadrilla (?cuadrilla=0: Nilo's reforms are at once as before, he offers no crew,
 // upkeep or house plans, and B has no Plans tab nor Copy tool. Whoever runs the world goes on with the sites there are)
-// Plan CR (the character creator in depth, docs/planes/PLAN-creador-realista.md): creador (not a part: ?creador=nuevo opens the new
-// creator for a new character, MakeHuman people with starting heads and fine sliders, src/ui/creatornew.js; the game, the mirror
-// and the barber stay as they are)
+// Plan CR (the character creator in depth, docs/planes/PLAN-creador-realista.md): creador (since P6 the new creator, src/ui/creatornew.js,
+// and MakeHuman people in the game, src/three/mh/, are everyone's; ?creador=viejo or =0: the creator and the people of before. The
+// world server keeps the people of before anyway: folk.js)
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
@@ -108,12 +108,14 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null, razas: null, riendas: null, carro: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, calidad: null, routines: null,
-  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null, shops: null, caminos: null, viajeros: null, law: null, juegos: null, misiones: null, codigo: null, viento3d: null, cuevas: '1', boda: null, cuadrilla: null, depredadores: null };
+  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null, shops: null, caminos: null, viajeros: null, law: null, juegos: null, misiones: null, codigo: null, viento3d: null, cuevas: '1', boda: null, cuadrilla: null, depredadores: null, creador: 'viejo' };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);
 // ¿Está esta parte como antes?
 export const apagada = parte => { const v = RAW.get(parte); return v !== null && (v === '0' || v === PARTES[parte]); };
+// Plan CR P6: the new creator and its people (?creador=viejo: those of before)
+export const CREADOR_NUEVO = !apagada('creador');
 // Las que están como antes (para F3 y el banco)
 export const apagadas = () => Object.keys(PARTES).filter(apagada);
 // Lo que hay que pasarle a un hilo para que vea lo mismo: '&parte=0' por cada una de las que le tocan

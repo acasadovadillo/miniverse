@@ -2,7 +2,7 @@
 // (ui/menus.js onMirror('barber')); the chair, a piece of tavern furniture that is only where you sit meanwhile.
 import { realHair } from './three/realperson.js';
 import { HAIR_STYLE } from './three/mh/hair.js';
-import { MH_ON } from './three/mh/folk.js';
+import { MH_ON, packMh } from './three/mh/folk.js';
 // (how a style is drawn: today's person's, or, for a look of the new creator with ?creador=nuevo, our own hair's, hair.js)
 const drawnAs = (s, look) => (MH_ON && look?.mh ? HAIR_STYLE[s] || s : realHair(s));
 import { LOOK_OPTIONS, DEFAULT_LOOK, fullLook } from './looks.js';
@@ -90,6 +90,14 @@ export function applyMirror(game, to, { act = null, grow = true } = {}) {
     if (act) body.shave();
     body.applyGrowth();
   }
+  changed(game);
+}
+// The one retouch of a character of before the new creator (plan CR P6, menus.js offerRetouch): its new head and body, skin,
+// eyes and brows; the hair, the beard and the clothes stay. RETOUCH_HIDES: the creator's rows it leaves out
+export const RETOUCH_HIDES = ['name', 'sex', 'outfit', 'cloth', 'outer', 'accent'];
+export function applyRetouch(game, to) {
+  const p = game.player;
+  p.look = { ...p.look, mh: packMh(to.mh || {}), skin: to.skin, eyes: to.eyes, brows: to.brows };
   changed(game);
 }
 // The new look everywhere: the dialogs' portrait, and whoever looks at inv.v

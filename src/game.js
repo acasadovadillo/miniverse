@@ -12,6 +12,7 @@ import { PIECES, parsePlaced } from './pieces.js';
 import { BUILDABLE } from './buildables.js';
 import { Caves } from './caves.js';
 import { Profile } from './accounts.js';
+import { MH_ON, mhOfLook, packMh } from './three/mh/folk.js';
 import { BIOMES } from './world/biomes.js';
 import { CHUNK, WORLD_SEED } from './world/gen.js';
 import { MapView } from './ui/map.js';
@@ -351,6 +352,14 @@ export class Game {
     this.addMoney(0);
     this.gather.reset();
     const p = { ...save.player };
+    // Plan CR P6: a character of before the new creator gets its MakeHuman head and body once, from its look (folk.js), kept in
+    // look.mh so that a haircut does not change its face; the creator is offered once to retouch it (menus.js offerRetouch;
+    // the mark retouch: 0 offered yet, 1 done or not needed)
+    this.retouchOffer = save.retouch === 0;
+    if (MH_ON && !Profile.server && p.look && typeof p.look === 'object' && !p.look.mh) {
+      const mh = mhOfLook(p.look, true);
+      if (mh) { p.look = { ...p.look, mh: packMh(mh) }; this.retouchOffer = !save.retouch; }
+    }
     this.ui = save.ui && typeof save.ui === 'object' ? save.ui : null;   // (the character's own of the interface: accent, its colour: ui/skin.js)
     this.house = { big: !!save.house?.big, family: !!save.house?.family, built: !!save.house?.built, v: save.house?.v ?? 1 };
     // Tu casa es parte del mundo. Si la partida aún no la tiene (es nueva, o de cuando la casa era una
@@ -410,7 +419,7 @@ export class Game {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), clock: Math.round(this.world.clock),
       ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: this.house.v }, money: this.money,
-      pala: 1, hammer: this.hammerTold ? 2 : 1, gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(), lang: savedLang(),
+      pala: 1, hammer: this.hammerTold ? 2 : 1, retouch: this.retouchOffer ? 0 : 1, gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(), lang: savedLang(),
     };
     if (this.ui) out.ui = this.ui;
     this.hook('save', out);

@@ -2623,6 +2623,7 @@ async function soloTests(game) {
   });
   const crRow = id => document.querySelector(`#cr-rows [data-row="${id}"]`), crRows = () => [...document.querySelectorAll('#cr-rows .row')].filter(r => !r.hidden).map(r => r.dataset.row).join(), crTab = () => document.querySelector('#cr-tabs .on').dataset.tab;
   await test('menu (english): creator: every option of before as a row, changed with the keys and the mouse; pages, random, your colour; a new character saves it', () => keepMenus(async $ => {
+    if ((await import('./opciones.js')).CREADOR_NUEVO) return;   // (the creator of before: with ?creador=viejo)
     const pages = { cuerpo: ['name', 'sex', 'skin', 'outfit', 'cloth', 'accent'], cara: ['eyeStyle', 'eyes', 'brows', 'nose'], pelo: ['hairStyle', 'hair', 'beard'] }, me = () => document.documentElement.style.getPropertyValue('--me');
     game.mode = 'menu';   // (no autosave meanwhile)
     let saved = null; Object.defineProperty(Profile, 'data', { get: () => (saved ? { save: saved, deltas: [] } : null), configurable: true }); Profile.store = async s => { saved = { ...s, savedAt: Date.now() }; return { local: true, remote: null }; };
@@ -2802,7 +2803,7 @@ async function soloTests(game) {
     // Who: Bruno a strong African head; the same look, the same body; a player only with look.mh; a child, never
     const mh = F.mhOfLook(bruno, true);
     check(mh.preset === 'af_m1' && mh.macro.muscle > 50 && JSON.stringify(F.mhOfLook({ ...bruno }, true)) === JSON.stringify(mh), `Bruno: ${mh.preset}`);
-    check(F.mhOfLook(PEOPLE.paco.look, true).macro.age >= 60 && !F.mhOfLook(LOOK, false) && F.mhOfLook({ ...LOOK, mh: { preset: 'ca_f1' } }, false)?.face, 'Paco older; a player without look.mh, none; with it, its face');
+    check(F.mhOfLook(PEOPLE.paco.look, true).macro.age >= 60 && F.mhOfLook(LOOK, false)?.preset && F.mhOfLook({ ...LOOK, mh: { preset: 'ca_f1' } }, false)?.face, 'Paco older; a player without look.mh, one from the look; with it, its face');
     const folk = F.mhOfLook({ sex: 'chico', skin: '#8a5234', hair: '#8a8480', cloth: '#5a5a58', pants: '#3a3a3a', hairStyle: 'corto', outfit: 'larga' }, true);
     check(folk.preset.startsWith('af_m') && folk.macro.age >= 55, `a villager with grey hair and dark skin: ${folk.preset}, ${folk.macro.age}`);
     const K = new RealPerson(bruno, { kid: true, folk: true });
@@ -2869,7 +2870,7 @@ async function soloTests(game) {
     check(pic.width > 0 && px[3] > 0, `the portrait: ${pic.width} px, its middle ${[...px]}`);
   });
   await test('menu (english): the new creator (?creador=nuevo): body, head, fine tune, face and hair pages; a new character saves look.mh; the mirror and the barber show the new person', () => keepMenus(async $ => {
-    if (new URLSearchParams(location.search).get('creador') !== 'nuevo') { check(!$('cr-canvas-mh') && !document.getElementById('cr-new-style'), 'without the switch, nothing of it'); return; }
+    if (!(await import('./opciones.js')).CREADOR_NUEVO) { check(!$('cr-canvas-mh') && !document.getElementById('cr-new-style'), 'with ?creador=viejo, nothing of it'); return; }
     const [, , { presetsFor }, { FACE_SLIDERS }] = await mhMods();
     game.mode = 'menu';
     let saved = null; Object.defineProperty(Profile, 'data', { get: () => (saved ? { save: saved, deltas: [] } : null), configurable: true }); Profile.store = async st => { saved = { ...st, savedAt: Date.now() }; return { local: true, remote: null }; };
@@ -2906,6 +2907,39 @@ async function soloTests(game) {
       pauseKey('Escape'); await sleep(100);
     } finally { p().look = look; }
   }).finally(() => Object.defineProperty(Profile, 'admin', { get: () => WHO === 'a', configurable: true })));
+  await test('mh retouch (english): a character of before gets its head and body once, kept in look.mh; the retouch is offered once, has the face and body pages only, and keeps the hair and the clothes', () => keepMenus(async $ => {
+    const F = await import('./three/mh/folk.js'), { presetOf: presetOfMh } = await import('./three/mh/presets.js');
+    if (!F.MH_ON) return;
+    const snap0 = JSON.stringify(game.snapshot()), deltas0 = JSON.stringify([...game.world.deltas]);
+    try {
+      const old = JSON.parse(snap0); old.player.look = { ...LOOK, sex: 'chico', hairStyle: 'corto', hair: '#4a2c1c', beard: 'bigote' }; delete old.player.look.mh; delete old.retouch;
+      game.end(); game.start(old, new Map(JSON.parse(deltas0))); game.onSave = null; await readyGround(game, 8000);
+      const mh = p().look.mh;
+      check(mh?.preset && presetOfMh(mh.preset)?.sex === 'chico' && game.retouchOffer && game.snapshot().retouch === 0, `converted: ${JSON.stringify(mh)}`);
+      check(JSON.stringify(mh) === JSON.stringify(F.packMh(F.mhOfLook({ ...old.player.look }, true))), 'the same head and body the game gives that look');
+      // (a haircut keeps the face: it is in look.mh now)
+      check(JSON.stringify(F.mhOfLook({ ...p().look, hairStyle: 'rizado' }).face) === JSON.stringify(F.mhOfLook(p().look).face), 'a haircut does not change the face');
+      // Loaded again with the offer still pending: still offered; once answered (retouch 1), never again
+      const again = game.snapshot(); game.end(); game.start(JSON.parse(JSON.stringify(again)), new Map(JSON.parse(deltas0))); game.onSave = null; await readyGround(game, 8000);
+      check(game.retouchOffer && JSON.stringify(p().look.mh) === JSON.stringify(mh), 'loaded again before answering: still offered, the same head');
+      game.retouchOffer = false; check(game.snapshot().retouch === 1, 'answered: not again');
+      // The retouch: the face and body pages, no name, sex or clothes; Esc changes nothing, Enter applies
+      const was = JSON.stringify(p().look);
+      check(game.onMirror('retouch') && FE.active() === 's-creator' && crTab() === 'cuerpo' && $('cr-random').hidden, 'the retouch opens on the body');
+      const tabs = [...document.querySelectorAll('#cr-tabs .fe-tab')].filter(b => !b.hidden).map(b => b.dataset.tab).join();
+      check(tabs === 'cuerpo,cabeza,ajuste,piel,cara', `its pages: ${tabs}`);
+      check(crRows() === 'origin_af,origin_as,origin_ca,body_height,body_weight,body_muscle,body_age,body_chest,body_prop', `body: ${crRows()}`);
+      const row = crRow('body_muscle'); while (!row.classList.contains('sel')) pauseKey('ArrowDown'); pauseKey('ArrowRight'); pauseKey('ArrowRight');
+      FE.back(); await sleep(30);
+      check(JSON.stringify(p().look) === was && game.mode === 'play', 'Esc: nothing changes');
+      game.onMirror('retouch');
+      const row2 = crRow('body_muscle'); while (!row2.classList.contains('sel')) pauseKey('ArrowDown'); pauseKey('ArrowRight'); pauseKey('ArrowRight');
+      $('cr-start').click(); await sleep(30);
+      const L = p().look;
+      check(game.mode === 'play' && (L.mh.macro.muscle || 0) === (mh.macro.muscle || 0) + 10, `Enter: muscle ${mh.macro.muscle} → ${L.mh.macro.muscle}`);
+      check(L.hairStyle === 'corto' && L.hair === '#4a2c1c' && L.beard === 'bigote' && L.outfit === LOOK.outfit && L.name === undefined, 'the hair, the beard and the clothes stay');
+    } finally { if (game.mode === 'mirror') FE.back(); game.end(); game.start(JSON.parse(snap0), new Map(JSON.parse(deltas0))); game.onSave = null; await readyGround(game, 8000); }
+  }));
   await test('menu (english): the front screens in English: no Spanish left, no raw keys; with ?lang=keys every text is a key', () => keepMenus(async $ => {
     const was = getLang(), spanish = /[ñ¿¡áéíóúÁÉÍÓÚ]|\b(el|la|los|las|una?|del|para|con|por|que|más|tu|jugar|entrar|servidor)\b/i, txt = id => [...$(id).querySelectorAll('*')].filter(e => !e.children.length && e.checkVisibility?.()).map(e => e.textContent).join(' | ');
     try {

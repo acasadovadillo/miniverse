@@ -9,6 +9,7 @@ import { PRESETS, presetOf, presetsFor, fromPreset, defaultMh, samePlace, random
 import { LOOK_OPTIONS } from '../looks.js';
 import { SKIN_TONES, nearestTone, SCARS, TATTOOS, BLUSH_COLOURS, KOHL_COLOURS, TATTOO_COLOURS } from '../three/mh/skin.js';
 import { greyOf, HIGHLIGHT_COLOURS } from '../three/mh/hair.js';
+import { packMh, mhOfLook } from '../three/mh/folk.js';
 
 export const NEW_PAGES = ['cuerpo', 'cabeza', 'ajuste', 'piel', 'cara', 'pelo'];
 // The shot of each page: the whole body, the head, or the face up close
@@ -32,9 +33,10 @@ export const FACE_SLIDERS = GROUPS.flatMap(g => FACE_IDS[g]);
 export const LIGHT_IDS = ['day', 'indoor', 'evening'];
 export const MOOD_IDS = ['neutral', 'smile', 'laugh', 'talk', 'surprise', 'angry', 'sad'];
 
-// The look's MakeHuman part, made whole (an old look gets the first head of its sex)
+// The look's MakeHuman part, made whole (an old look gets the head and body the game gives it, folk.js mhOfLook; with no
+// MakeHuman people, the first head of its sex)
 export function ensureMh(look) {
-  if (!look.mh || typeof look.mh !== 'object') look.mh = defaultMh(look);
+  if (!look.mh || typeof look.mh !== 'object') { const m = mhOfLook(look, true); look.mh = m ? { ...m, macro: { ...m.macro }, face: { ...m.face } } : defaultMh(look); }
   look.mh.macro ||= {};
   look.mh.face ||= {};
   look.mh.skin ||= {};
@@ -43,20 +45,8 @@ export function ensureMh(look) {
   if (p && p.sex !== sex) look.mh = { ...fromPreset(samePlace(p.id, sex), look.mh.macro), skin: look.mh.skin, ...(look.mh.eye2 && { eye2: look.mh.eye2 }) };   // (the sex changed: the same head of the other)
   return look.mh;
 }
-// What is saved: only the numbers that are not 0 (the look travels whole on the network: under 1 KB)
-export function packMh(mh) {
-  const clean = o => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => Number.isFinite(v) && v !== 0).map(([k, v]) => [k, Math.round(v)]));
-  const out = { macro: clean(mh.macro), face: clean(mh.face) };
-  if (mh.preset) out.preset = mh.preset;
-  // (the skin's layers: their numbers that are not 0, and the colours and kinds of those that are on)
-  const sk = Object.fromEntries(Object.entries(mh.skin || {}).filter(([, v]) => (typeof v === 'string' ? v && v !== 'none' : Number.isFinite(v) && v !== 0)).map(([k, v]) => [k, typeof v === 'string' ? v : Math.round(v)]));
-  if (Object.keys(sk).some(k => k !== 'seed')) out.skin = sk;
-  if (mh.eye2) out.eye2 = mh.eye2;
-  // (the hair (P4): grey hairs when chosen (0 too: no grey at any age), highlights and their colour)
-  if (Number.isFinite(mh.grey)) out.grey = Math.round(mh.grey);
-  if (mh.hl > 0) { out.hl = Math.round(mh.hl); if (mh.hlC) out.hlC = mh.hlC; }
-  return out;
-}
+// (what is saved, packMh: folk.js, where game.js finds it too)
+export { packMh };
 
 // The preview: the creator of before (for the mirror and the barber) and the MakeHuman one, each on its own canvas; only the
 // one in use is drawn, and its canvas is the one called #cr-canvas (so the page's styles follow it)

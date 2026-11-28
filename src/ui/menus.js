@@ -2,10 +2,10 @@
 import { initWindows } from './windows.js';
 import { Profile } from '../accounts.js';
 import { LOOK_OPTIONS, DEFAULT_LOOK } from '../looks.js';
-import { barberStyles, barberBill, payBarber, applyMirror, MIRROR_HIDES } from '../barber.js';
+import { barberStyles, barberBill, payBarber, applyMirror, applyRetouch, MIRROR_HIDES, RETOUCH_HIDES } from '../barber.js';
 import { CharacterPreview } from '../three/preview.js';
 import { DualPreview, NEW_PAGES, NEW_SHOTS, newRows, newStyles, ensureMh, packMh, randomNew } from './creatornew.js';
-import { opcion } from '../opciones.js';
+import { opcion, CREADOR_NUEVO } from '../opciones.js';
 import { SPAWN } from '../world/village.js';
 import { hud } from './hud.js';
 import { Audio } from '../audio.js';
@@ -523,11 +523,15 @@ export function initMenus(game) {
   // ---------- Creador de personaje ----------
   // (la vista previa es el mismo modelo en 3D que en el juego)
   const look = { ...DEFAULT_LOOK };
-  // (?creador=nuevo: the new creator of plan CR, creatornew.js, for a new character; the mirror and the barber keep this one)
-  const NEW = opcion('creador') === 'nuevo';
+  // (the new creator of plan CR, creatornew.js, everyone's since P6; ?creador=viejo: the one of before. The mirror and the barber
+  // keep their rows; the one retouch of a character of before, game.retouchOffer, has the new creator's face and body pages)
+  const NEW = CREADOR_NUEVO;
   if (NEW) newStyles();
+  // (the MakeHuman pack, ~6 MB the first time, asked for from the menu: on coming in to play the people are there at once; the
+  // world server draws nobody up close and does not ask)
+  if (NEW) setTimeout(() => { if (!Profile.server) import('../three/mh/ingame.js').then(m => m.mhData()).catch(e => console.warn('Miniverse: MakeHuman pack', e)); }, 3000);
   const preview = NEW ? new DualPreview($('cr-canvas')) : new CharacterPreview($('cr-canvas'));
-  const newMode = () => NEW && !mirror;
+  const newMode = () => NEW && (!mirror || mirror.retouch);
   // Pages (Q and E, or their tabs): body and clothes, face and hair (on the face and the hair, the camera comes closer to the head). Each has
   // its rows, «Label ‹ Value ›» (frontend.js optionRow). They are made again each time it opens (buildRows): the mirror and the
   // barber leave some out, and the language may be another
@@ -589,7 +593,8 @@ export function initMenus(game) {
   function paintRows() {
     for (const x of rows) {
       const here = mirror?.barber ? x.page !== 'cuerpo' : x.page === page;
-      x.el.hidden = !here || (x.win && x.win !== (mirror ? (mirror.barber ? 'barber' : 'mirror') : null)) || !!(x.key && mirror?.hides.includes(x.key)) || !!x.hide?.();
+      x.el.hidden = !here || (x.win && x.win !== (mirror ? (mirror.barber ? 'barber' : mirror.retouch ? 'retouch' : 'mirror') : null)) || !!(x.key && mirror?.hides.includes(x.key))
+        || !!(mirror?.retouch && RETOUCH_HIDES.includes(x.id)) || !!x.hide?.();
     }
     extra?.paint();
     L.settle();
@@ -742,24 +747,27 @@ export function initMenus(game) {
   }
   game.onMirror = (mode = 'mirror') => {
     if (game.mode !== 'play' || !game.player) return false;
-    const barber = mode === 'barber', hides = MIRROR_HIDES[barber ? 'barber' : 'mirror'];
+    // (retouch: the one of a character of before, its new face and body; the hair stays the barber's)
+    const barber = mode === 'barber', retouch = mode === 'retouch' && NEW, hides = retouch ? [] : MIRROR_HIDES[barber ? 'barber' : 'mirror'];
     game.body?.applyGrowth();
     game.mode = 'mirror';
     const wear = { ...game.appearance().wear };
     if (barber && wear.cabeza?.id !== 'hijab') delete wear.cabeza;   // (the hat off, to see the hair; a hijab stays on)
-    mirror = { wear, hides, barber, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle, game.player.look) : null };
+    mirror = { wear, hides, barber, retouch, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle, game.player.look) : null };
     Object.assign(look, DEFAULT_LOOK, game.player.look);
-    if (NEW) { preview.use('new'); for (const id of ['cabeza', 'ajuste', 'piel']) tabOf(id).hidden = true; }   // (P4: the new person, its hair and beard)
+    if (look.mh) look.mh = JSON.parse(JSON.stringify(look.mh));   // (its own copy: the player's changes only when it is done)
+    if (NEW) { preview.use('new'); for (const id of ['cabeza', 'ajuste', 'piel']) tabOf(id).hidden = !retouch; }   // (P4: the new person, its hair and beard)
+    tabOf('pelo').hidden = retouch;
     if (typeof look.beard !== 'string') look.beard = look.beard ? 'completa' : 'no';   // (an old look's true)
     nameIn.value = game.player.name; nameIn.disabled = true;
-    $('cr-random').hidden = barber;
-    setTitle(barber ? 'barber.title' : 'mirror.title');
+    $('cr-random').hidden = barber || retouch;
+    setTitle(barber ? 'barber.title' : retouch ? 'retouch.title' : 'mirror.title');
     setStartLabel('gui.creator.done');
     billEl.hidden = !barber;
     tabs.el.hidden = barber; tabLabel('mirror.beard');
     $('cr-err').textContent = '';
     spin = 0; turnTo(0); buildRows(); rebuild();
-    firstPage('cara');
+    firstPage(retouch ? 'cuerpo' : 'cara');
     show('s-creator');
     return true;
   };
@@ -798,6 +806,8 @@ export function initMenus(game) {
       // (not enough coins: the window says so and stays, nothing changes)
       if (payBarber(game, look, mirror)) { Audio.error(); $('cr-err').textContent = t('barber.poor'); return; }
       Audio.craft(); save();
+    } else if (apply && mirror.retouch) {
+      applyRetouch(game, look); Audio.craft(); save();
     } else if (apply) {
       applyMirror(game, look, mirror); save();
     }
@@ -897,7 +907,7 @@ export function initMenus(game) {
     // entonces destapa él; ver Game.coverJump)
     const mine = game.covers;
     // (what it waits for always ends; and if it went wrong, uncovered all the same)
-    (async () => game.view3d.whenReady?.(2000))().catch(e => reportFault(e, 'menus.whenReady')).then(() => loading.ready(ticket, () => { if (game.covers === mine) hud.fade(false); }));
+    (async () => game.view3d.whenReady?.(2000))().catch(e => reportFault(e, 'menus.whenReady')).then(() => loading.ready(ticket, () => { if (game.covers === mine) hud.fade(false); offerRetouch(); }));
     if (role && live.net) live.join(solo, role);
     if (role === 'host' || (!role && Profile.admin) || localMode) save({ upload: true });   // (que el mundo quede guardado para los demás cuanto antes)
   }
@@ -907,6 +917,21 @@ export function initMenus(game) {
   addEventListener('pagehide', () => { if (game.player) save({ upload: live.role === 'host' }); });   // (quien lleva el mundo, lo sube ya: los demás lo necesitan)
 
   function resume() { game.mode = 'play'; show(null); wins?.placeAll(); }
+  // Plan CR P6: a character of before has its new face and body (game.js); once, as it comes in, it may retouch them (not in the
+  // automatic tests). Whatever the answer, it is not asked again
+  function offerRetouch() {
+    if (!game.retouchOffer || !NEW || opcion('modo') === 'pruebas') return;
+    setTimeout(async () => {
+      if (!game.retouchOffer || game.mode !== 'play' || !game.player || game.busy || hud.dialogOpen) return;
+      game.retouchOffer = false;
+      game.busy = true;
+      let pick;
+      try { pick = await hud.ask(game.player.name, t('retouch.q'), [t('retouch.yes'), t('retouch.no')]); }
+      finally { game.busy = false; }
+      save();
+      if (pick === 0 && game.player && game.mode === 'play') game.onMirror?.('retouch');
+    }, 1500);
+  }
   function togglePause() {
     if (hub.isOpen) { hub.close(); return true; }
     if (game.mode === 'shop') { resume(); return true; }
