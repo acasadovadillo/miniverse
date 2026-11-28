@@ -802,6 +802,8 @@
  "gui.creator.row.hairStyle": "Peinado",
  "gui.creator.row.hair": "Color de pelo",
  "gui.creator.row.beard": "Barba",
+ "gui.creator.row.outer": "Encima",
+ "gui.creator.outer.none": "Nada",
  "gui.creator.page.piel": "Piel",
  "gui.creator.row.mood": "Gesto",
  "gui.creator.desc.mood": "Prueba un gesto para ver la cabeza en movimiento: no se guarda en tu personaje.",

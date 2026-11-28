@@ -2710,7 +2710,7 @@ async function soloTests(game) {
   await test('mh creator (english): the clothes (P3): every garment bound to the skin, the four outfits on extreme bodies, nothing undone, the skin under them not drawn', async () => {
     const [{ loadMh }, { MhPerson }, { fromPreset, PRESETS }] = await mhMods(), { garmentsOf } = await import('./three/mh/looks.js');
     const D = await loadMh(), names = [...D.garments.keys()];
-    check(['camisa', 'tunica', 'tunica_larga', 'chaleco', 'pantalon', 'calzas', 'delantal', 'cinturon', 'abrigo', 'botas'].every(n => names.includes(n)), `garments: ${names}`);
+    check(['camisa', 'tunica', 'tunica_larga', 'chaleco', 'pantalon', 'calzas', 'delantal', 'cinturon', 'abrigo', 'zamarra', 'botas'].every(n => names.includes(n)), `garments: ${names}`);
     for (const g of D.garments.values()) check(g.ntri >= 100 && g.ntri <= 3000, `${g.name}: ${g.ntri} triangles`);
     const bodies = { average: {}, thin: { weight: -100, muscle: -60 }, heavy: { weight: 100, muscle: -40 }, strong: { muscle: 100, weight: 30 }, tall: { height: 100 }, old: { age: 100 }, chest: { chest: 100, weight: 30 } };
     for (const sex of ['chico', 'chica']) for (const outfit of ['delantal', 'tunica', 'chaleco', 'larga']) {
@@ -2869,7 +2869,7 @@ async function soloTests(game) {
     let saved = null; Object.defineProperty(Profile, 'data', { get: () => (saved ? { save: saved, deltas: [] } : null), configurable: true }); Profile.store = async st => { saved = { ...st, savedAt: Date.now() }; return { local: true, remote: null }; };
     $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-multi').click();
     check([...document.querySelectorAll('#cr-tabs .fe-tab')].map(b => b.dataset.tab).join() === 'cuerpo,cabeza,ajuste,piel,cara,pelo', 'the six pages');
-    const pages = { cuerpo: ['name', 'sex', 'origin_af', 'origin_as', 'origin_ca', 'body_height', 'body_weight', 'body_muscle', 'body_age', 'body_chest', 'body_prop', 'outfit', 'cloth', 'accent'],
+    const pages = { cuerpo: ['name', 'sex', 'origin_af', 'origin_as', 'origin_ca', 'body_height', 'body_weight', 'body_muscle', 'body_age', 'body_chest', 'body_prop', 'outfit', 'cloth', 'outer', 'accent'],
       cabeza: ['light', 'mood', 'head'], ajuste: ['reset_face', ...FACE_SLIDERS.map(id => 'face_' + id)],
       piel: ['tone', 'freckles', 'moles', 'vitiligo', 'blush', 'blushC', 'kohl', 'kohlC', 'scar', 'scarK', 'tattoo', 'tattooK', 'tattooC'], cara: ['eyes', 'eye2', 'brows'], pelo: ['hairStyle', 'hair', 'beard', 'grey', 'hl', 'hlC'] };
     for (const [pg, ids] of Object.entries(pages)) {

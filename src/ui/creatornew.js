@@ -212,9 +212,15 @@ export function newRows({ add: add0, look, rebuild, preview }) {
       get: () => mh().hlC || HIGHLIGHT_COLOURS[0], set: v => { mh().hlC = v; rebuild(); }, other: '—' }));
     rowOf('hlC').classList.add('sw');
   }
+  // Over the clothes: nothing, a wool coat or a sheepskin jacket (look.outer; the game gives it with the rest)
+  function outerRow() {
+    const all = ['', 'wool_coat', 'sheepskin_jacket'];
+    add('cuerpo', 'outer', optionRow({ label: t('gui.creator.row.outer'), values: all.map(id => [id, id ? t(`item.${id}`) : t('gui.creator.outer.none')]),
+      get: () => look.outer || '', set: v => { if (v) look.outer = v; else delete look.outer; rebuild(); } }));
+  }
   const rowOf = id => document.querySelector(`#cr-rows [data-row="${id}"]`) || created.get(id);
   return {
-    origins: rows.origins, body: rows.body, head: headRows, fine: fineRows, skin: skinRows, eye2: eye2Row, hair: hairRows,
+    origins: rows.origins, body: rows.body, head: headRows, fine: fineRows, skin: skinRows, eye2: eye2Row, outer: outerRow, hair: hairRows,
     // After the list is made: the titles and the grid in their places
     place(rowEl) {
       for (const x of extras) {

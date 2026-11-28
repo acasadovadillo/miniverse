@@ -48,10 +48,12 @@ function grainTex() {
 }
 
 // A garment's material: colour and second colour, leather or cloth
-export function clothMaterial({ leather = false } = {}) {
+// inside: how dark its inside is (an apron's back, between the legs, is in their shade)
+// fleece: the second colour is sheepskin's wool (the zamarra's collar, cuffs, hem and front), fluffy in relief
+export function clothMaterial({ leather = false, fleece = false, inside = 0.8 } = {}) {
   const U = {
     c1: { value: new THREE.Color('#8a7a6a') }, c2: { value: new THREE.Color('#5a4a3a') }, tear: { value: 0 },
-    rep: { value: leather ? 60 : 210 }, bumpK: { value: leather ? 4.0 : 6.0 },
+    rep: { value: leather ? 60 : 210 }, bumpK: { value: leather ? 4.0 : 6.0 }, skin: { value: new THREE.Color('#c99d7b') }, fleece: { value: fleece ? 1 : 0 }, inside: { value: inside },
   };
   const m = new THREE.MeshStandardMaterial({ roughness: leather ? 0.55 : 0.93, side: THREE.DoubleSide, bumpMap: leather ? grainTex() : weaveTex(), bumpScale: 1 });
   m.onBeforeCompile = sh => {
@@ -59,7 +61,7 @@ export function clothMaterial({ leather = false } = {}) {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 att; varying vec4 vAtt; varying vec2 vCloth;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAtt = att; vCloth = uv;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-uniform vec3 c1, c2; uniform float tear, rep, bumpK; varying vec4 vAtt; varying vec2 vCloth;
+uniform vec3 c1, c2, skin; uniform float tear, rep, bumpK, fleece, inside; varying vec4 vAtt; varying vec2 vCloth;
 float hashC(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float noiseC(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(hashC(i), hashC(i + vec2(1, 0)), f.x), mix(hashC(i + vec2(0, 1)), hashC(i + vec2(1, 1)), f.x), f.y); }
@@ -72,23 +74,35 @@ float stitches() {
   return s;
 }`)
       .replace('#include <map_fragment>', `
-float part = step(0.5, vAtt.x * 255.0);
+float part = step(0.5, vAtt.x);   // (a fraction: the border of a part falls between vertices)
+// (the creases of the cloth: long soft wrinkles that follow how it hangs, and the light catches; finer on the inside of a
+// bend. In the colour too: a little darker in their hollows)
+float wr = noiseC(vec2(vCloth.x * 16.0, vCloth.y * 3.2)) * 0.65 + noiseC(vec2(vCloth.x * 38.0 + 3.0, vCloth.y * 9.0)) * 0.35;
 vec3 col = mix(c1, c2, part);
 // (a seam: the cloth folds into it, a little darker; and the stitches over it, of a lighter thread)
 float seamD = vAtt.y * 255.0;
 col *= mix(0.72, 1.0, smoothstep(0.0, 2.0, seamD));
 col = mix(col, col * 1.35 + 0.04, stitches() * 0.8);
-// (the folds' shadows, and slow variation of the dye)
-col *= vAtt.w * (0.92 + 0.16 * noiseC(vCloth * 9.0));
+// (the folds' shadows, the creases, and slow variation of the dye, a little warmer and cooler)
+col *= vAtt.w * (0.9 + 0.2 * noiseC(vCloth * 9.0)) * (0.9 + 0.16 * wr);
+col *= vec3(1.0 + 0.04 * (noiseC(vCloth * 4.0 + 7.0) - 0.5), 1.0, 1.0 - 0.04 * (noiseC(vCloth * 4.0 + 7.0) - 0.5));
+// (sheepskin's wool, where it shows: lighter, in tufts)
+if (fleece > 0.5 && part > 0.5) col *= 0.85 + 0.3 * noiseC(vCloth * 160.0);
 // (a worn piece: faded, uneven patches; torn: more of them, darker grime)
 if (tear > 0.0) {
   float w = noiseC(vCloth * 5.0) * 0.6 + noiseC(vCloth * 13.0) * 0.4;
   col = mix(col, mix(col, vec3(dot(col, vec3(0.3, 0.59, 0.11))) * 1.25, 0.6), smoothstep(0.62 - 0.12 * tear, 0.75, w));
   if (tear > 1.5) col *= mix(1.0, 0.7, smoothstep(0.5, 0.8, noiseC(vCloth * 7.0 + 3.1)));
 }
+// (a torn piece: holes at the worn places, the skin under them, their frayed rim darker)
+if (tear > 1.5) {
+  float hole = noiseC(vCloth * 11.0 + 5.3) * 0.7 + noiseC(vCloth * 31.0) * 0.3;
+  if (hole > 0.79) col = skin * (0.55 + 0.25 * noiseC(vCloth * 60.0));
+  else col *= mix(1.0, 0.55, smoothstep(0.72, 0.79, hole));
+}
 diffuseColor.rgb *= col;
-// (the inside, darker)
-if (!gl_FrontFacing) diffuseColor.rgb *= 0.55;`)
+// (the inside, a little darker: only a deep fold shows it)
+if (!gl_FrontFacing) diffuseColor.rgb *= mix(1.0, inside, inside < 0.6 ? 1.0 : smoothstep(10.0, 40.0, vAtt.z * 255.0));   // (by a hem, as light as the outside; an apron's all in shade)`)
       // (a worn hem frays; a torn one is ragged, up to 2 cm in)
       .replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
 if (tear > 0.0) {
@@ -99,7 +113,9 @@ if (tear > 0.0) {
       .replace('#include <bumpmap_pars_fragment>', `#ifdef USE_BUMPMAP
 uniform sampler2D bumpMap; uniform float bumpScale;
 vec2 dHdxy_fwd() {
-  float h = bumpScale * bumpK * 0.02 * texture2D(bumpMap, vCloth * rep).x;
+  float wr2 = noiseC(vec2(vCloth.x * 16.0, vCloth.y * 3.2)) * 0.65 + noiseC(vec2(vCloth.x * 38.0 + 3.0, vCloth.y * 9.0)) * 0.35;
+  float fl = (fleece > 0.5 && vAtt.x > 0.5) ? noiseC(vCloth * 160.0) * 3.0 : 0.0;
+  float h = bumpScale * (bumpK * 0.02 * texture2D(bumpMap, vCloth * rep).x + 0.5 * wr2 + 0.05 * fl);
   return vec2(dFdx(h), dFdy(h));
 }
 vec3 perturbNormalArb(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirection) {
@@ -111,7 +127,7 @@ vec3 perturbNormalArb(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirec
 }
 #endif`);
   };
-  m.customProgramCacheKey = () => 'mh-cloth' + leather;
+  m.customProgramCacheKey = () => 'mh-cloth3' + leather;
   m.userData.U = U;
   return m;
 }

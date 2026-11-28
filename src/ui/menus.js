@@ -556,6 +556,7 @@ export function initMenus(game) {
     if (!extra) colours('cuerpo', 'skin');   // (the new creator's tones are on its Skin page)
     named('cuerpo', 'outfit');
     colours('cuerpo', 'cloth');
+    extra?.outer();
     add('cuerpo', 'accent', optionRow({ label: t('gui.creator.colour'), colours: ACCENTS, values: ACCENTS.map((_, i) => [i, t(`gui.settings.row.accent.${ACCENT_IDS[i]}`)]),
       get: () => accentOf(nameIn.value || Profile.name, colour), set: n => { colour = n; paintColour(); } }), { hide: () => !!mirror, desc: 'gui.settings.desc.accent' });
     rowOf('accent').el.classList.add('sw');

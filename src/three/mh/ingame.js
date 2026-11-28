@@ -180,8 +180,8 @@ function grid(C) {
 
 // (as person.js: wide skirts and a heavy or strong body hold the arms out)
 function spreadOf(look, mh, fitted) {
-  const mc = mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1 : fitted.some(f => f.name === 'tunica') ? 0.4 : 0;
-  return Math.max(0, Math.min(1, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140));
+  const mc = mh?.macro || {}, skirt = fitted.some(f => f.name === 'tunica_larga' || f.name === 'abrigo') ? 1.5 : fitted.some(f => f.name === 'tunica') ? 0.5 : 0;
+  return Math.max(0, Math.min(1.6, skirt + Math.max(0, (mc.weight || 0) + 0.6 * (mc.muscle || 0)) / 140));
 }
 // What a look builds once: the MakeHuman person in the rest pose, its parts' geometries with their skin weights (bone
 // numbers of the ring skeleton, the same order for everybody: real/persona.js defs), the low body, the joints
@@ -333,7 +333,7 @@ class MhShape {
       if (softPass(p.name)) continue;
       if (kind === 'hair' && !hairC) hairC = tint(mat, 0.8);
       if (kind !== 'cloth' && kind !== 'brows' && kind !== 'hair' && kind !== 'beard') continue;
-      const into = kind === 'cloth' ? (layers[layers.length] = Object.assign(grid(0.08), { apron: /delantal/.test(p.name), upper: /:(camisa|chaleco)$/.test(p.name) })) : kind === 'hair' ? hair : kind === 'beard' ? beard : face, seen = new Uint8Array(pos.count), att = p.g.attributes.att;
+      const into = kind === 'cloth' ? (layers[layers.length] = Object.assign(grid(0.12), { apron: /delantal/.test(p.name), upper: /:(camisa|chaleco|zamarra)$/.test(p.name) })) : kind === 'hair' ? hair : kind === 'beard' ? beard : face, seen = new Uint8Array(pos.count), att = p.g.attributes.att;
       // (P3's garment: its two colours by the part of each vertex; MakeHuman's provisional one: by its groups)
       const two = att && U(mat).c1 ? [U(mat).c1.value.clone().multiplyScalar(0.75), U(mat).c2.value.clone().multiplyScalar(0.75)] : null;
       const wide = kind === 'cloth' && /:(tunica|tunica_larga|abrigo)$/.test(p.name);
@@ -372,7 +372,7 @@ class MhShape {
       if (!f && !hand) for (let L = layers.length - 1; L >= 0 && !g; L--) {
         // (not under a garment's hem, nor a shirt between the legs)
         if ((arm && layers[L].apron) || y < layers[L].minY - 0.01 || (layers[L].upper && y < this.J.body.y - 0.02 && !arm)) continue;
-        const q = layers[L].near(x, y, z, layers[L].apron ? 0.04 : b && shown[b.d] ? 0.06 : 0.08);
+        const q = layers[L].near(x, y, z, layers[L].apron ? 0.04 : arm ? 0.12 : b && shown[b.d] ? 0.06 : 0.08);   // (wide sleeves stand well off the arm)
         if (q && along(q) > -0.025) g = q;
       }   // (the low body may stand a little out of a garment)
       let h = f || front(x, y, z) ? null : hair.near(x, y, z, 0.05);
